@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart, Activity, Pill, Calendar, FileText, User, Stethoscope,
   Shield, Search, AlertTriangle, Plus, Check, Clock, Download, X,
@@ -12,35 +12,149 @@ import {
   Mail, UserPlus, PhoneCall, Paperclip, MoreVertical, ArrowRight,
   HelpCircle, BookOpen, Pencil, HardDrive, Wifi
 } from 'lucide-react';
+import { patientApi } from '../api/patientApi.js';
 
 /* ============== PATIENT PAGES ============== */
 export default function PatientPages({ page, setShowQR, pills, setPills, setShowVid, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
+  const [apiData, setApiData] = useState({});
+  const [apiError, setApiError] = useState('');
+
+  useEffect(() => {
+    const loaders = {
+      dashboard: patientApi.dashboard,
+      profile: patientApi.profile,
+      pilulier: patientApi.todayMedications,
+      treatments: patientApi.treatments,
+      rdv: patientApi.appointments,
+      vaccinations: patientApi.vaccinations,
+      history: patientApi.history,
+      messages: patientApi.conversations,
+      documents: patientApi.documents,
+      notes: patientApi.notes,
+      settings: patientApi.settings,
+    };
+    const load = loaders[page];
+    if (!load || apiData[page]) return;
+
+    let alive = true;
+    load()
+      .then((data) => {
+        if (!alive) return;
+        setApiData((current) => ({ ...current, [page]: data }));
+        setApiError('');
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setApiError(error.message);
+      });
+
+    return () => { alive = false; };
+  }, [page, apiData]);
+
   const map = {
-    dashboard: <PDash setShowQR={setShowQR} {...p} />,
-    profile: <PProfile {...p} />,
-    pilulier: <PPilulier pills={pills} setPills={setPills} {...p} />,
-    treatments: <PTreatments {...p} />,
-    rdv: <PRDV setShowVid={setShowVid} {...p} />,
-    vaccinations: <PVax {...p} />,
+    dashboard: <PDash data={apiData.dashboard} setShowQR={setShowQR} {...p} />,
+    profile: <PProfile data={apiData.profile} {...p} />,
+    pilulier: <PPilulier data={apiData.pilulier} pills={pills} setPills={setPills} {...p} />,
+    treatments: <PTreatments data={apiData.treatments} {...p} />,
+    rdv: <PRDV data={apiData.rdv} setShowVid={setShowVid} {...p} />,
+    vaccinations: <PVax data={apiData.vaccinations} {...p} />,
     dna: <PDNA {...p} />,
-    history: <PHistory {...p} />,
-    messages: <PMsg setShowVid={setShowVid} {...p} />,
-    documents: <PDocs {...p} />,
-    notes: <PNotes {...p} />,
+    history: <PHistory data={apiData.history} {...p} />,
+    messages: <PMsg data={apiData.messages} setShowVid={setShowVid} {...p} />,
+    documents: <PDocs data={apiData.documents} {...p} />,
+    notes: <PNotes data={apiData.notes} {...p} />,
     wellness: <PWell {...p} />,
-    settings: <SettingsPage {...p} />
+    settings: <SettingsPage data={apiData.settings} {...p} />
   };
-  return map[page] || map.dashboard;
+  return (
+    <>
+      {apiError && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+          API indisponible, affichage des données locales.
+        </div>
+      )}
+      {map[page] || map.dashboard}
+    </>
+  );
 }
 
-function PDash({ setShowQR, card, sub, darkMode }) {
+function formatDate(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function formatShortDayMonth(value) {
+  if (!value) return '';
+  const parts = new Date(value).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+  }).replace('.', '').split(' ');
+  return `${parts[0]} ${capitalize(parts[1] || '')}`;
+}
+
+function formatRelativeDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  const diffDays = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (diffDays <= 0) return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  if (diffDays === 1) return 'Hier';
+  return `${diffDays} jours`;
+}
+
+function formatBytes(value = 0) {
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.round(value / 1024)} KB`;
+}
+
+function initials(value = '') {
+  return value
+    .replace(/^Dr\.\s*/i, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'DR';
+}
+
+function mapDocumentCategory(category) {
+  const map = {
+    prescription: 'ordonnance',
+    lab: 'analyse',
+    vaccine: 'certificat',
+  };
+  return map[category] || category || 'consultation';
+}
+
+function capitalize(value) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+function PDash({ data, setShowQR, card, sub, darkMode }) {
   const consts = [
     { l: 'Tension', v: '12/8', u: 'mmHg', I: Heart, c: 'red', d: [120,125,122,118,121,119,120] },
     { l: 'Glycémie', v: '0.95', u: 'g/L', I: Droplet, c: 'blue', d: [1.1,1.05,1.0,0.98,0.97,0.96,0.95] },
     { l: 'Fréquence', v: '72', u: 'bpm', I: Activity, c: 'pink', d: [70,72,71,73,72,71,72] },
     { l: 'Température', v: '36.8', u: '°C', I: Thermometer, c: 'orange', d: [36.7,36.8,36.9,36.8,36.7,36.8,36.8] }
   ];
+  const iconByType = { blood_pressure: Heart, blood_glucose: Droplet, heart_rate: Activity, temperature: Thermometer };
+  const colorByType = { blood_pressure: 'red', blood_glucose: 'blue', heart_rate: 'pink', temperature: 'orange' };
+  const displayConsts = data?.latestVitals?.length ? data.latestVitals.map((vital, index) => ({
+    l: vital.label,
+    v: String(vital.value),
+    u: vital.unit,
+    I: iconByType[vital.type] || consts[index]?.I || Activity,
+    c: colorByType[vital.type] || consts[index]?.c || 'blue',
+    d: consts[index]?.d || [Number(vital.value) || 1, Number(vital.value) || 1],
+  })) : consts;
+  const profile = data?.profile;
+  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : 'Kouamé Bamba';
+  const patientLocation = profile ? `CMU: ${profile.cmuNumber} • ${profile.city}` : 'CMU: CI-2024-0847-3692 • Cocody, Abidjan';
+  const healthScore = data?.healthScore || 82;
   const cm = { red: '#dc2626', blue: '#2563eb', pink: '#db2777', orange: '#ea580c' };
 
   return (
@@ -50,8 +164,8 @@ function PDash({ setShowQR, card, sub, darkMode }) {
         <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <p className="text-red-100 text-sm">Bonjour 👋</p>
-            <h2 className="text-2xl md:text-3xl font-bold">Kouamé Bamba</h2>
-            <p className="text-red-100 text-sm mt-1">CMU: CI-2024-0847-3692 • Cocody, Abidjan</p>
+            <h2 className="text-2xl md:text-3xl font-bold">{patientName}</h2>
+            <p className="text-red-100 text-sm mt-1">{patientLocation}</p>
           </div>
           <button onClick={() => setShowQR(true)} className="bg-white text-red-700 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 hover:scale-105 transition-transform shadow-xl">
             <Siren className="w-5 h-5" /> Pass Santé d'Urgence
@@ -73,7 +187,7 @@ function PDash({ setShowQR, card, sub, darkMode }) {
                 <defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#dc2626" /><stop offset="100%" stopColor="#f97316" /></linearGradient></defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-4xl font-bold">82</span>
+                <span className="text-4xl font-bold">{healthScore}</span>
                 <span className={`text-xs ${sub}`}>/ 100</span>
                 <span className="text-xs text-emerald-600 font-semibold mt-1">Excellent</span>
               </div>
@@ -82,7 +196,7 @@ function PDash({ setShowQR, card, sub, darkMode }) {
         </div>
 
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {consts.map((c, i) => {
+          {displayConsts.map((c, i) => {
             const mx = Math.max(...c.d), mn = Math.min(...c.d), r = mx - mn || 1;
             const pts = c.d.map((v, idx) => `${(idx/(c.d.length-1))*100},${100 - ((v-mn)/r)*80 - 10}`).join(' ');
             return (
@@ -119,7 +233,7 @@ function PDash({ setShowQR, card, sub, darkMode }) {
   );
 }
 
-function PProfile({ card, sub, border, darkMode }) {
+function PProfile({ data, card, sub, border, darkMode }) {
   const [edit, setEdit] = useState(false);
   const [d, setD] = useState({
     firstName: 'Kouamé', lastName: 'Bamba', birthDate: '1974-03-15', sex: 'M',
@@ -128,6 +242,28 @@ function PProfile({ card, sub, border, darkMode }) {
     bloodType: 'O+', weight: '78', height: '175',
     eName: 'Aya Bamba', eRel: 'Épouse', ePhone: '0700112233', profession: 'Ingénieur'
   });
+
+  useEffect(() => {
+    if (!data) return;
+    setD((current) => ({
+      ...current,
+      firstName: data.firstName || current.firstName,
+      lastName: data.lastName || current.lastName,
+      birthDate: data.birthDate || current.birthDate,
+      sex: data.sex || current.sex,
+      cmu: data.cmuNumber || current.cmu,
+      phone: data.phone || current.phone,
+      email: data.email || current.email,
+      address: data.address || current.address,
+      city: data.city || current.city,
+      bloodType: data.bloodType || current.bloodType,
+      weight: data.weightKg ? String(data.weightKg) : current.weight,
+      height: data.heightCm ? String(data.heightCm) : current.height,
+      eName: data.emergencyContact?.name || current.eName,
+      eRel: data.emergencyContact?.relationship || current.eRel,
+      ePhone: data.emergencyContact?.phone || current.ePhone,
+    }));
+  }, [data]);
 
   const F = ({ l, n, t = 'text', I, full = false }) => (
     <div className={full ? 'md:col-span-2' : ''}>
@@ -196,14 +332,23 @@ function PProfile({ card, sub, border, darkMode }) {
   );
 }
 
-function PPilulier({ pills, setPills, card, sub, darkMode }) {
-  const meds = [
+function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
+  const fallbackMeds = [
     { id: 1, n: 'Amlodipine', d: '5mg', t: '08:00', p: 'Matin', c: 'bg-blue-500' },
     { id: 2, n: 'Metformine', d: '500mg', t: '08:00', p: 'Matin', c: 'bg-emerald-500' },
     { id: 3, n: 'Aspirine', d: '100mg', t: '12:30', p: 'Midi', c: 'bg-red-500', i: true },
     { id: 4, n: 'Metformine', d: '500mg', t: '20:00', p: 'Soir', c: 'bg-emerald-500' },
     { id: 5, n: 'Vitamine D', d: '1000UI', t: '20:00', p: 'Soir', c: 'bg-amber-500' }
   ];
+  const meds = data?.length ? data.map((item) => ({
+    id: item.id,
+    n: item.name,
+    d: item.dosage,
+    t: item.time,
+    p: item.period,
+    c: `bg-${item.color || 'blue'}-500`,
+    i: item.interaction,
+  })) : fallbackMeds;
   const cnt = Object.values(pills).filter(Boolean).length;
   const obs = Math.round((cnt / meds.length) * 100);
 
@@ -270,8 +415,8 @@ function PPilulier({ pills, setPills, card, sub, darkMode }) {
   );
 }
 
-function PTreatments({ card, sub, darkMode }) {
-  const ts = [
+function PTreatments({ data, card, sub, darkMode }) {
+  const fallbackTreatments = [
     { n: 'Hypertension artérielle', s: 'Stade 1', pr: 75, du: 'Depuis Janvier 2024', dr: 'Dr. Aïcha Touré',
       m: ['Amlodipine 5mg', 'Aspirine 100mg'], nc: '02 Mai 2026',
       o: [{l:'Tension < 14/9',d:true},{l:'Réduction sel',d:true},{l:'Activité physique',d:false},{l:'Perte 5kg',d:false}], c: 'red' },
@@ -279,6 +424,18 @@ function PTreatments({ card, sub, darkMode }) {
       m: ['Metformine 500mg x2'], nc: '15 Mai 2026',
       o: [{l:'HbA1c < 7%',d:true},{l:'Glycémie < 1.2 g/L',d:true},{l:'Suivi ophtalmo',d:true},{l:'Régime',d:true}], c: 'blue' }
   ];
+  const colors = ['red', 'blue', 'emerald', 'amber'];
+  const ts = data?.length ? data.map((t, index) => ({
+    n: t.diagnosis,
+    s: t.stage || t.status,
+    pr: t.progress || 0,
+    du: t.startedAt ? `Depuis ${formatDate(t.startedAt)}` : 'En cours',
+    dr: t.doctorName || 'Médecin référent',
+    m: t.medications?.map((m) => `${m.name} ${m.dosage || ''}`.trim()) || [],
+    nc: t.nextCheckupAt ? formatDate(t.nextCheckupAt) : 'À planifier',
+    o: fallbackTreatments[index]?.o || [],
+    c: colors[index % colors.length],
+  })) : fallbackTreatments;
 
   return (
     <div className="space-y-4">
@@ -339,12 +496,25 @@ function PTreatments({ card, sub, darkMode }) {
   );
 }
 
-function PRDV({ card, sub, darkMode, setShowVid }) {
-  const rs = [
+function PRDV({ data, card, sub, darkMode, setShowVid }) {
+  const fallbackRdv = [
     { d: '02 Mai', t: '14:30', dr: 'Dr. Aïcha Touré', sp: 'Cardiologie', l: 'CHU Treichville', dl: 4, v: false },
     { d: '15 Mai', t: '09:00', dr: 'Dr. Yao Konan', sp: 'Médecine générale', l: 'Téléconsultation', dl: 17, v: true },
     { d: '28 Mai', t: '11:00', dr: 'Dr. Mariam Bamba', sp: 'Endocrinologie', l: 'PISAM Cocody', dl: 30, v: false }
   ];
+  const rs = data?.length ? data.map((r) => {
+    const date = new Date(r.startsAt);
+    const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86400000));
+    return {
+      d: formatShortDayMonth(r.startsAt),
+      t: date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      dr: r.doctorName,
+      sp: r.specialty,
+      l: r.location,
+      dl: daysLeft,
+      v: r.mode === 'video',
+    };
+  }) : fallbackRdv;
 
   return (
     <div className="space-y-4">
@@ -402,8 +572,8 @@ function PRDV({ card, sub, darkMode, setShowVid }) {
   );
 }
 
-function PVax({ card, sub, border, darkMode }) {
-  const vs = [
+function PVax({ data, card, sub, border, darkMode }) {
+  const fallbackVaccinations = [
     { n: 'Tétanos', d: '02/04/2026', s: 'À jour', c: 'emerald', x: '02/04/2036' },
     { n: 'Hépatite B', d: '15/01/2024', s: 'À jour', c: 'emerald', x: 'Aucun rappel' },
     { n: 'Fièvre jaune', d: '20/06/2020', s: 'À jour', c: 'emerald', x: 'À vie' },
@@ -411,6 +581,13 @@ function PVax({ card, sub, border, darkMode }) {
     { n: 'Grippe', d: '15/10/2025', s: 'À jour', c: 'emerald', x: '15/10/2026' },
     { n: 'COVID-19', d: '20/09/2025', s: 'À jour', c: 'emerald', x: 'Sur recommandation' }
   ];
+  const vs = data?.length ? data.map((v) => ({
+    n: v.name,
+    d: v.injectedAt ? formatDate(v.injectedAt) : 'Non renseigné',
+    s: v.status === 'due_soon' ? 'Rappel 2026' : 'À jour',
+    c: v.status === 'due_soon' ? 'amber' : 'emerald',
+    x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
+  })) : fallbackVaccinations;
   return (
     <div className="space-y-4">
       <div><h2 className="text-2xl font-bold">Carnet Vaccinal</h2><p className={`text-sm ${sub}`}>Historique et rappels</p></div>
@@ -473,13 +650,19 @@ function PDNA({ card, sub, darkMode }) {
   );
 }
 
-function PHistory({ card, sub, darkMode }) {
-  const cs = [
+function PHistory({ data, card, sub, darkMode }) {
+  const fallbackHistory = [
     { d: '15 Avril 2026', dr: 'Dr. Yao Konan', sp: 'Médecine générale', di: 'Hypertension stade 1' },
     { d: '02 Avril 2026', dr: 'Dr. Aïcha Touré', sp: 'Cardiologie', di: 'Suivi tensionnel' },
     { d: '15 Mars 2026', dr: 'Dr. Mariam Bamba', sp: 'Endocrinologie', di: 'Diabète T2 contrôlé' },
     { d: '20 Février 2026', dr: 'Dr. Yao Konan', sp: 'Médecine générale', di: 'Paludisme simple' }
   ];
+  const cs = data?.length ? data.map((item) => ({
+    d: formatDate(item.occurredAt),
+    dr: item.doctorName,
+    sp: item.type,
+    di: item.title,
+  })) : fallbackHistory;
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Historique médical</h2>
@@ -529,7 +712,7 @@ function PWell({ card, sub, darkMode }) {
   );
 }
 
-export function PMsg({ card, sub, border, darkMode, setShowVid }) {
+export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
   const [sel, setSel] = useState(0);
   const [msg, setMsg] = useState('');
   const cv = [
@@ -537,6 +720,16 @@ export function PMsg({ card, sub, border, darkMode, setShowVid }) {
     { id: 1, n: 'Dr. Yao Konan', sp: 'Médecine générale', l: 'RDV confirmé pour le 15', t: 'Hier', u: 0, on: false, a: 'YK' },
     { id: 2, n: 'Dr. Mariam Bamba', sp: 'Endocrinologie', l: 'Pensez à votre HbA1c', t: 'Lundi', u: 1, on: true, a: 'MB' }
   ];
+  const conversations = data?.length ? data.map((conversation) => ({
+    id: conversation.id,
+    n: conversation.doctorName,
+    sp: 'Médecin référent',
+    l: conversation.lastMessage,
+    t: formatRelativeDate(conversation.updatedAt),
+    u: conversation.unreadCount,
+    on: conversation.unreadCount > 0,
+    a: initials(conversation.doctorName),
+  })) : cv;
   const ms = [
     { f: 'd', t: 'Bonjour Kouamé.', tm: '14:25' },
     { f: 'd', t: 'Vos résultats sont arrivés. Tout est positif.', tm: '14:25' },
@@ -556,7 +749,7 @@ export function PMsg({ card, sub, border, darkMode, setShowVid }) {
               <input type="text" placeholder="Rechercher..." className={`w-full pl-9 pr-3 py-2 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`} />
             </div>
           </div>
-          {cv.map(c => (
+          {conversations.map(c => (
             <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${sel === c.id ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
               <div className="relative">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{c.a}</div>
@@ -617,7 +810,7 @@ export function PMsg({ card, sub, border, darkMode, setShowVid }) {
   );
 }
 
-export function PDocs({ card, sub, border, darkMode }) {
+export function PDocs({ data, card, sub, border, darkMode }) {
   const [f, setF] = useState('all');
   const ds = [
     { n: 'Ordonnance Avril 2026', t: 'PDF', cat: 'ordonnance', d: '15/04/2026', s: '124 KB', I: FileText, c: 'red', dr: 'Dr. Yao Konan' },
@@ -629,7 +822,17 @@ export function PDocs({ card, sub, border, darkMode }) {
     { n: 'Ordonnance Mars 2026', t: 'PDF', cat: 'ordonnance', d: '15/03/2026', s: '118 KB', I: FileText, c: 'red', dr: 'Dr. Mariam Bamba' },
     { n: 'Bilan endocrinien', t: 'PDF', cat: 'analyse', d: '15/03/2026', s: '256 KB', I: Microscope, c: 'purple', dr: 'Lab. Pasteur' }
   ];
-  const filt = f === 'all' ? ds : ds.filter(d => d.cat === f);
+  const apiDocs = data?.length ? data.map((doc) => ({
+    n: doc.title,
+    t: doc.mimeType?.includes('pdf') ? 'PDF' : 'DOC',
+    cat: mapDocumentCategory(doc.category),
+    d: formatDate(doc.createdAt),
+    s: formatBytes(doc.sizeBytes),
+    I: doc.category === 'lab' ? Microscope : FileText,
+    c: doc.category === 'lab' ? 'purple' : 'red',
+    dr: 'NOVA',
+  })) : ds;
+  const filt = f === 'all' ? apiDocs : apiDocs.filter(d => d.cat === f);
   const cats = [
     { id: 'all', l: 'Tous' }, { id: 'ordonnance', l: 'Ordonnances' },
     { id: 'analyse', l: 'Analyses' }, { id: 'imagerie', l: 'Imagerie' },
@@ -639,14 +842,14 @@ export function PDocs({ card, sub, border, darkMode }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{ds.length} documents • Stockage chiffré</p></div>
+        <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{apiDocs.length} documents • Stockage chiffré</p></div>
         <button className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
           <FileDown className="w-3 h-3" /> Tout télécharger
         </button>
       </div>
       <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900' : 'bg-slate-100'} overflow-x-auto`}>
         {cats.map(c => {
-          const cnt = c.id === 'all' ? ds.length : ds.filter(d => d.cat === c.id).length;
+          const cnt = c.id === 'all' ? apiDocs.length : apiDocs.filter(d => d.cat === c.id).length;
           return (
             <button key={c.id} onClick={() => setF(c.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap ${f === c.id ? 'bg-white text-slate-900 shadow-md' : sub}`}>
               {c.l}
@@ -678,7 +881,7 @@ export function PDocs({ card, sub, border, darkMode }) {
   );
 }
 
-function PNotes({ card, sub, border, darkMode }) {
+function PNotes({ data, card, sub, border, darkMode }) {
   const [ns, setNs] = useState([
     { id: 1, t: 'Symptômes à surveiller', c: 'Maux de tête au réveil depuis 3 jours, palpitations occasionnelles le soir.', col: 'amber', u: 'Il y a 2h', p: true },
     { id: 2, t: 'Questions pour le RDV', c: '1. Effets Amlodipine ?\n2. Posologie réductible ?\n3. Activité sportive ?', col: 'blue', u: 'Hier', p: true },
@@ -687,6 +890,19 @@ function PNotes({ card, sub, border, darkMode }) {
   ]);
   const [sel, setSel] = useState(ns[0]);
   const [edit, setEdit] = useState(false);
+  useEffect(() => {
+    if (!data?.length) return;
+    const apiNotes = data.map((note) => ({
+      id: note.id,
+      t: note.title,
+      c: note.content,
+      col: note.color,
+      u: formatRelativeDate(note.updatedAt),
+      p: note.pinned,
+    }));
+    setNs(apiNotes);
+    setSel(apiNotes[0]);
+  }, [data]);
   const cm = {
     amber: { bg: 'bg-amber-100', t: 'text-amber-900', b: 'border-amber-300', tab: 'bg-amber-400' },
     blue: { bg: 'bg-blue-100', t: 'text-blue-900', b: 'border-blue-300', tab: 'bg-blue-400' },
@@ -783,7 +999,7 @@ function PNotes({ card, sub, border, darkMode }) {
   );
 }
 
-export function SettingsPage({ card, sub, border, darkMode }) {
+export function SettingsPage({ data, card, sub, border, darkMode }) {
   const [as, setAs] = useState('notif');
   const [s, setS] = useState({
     notif: { pill: true, rdv: true, msg: true, eme: true, news: true, promo: false },
