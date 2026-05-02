@@ -91,7 +91,15 @@ PATCH /api/patient/me/settings
 
 ## Base De Données
 
-Le schéma PostgreSQL initial est dans:
+L'API locale utilise maintenant SQLite pour manipuler les données pendant le développement:
+
+```txt
+data/nova.sqlite
+```
+
+La base est créée et alimentée automatiquement au démarrage de `npm run dev:api`.
+
+Le schéma PostgreSQL cible reste disponible pour une future base production:
 
 ```txt
 db/patient-schema.sql

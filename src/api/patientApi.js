@@ -33,9 +33,23 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   appointments: () => request('/patient/me/appointments'),
+  createAppointment: (payload) => request('/patient/me/appointments', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  updateAppointment: (id, payload) => request(`/patient/me/appointments/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }),
+  deleteAppointment: (id) => request(`/patient/me/appointments/${id}`, { method: 'DELETE' }),
   vaccinations: () => request('/patient/me/vaccinations'),
   history: () => request('/patient/me/history'),
   documents: (params = {}) => request(`/patient/me/documents${toQuery(params)}`),
+  createDocument: (payload) => request('/patient/me/documents', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  deleteDocument: (id) => request(`/patient/me/documents/${id}`, { method: 'DELETE' }),
   conversations: () => request('/patient/me/conversations'),
   notes: () => request('/patient/me/notes'),
   createNote: (payload) => request('/patient/me/notes', {

@@ -1,194 +1,438 @@
-const patient = {
-  id: 'patient-demo',
-  cmuNumber: 'CI-2024-0847-3692',
-  firstName: 'Kouamé',
-  lastName: 'Bamba',
-  birthDate: '1974-03-15',
-  sex: 'M',
-  bloodType: 'O+',
-  phone: '0789452311',
-  email: 'k.bamba@example.ci',
-  address: 'Cocody, Rue des Jardins',
-  city: 'Abidjan',
-  weightKg: 78,
-  heightCm: 175,
-  emergencyContact: {
-    name: 'Aya Bamba',
-    relationship: 'Épouse',
-    phone: '0700112233',
-  },
-};
+import { randomUUID } from 'node:crypto';
+import { db } from '../db/database.js';
 
-const vitals = [
-  { id: 'vital-1', type: 'blood_pressure', label: 'Tension', value: '12/8', unit: 'mmHg', measuredAt: '2026-04-28T07:30:00.000Z' },
-  { id: 'vital-2', type: 'blood_glucose', label: 'Glycémie', value: 0.95, unit: 'g/L', measuredAt: '2026-04-28T07:35:00.000Z' },
-  { id: 'vital-3', type: 'heart_rate', label: 'Fréquence', value: 72, unit: 'bpm', measuredAt: '2026-04-28T07:40:00.000Z' },
-  { id: 'vital-4', type: 'temperature', label: 'Température', value: 36.8, unit: '°C', measuredAt: '2026-04-28T07:45:00.000Z' },
-];
+export function getDashboard(patientId) {
+  const profile = getProfile(patientId);
+  const latestVitals = getDashboardVitals(patientId);
+  const nextAppointment = db.prepare(`
+    select * from appointments
+    where patient_id = ? and starts_at >= ?
+    order by starts_at asc
+    limit 1
+  `).get(patientId, new Date().toISOString());
+  const todayMedications = getMedicationToday(patientId);
+  const unreadMessages = db.prepare('select coalesce(sum(unread_count), 0) as total from conversations where patient_id = ?').get(patientId).total;
+  const documentsCount = db.prepare('select count(*) as total from documents where patient_id = ?').get(patientId).total;
 
-const treatments = [
-  {
-    id: 'treatment-1',
-    diagnosis: 'Hypertension artérielle',
-    status: 'active',
-    stage: 'Stade 1',
-    progress: 75,
-    startedAt: '2024-01-08',
-    doctorName: 'Dr. Aïcha Touré',
-    nextCheckupAt: '2026-05-02T14:30:00.000Z',
-    medications: [
-      { id: 'med-1', name: 'Amlodipine', dosage: '5mg', frequency: '1x/j' },
-      { id: 'med-2', name: 'Aspirine', dosage: '100mg', frequency: '1x/j' },
-    ],
-  },
-  {
-    id: 'treatment-2',
-    diagnosis: 'Diabète Type 2',
-    status: 'controlled',
-    stage: 'Contrôlé',
-    progress: 90,
-    startedAt: '2023-03-14',
-    doctorName: 'Dr. Mariam Bamba',
-    nextCheckupAt: '2026-05-15T09:00:00.000Z',
-    medications: [
-      { id: 'med-3', name: 'Metformine', dosage: '500mg', frequency: '2x/j' },
-    ],
-  },
-];
-
-const medicationSchedules = [
-  { id: 'schedule-1', medicationId: 'med-1', name: 'Amlodipine', dosage: '5mg', time: '08:00', period: 'Matin', color: 'blue', interaction: false },
-  { id: 'schedule-2', medicationId: 'med-3', name: 'Metformine', dosage: '500mg', time: '08:00', period: 'Matin', color: 'emerald', interaction: false },
-  { id: 'schedule-3', medicationId: 'med-2', name: 'Aspirine', dosage: '100mg', time: '12:30', period: 'Midi', color: 'red', interaction: true },
-  { id: 'schedule-4', medicationId: 'med-3', name: 'Metformine', dosage: '500mg', time: '20:00', period: 'Soir', color: 'emerald', interaction: false },
-];
-
-const appointments = [
-  { id: 'apt-1', startsAt: '2026-05-02T14:30:00.000Z', doctorName: 'Dr. Aïcha Touré', specialty: 'Cardiologie', location: 'CHU Treichville', mode: 'onsite', status: 'confirmed' },
-  { id: 'apt-2', startsAt: '2026-05-15T09:00:00.000Z', doctorName: 'Dr. Yao Konan', specialty: 'Médecine générale', location: 'Téléconsultation', mode: 'video', status: 'confirmed' },
-  { id: 'apt-3', startsAt: '2026-05-28T11:00:00.000Z', doctorName: 'Dr. Mariam Bamba', specialty: 'Endocrinologie', location: 'PISAM Cocody', mode: 'onsite', status: 'confirmed' },
-];
-
-const vaccinations = [
-  { id: 'vax-1', name: 'Tétanos', injectedAt: '2026-04-02', status: 'up_to_date', nextDueAt: '2036-04-02' },
-  { id: 'vax-2', name: 'Hépatite B', injectedAt: '2024-01-15', status: 'up_to_date', nextDueAt: null },
-  { id: 'vax-3', name: 'Fièvre jaune', injectedAt: '2020-06-20', status: 'up_to_date', nextDueAt: null },
-  { id: 'vax-4', name: 'Méningite', injectedAt: '2023-02-10', status: 'due_soon', nextDueAt: '2026-02-10' },
-];
-
-const documents = [
-  { id: 'doc-1', title: 'Ordonnance cardiologie', category: 'prescription', mimeType: 'application/pdf', sizeBytes: 245760, createdAt: '2026-04-20T10:00:00.000Z' },
-  { id: 'doc-2', title: 'Analyse glycémie', category: 'lab', mimeType: 'application/pdf', sizeBytes: 180224, createdAt: '2026-04-18T08:00:00.000Z' },
-  { id: 'doc-3', title: 'Carnet vaccination', category: 'vaccine', mimeType: 'application/pdf', sizeBytes: 98221, createdAt: '2026-04-02T12:00:00.000Z' },
-];
-
-let notes = [
-  { id: 'note-1', title: 'Questions cardiologue', content: 'Parler des palpitations matinales.', color: 'amber', pinned: true, updatedAt: '2026-04-28T08:00:00.000Z' },
-  { id: 'note-2', title: 'Alimentation', content: 'Réduire le sel cette semaine.', color: 'emerald', pinned: false, updatedAt: '2026-04-27T16:00:00.000Z' },
-];
-
-let settings = {
-  notifications: { appointments: true, medications: true, messages: true },
-  privacy: { emergencyQr: true, shareWithDoctors: true },
-  display: { language: 'fr', density: 'comfortable' },
-};
-
-export function getDashboard() {
   return {
-    profile: patient,
-    healthScore: 82,
-    latestVitals: vitals,
-    nextAppointment: appointments[0],
-    todayMedications: medicationSchedules,
-    unreadMessages: 3,
-    documentsCount: documents.length,
+    profile,
+    healthScore: calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }),
+    latestVitals,
+    nextAppointment: nextAppointment ? mapAppointment(nextAppointment) : null,
+    todayMedications,
+    unreadMessages,
+    documentsCount,
   };
 }
 
-export function getProfile() {
-  return patient;
+export function getProfile(patientId) {
+  const row = db.prepare('select * from patients where id = ?').get(patientId);
+  if (!row) return null;
+  return mapPatient(row);
 }
 
-export function updateProfile(_patientId, changes) {
-  Object.assign(patient, changes);
-  return patient;
+export function updateProfile(patientId, changes) {
+  const current = getProfile(patientId);
+  if (!current) return null;
+
+  const next = {
+    first_name: changes.firstName ?? current.firstName,
+    last_name: changes.lastName ?? current.lastName,
+    phone: changes.phone ?? current.phone,
+    email: changes.email ?? current.email,
+    address: changes.address ?? current.address,
+    city: changes.city ?? current.city,
+    weight_kg: changes.weightKg ?? current.weightKg,
+    height_cm: changes.heightCm ?? current.heightCm,
+    updated_at: new Date().toISOString(),
+  };
+
+  db.prepare(`
+    update patients
+    set first_name = ?, last_name = ?, phone = ?, email = ?, address = ?, city = ?,
+        weight_kg = ?, height_cm = ?, updated_at = ?
+    where id = ?
+  `).run(next.first_name, next.last_name, next.phone, next.email, next.address, next.city, next.weight_kg, next.height_cm, next.updated_at, patientId);
+
+  return getProfile(patientId);
 }
 
-export function getVitals(_patientId, query) {
-  const type = query.type;
-  return type ? vitals.filter((vital) => vital.type === type) : vitals;
+export function getVitals(patientId, query) {
+  const rows = query.type
+    ? db.prepare('select * from vitals where patient_id = ? and type = ? order by measured_at desc').all(patientId, query.type)
+    : db.prepare('select * from vitals where patient_id = ? order by measured_at desc').all(patientId);
+  return rows.map(mapVital);
 }
 
-export function getTreatments() {
-  return treatments;
+export function getTreatments(patientId) {
+  const treatments = db.prepare('select * from treatments where patient_id = ? order by started_at desc').all(patientId);
+  return treatments.map((treatment) => ({
+    id: treatment.id,
+    diagnosis: treatment.diagnosis,
+    status: treatment.status,
+    stage: treatment.stage,
+    progress: treatment.progress,
+    startedAt: treatment.started_at,
+    doctorName: treatment.doctor_name,
+    nextCheckupAt: treatment.next_checkup_at,
+    medications: db.prepare('select * from medications where treatment_id = ?').all(treatment.id).map(mapMedication),
+  }));
 }
 
-export function getMedicationToday() {
-  return medicationSchedules;
+export function getMedicationToday(patientId) {
+  const rows = db.prepare('select * from medication_schedules where patient_id = ? order by take_time asc').all(patientId);
+  const today = new Date().toISOString().slice(0, 10);
+  const intakes = db.prepare(`
+    select schedule_id, status, taken_at from medication_intakes
+    where patient_id = ? and substr(taken_at, 1, 10) = ?
+  `).all(patientId, today);
+  const intakeBySchedule = new Map(intakes.map((intake) => [intake.schedule_id, intake]));
+
+  return rows.map((row) => ({
+    id: row.id,
+    medicationId: row.medication_id,
+    name: row.name,
+    dosage: row.dosage,
+    time: row.take_time,
+    period: row.period,
+    color: row.color,
+    interaction: Boolean(row.has_interaction),
+    intake: intakeBySchedule.get(row.id) || null,
+  }));
 }
 
 export function createMedicationIntake(patientId, scheduleId, payload) {
-  return {
-    id: `intake-${Date.now()}`,
+  const now = new Date().toISOString();
+  const takenAt = payload.takenAt || now;
+  const existing = db.prepare(`
+    select id from medication_intakes
+    where patient_id = ? and schedule_id = ? and substr(taken_at, 1, 10) = substr(?, 1, 10)
+  `).get(patientId, scheduleId, takenAt);
+
+  if (existing) {
+    db.prepare('update medication_intakes set status = ?, taken_at = ? where id = ?').run(payload.status, takenAt, existing.id);
+    return { id: existing.id, patientId, scheduleId, status: payload.status, takenAt };
+  }
+
+  const id = randomUUID();
+  db.prepare(`
+    insert into medication_intakes (id, patient_id, schedule_id, status, taken_at, created_at)
+    values (?, ?, ?, ?, ?, ?)
+  `).run(id, patientId, scheduleId, payload.status, takenAt, now);
+  return { id, patientId, scheduleId, status: payload.status, takenAt };
+}
+
+export function getAppointments(patientId) {
+  return db.prepare('select * from appointments where patient_id = ? order by starts_at asc').all(patientId).map(mapAppointment);
+}
+
+export function createAppointment(patientId, payload) {
+  const id = randomUUID();
+  db.prepare(`
+    insert into appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
+    values (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, patientId, payload.startsAt, payload.doctorName, payload.specialty || '', payload.location || '', payload.mode || 'onsite', payload.status || 'requested');
+  return getAppointment(patientId, id);
+}
+
+export function updateAppointment(patientId, id, changes) {
+  const current = getAppointment(patientId, id);
+  if (!current) return null;
+  db.prepare(`
+    update appointments
+    set starts_at = ?, doctor_name = ?, specialty = ?, location = ?, mode = ?, status = ?
+    where patient_id = ? and id = ?
+  `).run(
+    changes.startsAt ?? current.startsAt,
+    changes.doctorName ?? current.doctorName,
+    changes.specialty ?? current.specialty,
+    changes.location ?? current.location,
+    changes.mode ?? current.mode,
+    changes.status ?? current.status,
     patientId,
-    scheduleId,
-    status: payload.status,
-    takenAt: payload.takenAt || new Date().toISOString(),
+    id,
+  );
+  return getAppointment(patientId, id);
+}
+
+export function deleteAppointment(patientId, id) {
+  db.prepare('delete from appointments where patient_id = ? and id = ?').run(patientId, id);
+}
+
+export function getVaccinations(patientId) {
+  return db.prepare('select * from vaccinations where patient_id = ? order by injected_at desc').all(patientId).map((row) => ({
+    id: row.id,
+    name: row.name,
+    injectedAt: row.injected_at,
+    status: row.status,
+    nextDueAt: row.next_due_at,
+  }));
+}
+
+export function getHistory(patientId) {
+  return db.prepare('select * from medical_history where patient_id = ? order by occurred_at desc').all(patientId).map((row) => ({
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    occurredAt: row.occurred_at,
+    doctorName: row.doctor_name,
+  }));
+}
+
+export function getDocuments(patientId, query) {
+  const rows = query.category
+    ? db.prepare('select * from documents where patient_id = ? and category = ? order by created_at desc').all(patientId, query.category)
+    : db.prepare('select * from documents where patient_id = ? order by created_at desc').all(patientId);
+  return rows.map(mapDocument);
+}
+
+export function createDocument(patientId, payload) {
+  const id = randomUUID();
+  db.prepare(`
+    insert into documents (id, patient_id, title, category, mime_type, size_bytes, created_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, patientId, payload.title, payload.category, payload.mimeType || 'application/pdf', payload.sizeBytes || 0, new Date().toISOString());
+  return mapDocument(db.prepare('select * from documents where id = ?').get(id));
+}
+
+export function deleteDocument(patientId, id) {
+  db.prepare('delete from documents where patient_id = ? and id = ?').run(patientId, id);
+}
+
+export function getConversations(patientId) {
+  return db.prepare('select * from conversations where patient_id = ? order by updated_at desc').all(patientId).map((row) => ({
+    id: row.id,
+    doctorName: row.doctor_name,
+    unreadCount: row.unread_count,
+    lastMessage: row.last_message,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export function getNotes(patientId) {
+  return db.prepare('select * from notes where patient_id = ? order by pinned desc, updated_at desc').all(patientId).map(mapNote);
+}
+
+export function createNote(patientId, payload) {
+  const id = randomUUID();
+  db.prepare(`
+    insert into notes (id, patient_id, title, content, color, pinned, updated_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, patientId, payload.title, payload.content || '', payload.color || 'amber', payload.pinned ? 1 : 0, new Date().toISOString());
+  return mapNote(db.prepare('select * from notes where id = ?').get(id));
+}
+
+export function updateNote(patientId, id, changes) {
+  const current = db.prepare('select * from notes where patient_id = ? and id = ?').get(patientId, id);
+  if (!current) return null;
+  db.prepare(`
+    update notes set title = ?, content = ?, color = ?, pinned = ?, updated_at = ?
+    where patient_id = ? and id = ?
+  `).run(
+    changes.title ?? current.title,
+    changes.content ?? current.content,
+    changes.color ?? current.color,
+    changes.pinned === undefined ? current.pinned : (changes.pinned ? 1 : 0),
+    new Date().toISOString(),
+    patientId,
+    id,
+  );
+  return mapNote(db.prepare('select * from notes where id = ?').get(id));
+}
+
+export function deleteNote(patientId, id) {
+  db.prepare('delete from notes where patient_id = ? and id = ?').run(patientId, id);
+}
+
+export function getSettings(patientId) {
+  const row = db.prepare('select settings_json from patient_settings where patient_id = ?').get(patientId);
+  return row ? JSON.parse(row.settings_json) : {};
+}
+
+export function updateSettings(patientId, changes) {
+  const next = deepMerge(getSettings(patientId), changes);
+  db.prepare(`
+    insert into patient_settings (patient_id, settings_json, updated_at)
+    values (?, ?, ?)
+    on conflict(patient_id) do update set settings_json = excluded.settings_json, updated_at = excluded.updated_at
+  `).run(patientId, JSON.stringify(next), new Date().toISOString());
+  return next;
+}
+
+function getAppointment(patientId, id) {
+  const row = db.prepare('select * from appointments where patient_id = ? and id = ?').get(patientId, id);
+  return row ? mapAppointment(row) : null;
+}
+
+function getDashboardVitals(patientId) {
+  const rows = db.prepare('select * from vitals where patient_id = ? order by measured_at asc').all(patientId);
+  const byType = new Map();
+
+  for (const row of rows) {
+    const vital = mapVital(row);
+    const historyValue = vitalToHistoryValue(vital);
+    const items = byType.get(vital.type) || [];
+    items.push({ ...vital, historyValue });
+    byType.set(vital.type, items);
+  }
+
+  return ['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature']
+    .map((type) => {
+      const history = byType.get(type) || [];
+      const latest = history.at(-1);
+      if (!latest) return null;
+
+      return {
+        id: latest.id,
+        type: latest.type,
+        label: latest.label,
+        value: latest.value,
+        unit: latest.unit,
+        measuredAt: latest.measuredAt,
+        status: getVitalStatus(latest),
+        history: history
+          .slice(-7)
+          .map((point) => ({
+            value: point.historyValue,
+            measuredAt: point.measuredAt,
+          }))
+          .filter((point) => Number.isFinite(point.value)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function vitalToHistoryValue(vital) {
+  if (vital.type === 'blood_pressure') {
+    return Number(String(vital.value).split('/')[0]);
+  }
+  return Number(vital.value);
+}
+
+function getVitalStatus(vital) {
+  const value = vitalToHistoryValue(vital);
+  if (!Number.isFinite(value)) return 'normal';
+
+  if (vital.type === 'blood_pressure') {
+    if (value >= 15 || value <= 9) return 'critical';
+    if (value >= 14 || value <= 10) return 'watch';
+  }
+  if (vital.type === 'blood_glucose') {
+    if (value >= 1.26 || value < 0.7) return 'critical';
+    if (value >= 1.1 || value < 0.8) return 'watch';
+  }
+  if (vital.type === 'heart_rate') {
+    if (value >= 120 || value <= 45) return 'critical';
+    if (value >= 100 || value <= 55) return 'watch';
+  }
+  if (vital.type === 'temperature') {
+    if (value >= 39 || value <= 35) return 'critical';
+    if (value >= 37.8 || value <= 36) return 'watch';
+  }
+
+  return 'normal';
+}
+
+function calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }) {
+  const vitalPenalty = latestVitals.reduce((total, vital) => {
+    if (vital.status === 'critical') return total + 12;
+    if (vital.status === 'watch') return total + 5;
+    return total;
+  }, 0);
+
+  const missedMedications = todayMedications.filter((medication) => medication.intake?.status === 'missed').length;
+  const waitingMedications = todayMedications.filter((medication) => !medication.intake).length;
+  const dueVaccines = db.prepare(`
+    select count(*) as total from vaccinations
+    where patient_id = ? and status = 'due_soon'
+  `).get(patientId).total;
+
+  const score = 100
+    - vitalPenalty
+    - missedMedications * 4
+    - waitingMedications * 2
+    - dueVaccines * 3
+    - (nextAppointment ? 0 : 4);
+
+  return Math.max(0, Math.min(100, score));
+}
+
+function mapPatient(row) {
+  return {
+    id: row.id,
+    cmuNumber: row.cmu_number,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    birthDate: row.birth_date,
+    sex: row.sex,
+    bloodType: row.blood_type,
+    phone: row.phone,
+    email: row.email,
+    address: row.address,
+    city: row.city,
+    weightKg: row.weight_kg,
+    heightCm: row.height_cm,
+    emergencyContact: {
+      name: row.emergency_name,
+      relationship: row.emergency_relationship,
+      phone: row.emergency_phone,
+    },
   };
 }
 
-export function getAppointments() {
-  return appointments;
+function mapVital(row) {
+  const numeric = Number(row.value);
+  return {
+    id: row.id,
+    type: row.type,
+    label: row.label,
+    value: Number.isNaN(numeric) ? row.value : numeric,
+    unit: row.unit,
+    measuredAt: row.measured_at,
+  };
 }
 
-export function getVaccinations() {
-  return vaccinations;
+function mapMedication(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    dosage: row.dosage,
+    frequency: row.frequency,
+  };
 }
 
-export function getHistory() {
-  return [
-    { id: 'history-1', type: 'consultation', title: 'Consultation cardiologie', occurredAt: '2026-04-20T09:30:00.000Z', doctorName: 'Dr. Aïcha Touré' },
-    { id: 'history-2', type: 'lab', title: 'Bilan sanguin', occurredAt: '2026-04-18T07:45:00.000Z', doctorName: 'Laboratoire PISAM' },
-  ];
+function mapAppointment(row) {
+  return {
+    id: row.id,
+    startsAt: row.starts_at,
+    doctorName: row.doctor_name,
+    specialty: row.specialty,
+    location: row.location,
+    mode: row.mode,
+    status: row.status,
+  };
 }
 
-export function getDocuments(_patientId, query) {
-  return query.category ? documents.filter((doc) => doc.category === query.category) : documents;
+function mapDocument(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    mimeType: row.mime_type,
+    sizeBytes: row.size_bytes,
+    createdAt: row.created_at,
+  };
 }
 
-export function getConversations() {
-  return [
-    { id: 'conv-1', doctorName: 'Dr. Aïcha Touré', unreadCount: 2, lastMessage: 'Merci de surveiller votre tension.', updatedAt: '2026-04-28T09:00:00.000Z' },
-    { id: 'conv-2', doctorName: 'Dr. Yao Konan', unreadCount: 1, lastMessage: 'Votre rendez-vous est confirmé.', updatedAt: '2026-04-27T15:10:00.000Z' },
-  ];
-}
-
-export function getNotes() {
-  return notes;
-}
-
-export function createNote(_patientId, payload) {
-  const note = { id: `note-${Date.now()}`, ...payload, updatedAt: new Date().toISOString() };
-  notes = [note, ...notes];
-  return note;
-}
-
-export function updateNote(_patientId, id, changes) {
-  notes = notes.map((note) => note.id === id ? { ...note, ...changes, updatedAt: new Date().toISOString() } : note);
-  return notes.find((note) => note.id === id);
-}
-
-export function deleteNote(_patientId, id) {
-  notes = notes.filter((note) => note.id !== id);
-}
-
-export function getSettings() {
-  return settings;
-}
-
-export function updateSettings(_patientId, changes) {
-  settings = deepMerge(settings, changes);
-  return settings;
+function mapNote(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    color: row.color,
+    pinned: Boolean(row.pinned),
+    updatedAt: row.updated_at,
+  };
 }
 
 function deepMerge(target, source) {

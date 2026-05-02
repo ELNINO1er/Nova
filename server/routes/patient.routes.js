@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { requirePatient } from '../middleware/auth.js';
 import {
   createMedicationIntake,
+  createAppointment,
+  createDocument,
   createNote,
+  deleteAppointment,
+  deleteDocument,
   getAppointments,
   getConversations,
   getDashboard,
@@ -17,6 +21,7 @@ import {
   getVaccinations,
   getVitals,
   updateNote,
+  updateAppointment,
   updateProfile,
   updateSettings,
   deleteNote,
@@ -48,9 +53,39 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 })), (req, res) => res.status(201).json(createMedicationIntake(req.user.patientId, req.params.scheduleId, req.body)));
 
 router.get('/appointments', (req, res) => res.json(getAppointments(req.user.patientId)));
+router.post('/appointments', validateBody(z.object({
+  startsAt: z.string().datetime(),
+  doctorName: z.string().min(1),
+  specialty: z.string().default('Médecine générale'),
+  location: z.string().default('À confirmer'),
+  mode: z.enum(['onsite', 'video']).default('onsite'),
+  status: z.string().default('requested'),
+})), (req, res) => res.status(201).json(createAppointment(req.user.patientId, req.body)));
+router.patch('/appointments/:id', validateBody(z.object({
+  startsAt: z.string().datetime().optional(),
+  doctorName: z.string().min(1).optional(),
+  specialty: z.string().optional(),
+  location: z.string().optional(),
+  mode: z.enum(['onsite', 'video']).optional(),
+  status: z.string().optional(),
+})), (req, res) => res.json(updateAppointment(req.user.patientId, req.params.id, req.body)));
+router.delete('/appointments/:id', (req, res) => {
+  deleteAppointment(req.user.patientId, req.params.id);
+  res.status(204).send();
+});
 router.get('/vaccinations', (req, res) => res.json(getVaccinations(req.user.patientId)));
 router.get('/history', (req, res) => res.json(getHistory(req.user.patientId)));
 router.get('/documents', (req, res) => res.json(getDocuments(req.user.patientId, req.query)));
+router.post('/documents', validateBody(z.object({
+  title: z.string().min(1),
+  category: z.string().min(1),
+  mimeType: z.string().default('application/pdf'),
+  sizeBytes: z.number().int().nonnegative().default(0),
+})), (req, res) => res.status(201).json(createDocument(req.user.patientId, req.body)));
+router.delete('/documents/:id', (req, res) => {
+  deleteDocument(req.user.patientId, req.params.id);
+  res.status(204).send();
+});
 router.get('/conversations', (req, res) => res.json(getConversations(req.user.patientId)));
 
 router.get('/notes', (req, res) => res.json(getNotes(req.user.patientId)));

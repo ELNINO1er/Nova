@@ -15,10 +15,16 @@ import {
 import { patientApi } from '../api/patientApi.js';
 
 /* ============== PATIENT PAGES ============== */
-export default function PatientPages({ page, setShowQR, pills, setPills, setShowVid, card, sub, border, darkMode }) {
+export default function PatientPages({ page, setPage, setShowQR, pills, setPills, setShowVid, onProfileSaved, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
   const [apiData, setApiData] = useState({});
   const [apiError, setApiError] = useState('');
+  const [notice, setNotice] = useState(null);
+
+  const notify = (message, type = 'success') => {
+    setNotice({ message, type });
+    window.setTimeout(() => setNotice(null), 2600);
+  };
 
   useEffect(() => {
     const loaders = {
@@ -52,18 +58,34 @@ export default function PatientPages({ page, setShowQR, pills, setPills, setShow
     return () => { alive = false; };
   }, [page, apiData]);
 
+  const replacePageData = (key, value) => {
+    setApiData((current) => ({ ...current, [key]: value }));
+  };
+  const replacePageDataAndRefreshDashboard = (key, value) => {
+    setApiData((current) => ({ ...current, [key]: value, dashboard: undefined }));
+  };
+
   const map = {
-    dashboard: <PDash data={apiData.dashboard} setShowQR={setShowQR} {...p} />,
-    profile: <PProfile data={apiData.profile} {...p} />,
-    pilulier: <PPilulier data={apiData.pilulier} pills={pills} setPills={setPills} {...p} />,
+    dashboard: <PDash data={apiData.dashboard} setPage={setPage} setShowQR={setShowQR} setShowVid={setShowVid} {...p} />,
+    profile: <PProfile data={apiData.profile} onSaved={(value) => {
+      replacePageData('profile', value);
+      onProfileSaved?.(value);
+      notify('Profil enregistré');
+      setApiData((current) => ({
+        ...current,
+        profile: value,
+        dashboard: current.dashboard ? { ...current.dashboard, profile: value } : current.dashboard,
+      }));
+    }} {...p} />,
+    pilulier: <PPilulier data={apiData.pilulier} onReload={(value) => replacePageDataAndRefreshDashboard('pilulier', value)} notify={notify} pills={pills} setPills={setPills} {...p} />,
     treatments: <PTreatments data={apiData.treatments} {...p} />,
-    rdv: <PRDV data={apiData.rdv} setShowVid={setShowVid} {...p} />,
+    rdv: <PRDV data={apiData.rdv} onReload={(value) => replacePageDataAndRefreshDashboard('rdv', value)} notify={notify} setShowVid={setShowVid} {...p} />,
     vaccinations: <PVax data={apiData.vaccinations} {...p} />,
     dna: <PDNA {...p} />,
     history: <PHistory data={apiData.history} {...p} />,
     messages: <PMsg data={apiData.messages} setShowVid={setShowVid} {...p} />,
-    documents: <PDocs data={apiData.documents} {...p} />,
-    notes: <PNotes data={apiData.notes} {...p} />,
+    documents: <PDocs data={apiData.documents} onReload={(value) => replacePageDataAndRefreshDashboard('documents', value)} notify={notify} {...p} />,
+    notes: <PNotes data={apiData.notes} onReload={(value) => replacePageData('notes', value)} notify={notify} {...p} />,
     wellness: <PWell {...p} />,
     settings: <SettingsPage data={apiData.settings} {...p} />
   };
@@ -72,6 +94,11 @@ export default function PatientPages({ page, setShowQR, pills, setPills, setShow
       {apiError && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
           API indisponible, affichage des données locales.
+        </div>
+      )}
+      {notice && (
+        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          {notice.message}
         </div>
       )}
       {map[page] || map.dashboard}
@@ -134,27 +161,84 @@ function capitalize(value) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
-function PDash({ data, setShowQR, card, sub, darkMode }) {
+function dashboardStatusText(status) {
+  if (status === 'critical') return 'Critique';
+  if (status === 'watch') return 'A surveiller';
+  return 'Normal';
+}
+
+function dashboardStatusClass(status) {
+  if (status === 'critical') return 'text-red-600';
+  if (status === 'watch') return 'text-amber-600';
+  return 'text-emerald-600';
+}
+
+function PatientModal({ title, onClose, children, card, darkMode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button className="absolute inset-0 bg-slate-950/45" onClick={onClose} aria-label="Fermer"></button>
+      <div className={`relative w-full max-w-3xl ${card} border rounded-2xl shadow-2xl overflow-hidden`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+          <h3 className="font-bold">{title}</h3>
+          <button onClick={onClose} className={`w-9 h-9 rounded-lg flex items-center justify-center ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({ title, message, onCancel, onConfirm, card, darkMode }) {
+  return (
+    <PatientModal title={title} onClose={onCancel} card={card} darkMode={darkMode}>
+      <p className="text-sm text-slate-600 mb-5">{message}</p>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className={`px-4 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+        <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Confirmer</button>
+      </div>
+    </PatientModal>
+  );
+}
+
+function PDash({ data, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
   const consts = [
-    { l: 'Tension', v: '12/8', u: 'mmHg', I: Heart, c: 'red', d: [120,125,122,118,121,119,120] },
-    { l: 'Glycémie', v: '0.95', u: 'g/L', I: Droplet, c: 'blue', d: [1.1,1.05,1.0,0.98,0.97,0.96,0.95] },
-    { l: 'Fréquence', v: '72', u: 'bpm', I: Activity, c: 'pink', d: [70,72,71,73,72,71,72] },
-    { l: 'Température', v: '36.8', u: '°C', I: Thermometer, c: 'orange', d: [36.7,36.8,36.9,36.8,36.7,36.8,36.8] }
+    { type: 'blood_pressure', l: 'Tension', v: '12/8', u: 'mmHg', I: Heart, c: 'red', d: [120,125,122,118,121,119,120] },
+    { type: 'blood_glucose', l: 'Glycémie', v: '0.95', u: 'g/L', I: Droplet, c: 'blue', d: [1.1,1.05,1.0,0.98,0.97,0.96,0.95] },
+    { type: 'heart_rate', l: 'Fréquence', v: '72', u: 'bpm', I: Activity, c: 'pink', d: [70,72,71,73,72,71,72] },
+    { type: 'temperature', l: 'Température', v: '36.8', u: 'C', I: Thermometer, c: 'orange', d: [36.7,36.8,36.9,36.8,36.7,36.8,36.8] }
   ];
   const iconByType = { blood_pressure: Heart, blood_glucose: Droplet, heart_rate: Activity, temperature: Thermometer };
   const colorByType = { blood_pressure: 'red', blood_glucose: 'blue', heart_rate: 'pink', temperature: 'orange' };
-  const displayConsts = data?.latestVitals?.length ? data.latestVitals.map((vital, index) => ({
-    l: vital.label,
-    v: String(vital.value),
-    u: vital.unit,
-    I: iconByType[vital.type] || consts[index]?.I || Activity,
-    c: colorByType[vital.type] || consts[index]?.c || 'blue',
-    d: consts[index]?.d || [Number(vital.value) || 1, Number(vital.value) || 1],
-  })) : consts;
+  const vitalsByType = new Map((data?.latestVitals || []).map((vital) => [vital.type, vital]));
+  const displayConsts = data?.latestVitals?.length ? consts.map((base) => {
+    const vital = vitalsByType.get(base.type);
+    if (!vital) return base;
+    return {
+      l: base.l,
+      v: String(vital.value),
+      u: vital.unit && vital.unit.includes('C') ? 'C' : vital.unit,
+      I: iconByType[vital.type] || base.I || Activity,
+      c: colorByType[vital.type] || base.c || 'blue',
+      d: vital.history?.length ? vital.history.map((point) => point.value).filter(Number.isFinite) : base.d,
+      status: vital.status,
+      measuredAt: vital.measuredAt,
+    };
+  }) : consts;
   const profile = data?.profile;
-  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : 'Kouamé Bamba';
-  const patientLocation = profile ? `CMU: ${profile.cmuNumber} • ${profile.city}` : 'CMU: CI-2024-0847-3692 • Cocody, Abidjan';
-  const healthScore = data?.healthScore || 82;
+  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : 'Kouame Bamba';
+  const patientLocation = profile ? `CMU: ${profile.cmuNumber} - ${profile.city}` : 'CMU: CI-2024-0847-3692 - Cocody, Abidjan';
+  const healthScore = data?.healthScore ?? 82;
+  const healthScoreLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'A surveiller' : 'Critique';
+  const scoreDash = `${Math.round((healthScore / 100) * 264)} 264`;
+  const remainingMedications = data?.todayMedications
+    ? data.todayMedications.filter((medication) => medication.intake?.status !== 'taken').length
+    : 3;
+  const unreadMessages = data?.unreadMessages ?? 0;
+  const documentsCount = data?.documentsCount ?? 0;
   const cm = { red: '#dc2626', blue: '#2563eb', pink: '#db2777', orange: '#ea580c' };
 
   return (
@@ -163,12 +247,12 @@ function PDash({ data, setShowQR, card, sub, darkMode }) {
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/20 rounded-full -translate-y-32 translate-x-32 blur-3xl"></div>
         <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <p className="text-red-100 text-sm">Bonjour 👋</p>
+            <p className="text-red-100 text-sm">Bonjour</p>
             <h2 className="text-2xl md:text-3xl font-bold">{patientName}</h2>
             <p className="text-red-100 text-sm mt-1">{patientLocation}</p>
           </div>
           <button onClick={() => setShowQR(true)} className="bg-white text-red-700 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 hover:scale-105 transition-transform shadow-xl">
-            <Siren className="w-5 h-5" /> Pass Santé d'Urgence
+            Pass Santé d'urgence
           </button>
         </div>
       </div>
@@ -176,20 +260,19 @@ function PDash({ data, setShowQR, card, sub, darkMode }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-1 ${card} border rounded-2xl p-6`}>
           <div className="flex items-center justify-between mb-4">
-            <div><p className={`text-xs ${sub}`}>Score de Santé</p><p className="text-xs text-emerald-600 font-semibold mt-1">↑ +3 cette semaine</p></div>
-            <Sparkles className="w-5 h-5 text-red-600" />
+            <div><p className={`text-xs ${sub}`}>Score de Santé</p><p className="text-xs text-emerald-600 font-semibold mt-1">+3 cette semaine</p></div>
           </div>
           <div className="flex items-center justify-center py-4">
             <div className="relative w-44 h-44">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                 <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#e2e8f0'} strokeWidth="8" />
-                <circle cx="50" cy="50" r="42" fill="none" stroke="url(#hg)" strokeWidth="8" strokeDasharray="216 264" strokeLinecap="round" />
+                <circle cx="50" cy="50" r="42" fill="none" stroke="url(#hg)" strokeWidth="8" strokeDasharray={scoreDash} strokeLinecap="round" />
                 <defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#dc2626" /><stop offset="100%" stopColor="#f97316" /></linearGradient></defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-4xl font-bold">{healthScore}</span>
                 <span className={`text-xs ${sub}`}>/ 100</span>
-                <span className="text-xs text-emerald-600 font-semibold mt-1">Excellent</span>
+                <span className={`text-xs font-semibold mt-1 ${dashboardStatusClass(healthScore >= 80 ? 'normal' : healthScore >= 60 ? 'watch' : 'critical')}`}>{healthScoreLabel}</span>
               </div>
             </div>
           </div>
@@ -201,13 +284,12 @@ function PDash({ data, setShowQR, card, sub, darkMode }) {
             const pts = c.d.map((v, idx) => `${(idx/(c.d.length-1))*100},${100 - ((v-mn)/r)*80 - 10}`).join(' ');
             return (
               <div key={i} className={`${card} border rounded-2xl p-5`}>
-                <div className="flex items-start justify-between mb-3">
-                  <div className={`w-10 h-10 rounded-lg bg-${c.c}-100 flex items-center justify-center`}>
-                    <c.I className={`w-5 h-5 text-${c.c}-600`} />
-                  </div>
-                </div>
                 <p className={`text-xs ${sub} mb-1`}>{c.l}</p>
                 <p className="text-2xl font-bold">{c.v} <span className={`text-sm font-normal ${sub}`}>{c.u}</span></p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold ${dashboardStatusClass(c.status)}`}>{dashboardStatusText(c.status)}</span>
+                  {c.measuredAt && <span className={`text-[10px] ${sub}`}>{formatRelativeDate(c.measuredAt)}</span>}
+                </div>
                 <div className="mt-3 h-12">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
                     <polyline points={pts} fill="none" stroke={cm[c.c]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -220,8 +302,13 @@ function PDash({ data, setShowQR, card, sub, darkMode }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[{I:Video,l:'Téléconsult.',c:'from-blue-500 to-blue-600'},{I:Bell,l:'3 Rappels',c:'from-orange-500 to-orange-600'},{I:MessageCircle,l:'Messages',c:'from-purple-500 to-purple-600'},{I:FileText,l:'Ordonnances',c:'from-emerald-500 to-emerald-600'}].map((a, i) => (
-          <button key={i} className={`${card} border rounded-xl p-4 flex flex-col items-start gap-3 hover:scale-105 transition-transform`}>
+        {[
+          {I:Video,l:'Téléconsultation',c:'from-blue-500 to-blue-600',on:() => setShowVid(true)},
+          {I:Bell,l:`${remainingMedications} Rappels`,c:'from-orange-500 to-orange-600',on:() => setPage('pilulier')},
+          {I:MessageCircle,l:`${unreadMessages} Messages`,c:'from-purple-500 to-purple-600',on:() => setPage('messages')},
+          {I:FileText,l:`${documentsCount} Documents`,c:'from-emerald-500 to-emerald-600',on:() => setPage('documents')}
+        ].map((a, i) => (
+          <button key={i} onClick={a.on} className={`${card} border rounded-xl p-4 min-h-[92px] flex flex-col items-start gap-3 text-left hover:scale-105 transition-transform`}>
             <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${a.c} flex items-center justify-center text-white shadow-md`}>
               <a.I className="w-5 h-5" />
             </div>
@@ -233,7 +320,7 @@ function PDash({ data, setShowQR, card, sub, darkMode }) {
   );
 }
 
-function PProfile({ data, card, sub, border, darkMode }) {
+function PProfile({ data, onSaved, card, sub, border, darkMode }) {
   const [edit, setEdit] = useState(false);
   const [d, setD] = useState({
     firstName: 'Kouamé', lastName: 'Bamba', birthDate: '1974-03-15', sex: 'M',
@@ -271,13 +358,28 @@ function PProfile({ data, card, sub, border, darkMode }) {
         {I && <I className="w-3 h-3" />} {l}
       </label>
       {edit ? (
-        <input type={t} value={d[n]} onChange={(e) => setD({...d, [n]: e.target.value})}
+        <input type={t} defaultValue={d[n] || ''} onChange={(e) => { d[n] = e.target.value; }} onBlur={() => setD((current) => ({ ...current }))}
           className={`mt-1.5 w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`} />
       ) : (
         <p className="mt-1.5 text-sm font-semibold py-2">{d[n] || '—'}</p>
       )}
     </div>
   );
+
+  const saveProfile = async () => {
+    const updated = await patientApi.updateProfile({
+      firstName: d.firstName,
+      lastName: d.lastName,
+      phone: d.phone,
+      email: d.email,
+      address: d.address,
+      city: d.city,
+      weightKg: Number(d.weight),
+      heightCm: Number(d.height),
+    });
+    onSaved?.(updated);
+    setEdit(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -293,7 +395,7 @@ function PProfile({ data, card, sub, border, darkMode }) {
             <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{d.city}</span>
           </div>
         </div>
-        <button onClick={() => setEdit(!edit)} className="relative bg-white text-red-700 px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow-lg">
+        <button onClick={() => edit ? saveProfile() : setEdit(true)} className="relative bg-white text-red-700 px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow-lg">
           {edit ? <><Save className="w-4 h-4" /> Enregistrer</> : <><Edit3 className="w-4 h-4" /> Modifier</>}
         </button>
       </div>
@@ -332,7 +434,7 @@ function PProfile({ data, card, sub, border, darkMode }) {
   );
 }
 
-function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
+function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMode }) {
   const fallbackMeds = [
     { id: 1, n: 'Amlodipine', d: '5mg', t: '08:00', p: 'Matin', c: 'bg-blue-500' },
     { id: 2, n: 'Metformine', d: '500mg', t: '08:00', p: 'Matin', c: 'bg-emerald-500' },
@@ -348,9 +450,28 @@ function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
     p: item.period,
     c: `bg-${item.color || 'blue'}-500`,
     i: item.interaction,
+    status: item.intake?.status || 'pending',
   })) : fallbackMeds;
-  const cnt = Object.values(pills).filter(Boolean).length;
+  useEffect(() => {
+    if (!data?.length) return;
+    const statuses = {};
+    data.forEach((item) => { statuses[item.id] = item.intake?.status || 'pending'; });
+    setPills(statuses);
+  }, [data, setPills]);
+  const cnt = Object.values(pills).filter((status) => status === 'taken' || status === true).length;
+  const missed = Object.values(pills).filter((status) => status === 'missed').length;
   const obs = Math.round((cnt / meds.length) * 100);
+  const nextDue = meds.find((med) => !['taken', 'skipped', 'missed'].includes(pills[med.id] || med.status));
+  const markMedicationStatus = async (id, status) => {
+    setPills({ ...pills, [id]: status });
+    try {
+      await patientApi.markMedication(id, { status });
+      onReload?.(await patientApi.todayMedications());
+      notify?.('Pilulier mis a jour');
+    } catch (error) {
+      notify?.(error.message || 'Erreur pilulier', 'error');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -358,8 +479,8 @@ function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-2 ${card} border rounded-2xl p-6`}>
           <div className="flex items-center justify-between mb-6">
-            <div><h3 className="font-bold text-lg">Aujourd'hui</h3><p className={`text-xs ${sub}`}>{cnt} / {meds.length} pris</p></div>
-            <span className="text-xs font-semibold text-red-600 flex items-center gap-1"><Bell className="w-3 h-3" /> Prochain à 12:30</span>
+            <div><h3 className="font-bold text-lg">Aujourd'hui</h3><p className={`text-xs ${sub}`}>{cnt} / {meds.length} pris{missed ? ` - ${missed} oublié` : ''}</p></div>
+            <span className="text-xs font-semibold text-red-600 flex items-center gap-1"><Bell className="w-3 h-3" /> Prochain {nextDue?.t || 'terminé'}</span>
           </div>
           <div className={`h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} mb-6 overflow-hidden`}>
             <div className="h-full bg-gradient-to-r from-red-600 to-red-500" style={{ width: `${obs}%` }}></div>
@@ -375,21 +496,34 @@ function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
                     {per} • {pm[0].t}
                   </h4>
                   <div className="space-y-2">
-                    {pm.map(m => (
-                      <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl border ${pills[m.id] ? 'opacity-70 bg-emerald-50 border-emerald-200' : darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                    {pm.map(m => {
+                      const status = pills[m.id] || m.status || 'pending';
+                      const done = status === 'taken' || status === true;
+                      const skipped = status === 'skipped';
+                      const isMissed = status === 'missed';
+                      return (
+                      <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl border ${done ? 'opacity-70 bg-emerald-50 border-emerald-200' : isMissed ? 'bg-red-50 border-red-200' : skipped ? 'bg-slate-50 border-slate-200 opacity-70' : darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                         <div className={`w-2 h-12 rounded-full ${m.c}`}></div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <p className={`font-semibold ${pills[m.id] ? 'line-through' : ''}`}>{m.n}</p>
+                            <p className={`font-semibold ${done || skipped ? 'line-through' : ''}`}>{m.n}</p>
                             {m.i && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Interaction</span>}
                           </div>
                           <p className={`text-xs ${sub}`}>{m.d} • {m.t}</p>
                         </div>
-                        <button onClick={() => setPills({...pills, [m.id]: !pills[m.id]})} className={`w-10 h-10 rounded-full flex items-center justify-center ${pills[m.id] ? 'bg-emerald-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                          <Check className="w-5 h-5" strokeWidth={3} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => markMedicationStatus(m.id, 'taken')} className={`w-9 h-9 rounded-full flex items-center justify-center ${done ? 'bg-emerald-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Pris">
+                            <Check className="w-4 h-4" strokeWidth={3} />
+                          </button>
+                          <button onClick={() => markMedicationStatus(m.id, 'missed')} className={`w-9 h-9 rounded-full flex items-center justify-center ${isMissed ? 'bg-red-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Oublie">
+                            <X className="w-4 h-4" strokeWidth={3} />
+                          </button>
+                          <button onClick={() => markMedicationStatus(m.id, 'skipped')} className={`w-9 h-9 rounded-full flex items-center justify-center ${skipped ? 'bg-slate-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Ignore">
+                            <Clock className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 </div>
               );
@@ -399,7 +533,7 @@ function PPilulier({ data, pills, setPills, card, sub, darkMode }) {
         <div className="space-y-4">
           <div className={`${card} border rounded-2xl p-6 text-center`}>
             <Award className="w-5 h-5 text-amber-500 mx-auto mb-2" />
-            <p className="text-5xl font-bold text-emerald-600">94<span className="text-2xl">%</span></p>
+            <p className="text-5xl font-bold text-emerald-600">{obs}<span className="text-2xl">%</span></p>
             <p className={`text-xs ${sub} mt-2`}>Observance hebdo</p>
             <span className="inline-block mt-3 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">Excellent 🏆</span>
           </div>
@@ -496,7 +630,17 @@ function PTreatments({ data, card, sub, darkMode }) {
   );
 }
 
-function PRDV({ data, card, sub, darkMode, setShowVid }) {
+function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [form, setForm] = useState({
+    startsAt: '2026-06-01T09:00',
+    doctorName: 'Dr. Aïcha Touré',
+    specialty: 'Médecine générale',
+    location: 'CHU Treichville',
+    mode: 'onsite',
+  });
   const fallbackRdv = [
     { d: '02 Mai', t: '14:30', dr: 'Dr. Aïcha Touré', sp: 'Cardiologie', l: 'CHU Treichville', dl: 4, v: false },
     { d: '15 Mai', t: '09:00', dr: 'Dr. Yao Konan', sp: 'Médecine générale', l: 'Téléconsultation', dl: 17, v: true },
@@ -513,17 +657,80 @@ function PRDV({ data, card, sub, darkMode, setShowVid }) {
       l: r.location,
       dl: daysLeft,
       v: r.mode === 'video',
+      id: r.id,
+      startsAt: r.startsAt,
+      status: r.status,
+      mode: r.mode,
     };
   }) : fallbackRdv;
+  const resetRdvForm = () => {
+    setEditingId(null);
+    setForm({ startsAt: '2026-06-01T09:00', doctorName: 'Dr. Aïcha Touré', specialty: 'Médecine générale', location: 'CHU Treichville', mode: 'onsite' });
+  };
+  const openEditRdv = (rdv) => {
+    setEditingId(rdv.id);
+    setForm({
+      startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : '2026-06-01T09:00',
+      doctorName: rdv.dr,
+      specialty: rdv.sp,
+      location: rdv.l,
+      mode: rdv.mode || (rdv.v ? 'video' : 'onsite'),
+    });
+    setShowForm(true);
+  };
+  const saveRdv = async () => {
+    const payload = {
+      ...form,
+      startsAt: new Date(form.startsAt).toISOString(),
+      status: 'requested',
+    };
+    try {
+      if (editingId) await patientApi.updateAppointment(editingId, payload);
+      else await patientApi.createAppointment(payload);
+      onReload?.(await patientApi.appointments());
+      notify?.(editingId ? 'Rendez-vous modifié' : 'Rendez-vous créé');
+      setShowForm(false);
+      resetRdvForm();
+    } catch (error) {
+      notify?.(error.message || 'Erreur rendez-vous', 'error');
+    }
+  };
+  const deleteRdv = async (id) => {
+    if (!id) return;
+    try {
+      await patientApi.deleteAppointment(id);
+      onReload?.(await patientApi.appointments());
+      notify?.('Rendez-vous supprimé');
+      setPendingDelete(null);
+    } catch (error) {
+      notify?.(error.message || 'Erreur suppression', 'error');
+    }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-2xl font-bold">Mes Rendez-vous</h2>
-        <button className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
+        <button onClick={() => { resetRdvForm(); setShowForm(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
           <Plus className="w-4 h-4" /> Nouveau RDV
         </button>
       </div>
+      {showForm && (
+        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 grid grid-cols-1 md:grid-cols-3 gap-3 shadow-2xl`}>
+          <input type="datetime-local" value={form.startsAt} onChange={(e) => setForm({...form, startsAt: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <input value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <select value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+            <option value="onsite">Présentiel</option>
+            <option value="video">Téléconsultation</option>
+          </select>
+          <input value={form.specialty} onChange={(e) => setForm({...form, specialty: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <input value={form.location} onChange={(e) => setForm({...form, location: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <div className="flex gap-2">
+            <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Créer</button>
+            <button onClick={() => { setShowForm(false); resetRdvForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">
           {rs.map((r, i) => (
@@ -550,6 +757,12 @@ function PRDV({ data, card, sub, darkMode, setShowVid }) {
                     ) : (
                       <button className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold`}>Itinéraire</button>
                     )}
+                    {r.id && (
+                      <>
+                        <button onClick={() => openEditRdv(r)} className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold flex items-center gap-1`}><Edit3 className="w-3 h-3" /> Modifier</button>
+                        <button onClick={() => setPendingDelete(r.id)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1"><Trash2 className="w-3 h-3" /> Suppr.</button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -568,6 +781,16 @@ function PRDV({ data, card, sub, darkMode, setShowVid }) {
           </div>
         </div>
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Supprimer le rendez-vous"
+          message="Cette action retirera le rendez-vous du planning patient."
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => deleteRdv(pendingDelete)}
+          card={card}
+          darkMode={darkMode}
+        />
+      )}
     </div>
   );
 }
@@ -588,18 +811,21 @@ function PVax({ data, card, sub, border, darkMode }) {
     c: v.status === 'due_soon' ? 'amber' : 'emerald',
     x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
   })) : fallbackVaccinations;
+  const upToDateCount = vs.filter((v) => v.c === 'emerald').length;
+  const dueSoonCount = vs.filter((v) => v.c === 'amber').length;
+  const coverage = vs.length ? Math.round((upToDateCount / vs.length) * 100) : 0;
   return (
     <div className="space-y-4">
       <div><h2 className="text-2xl font-bold">Carnet Vaccinal</h2><p className={`text-sm ${sub}`}>Historique et rappels</p></div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5">
-          <ShieldCheck className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">5</p><p className="text-xs">Vaccins à jour</p>
+          <ShieldCheck className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{upToDateCount}</p><p className="text-xs">Vaccins à jour</p>
         </div>
         <div className="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-2xl p-5">
-          <Clock className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">1</p><p className="text-xs">Rappel à venir</p>
+          <Clock className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{dueSoonCount}</p><p className="text-xs">Rappel à venir</p>
         </div>
         <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-2xl p-5">
-          <Syringe className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">100%</p><p className="text-xs">Couverture</p>
+          <Syringe className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{coverage}%</p><p className="text-xs">Couverture</p>
         </div>
       </div>
       <div className={`${card} border rounded-2xl p-6`}>
@@ -730,6 +956,7 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
     on: conversation.unreadCount > 0,
     a: initials(conversation.doctorName),
   })) : cv;
+  const activeConversation = conversations.find((conversation) => conversation.id === sel) || conversations[0];
   const ms = [
     { f: 'd', t: 'Bonjour Kouamé.', tm: '14:25' },
     { f: 'd', t: 'Vos résultats sont arrivés. Tout est positif.', tm: '14:25' },
@@ -749,8 +976,8 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
               <input type="text" placeholder="Rechercher..." className={`w-full pl-9 pr-3 py-2 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`} />
             </div>
           </div>
-          {conversations.map(c => (
-            <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${sel === c.id ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
+            {conversations.map(c => (
+            <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${(sel === c.id || activeConversation?.id === c.id) ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
               <div className="relative">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{c.a}</div>
                 {c.on && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white"></span>}
@@ -769,8 +996,8 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
         <div className="md:col-span-2 flex flex-col">
           <div className={`p-3 border-b ${border} flex items-center justify-between`}>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">AT</div>
-              <div><p className="font-bold text-sm">Dr. Aïcha Touré</p><p className="text-[10px] text-emerald-600 font-semibold">En ligne</p></div>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{activeConversation?.a || 'DR'}</div>
+              <div><p className="font-bold text-sm">{activeConversation?.n || 'Médecin référent'}</p><p className="text-[10px] text-emerald-600 font-semibold">{activeConversation?.on ? 'En ligne' : 'Disponible'}</p></div>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={() => setShowVid && setShowVid(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
@@ -810,8 +1037,17 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
   );
 }
 
-export function PDocs({ data, card, sub, border, darkMode }) {
+export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
   const [f, setF] = useState('all');
+  const [showForm, setShowForm] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [docForm, setDocForm] = useState({
+    title: 'Nouvelle ordonnance',
+    category: 'prescription',
+    mimeType: 'application/pdf',
+    sizeBytes: 120000,
+  });
   const ds = [
     { n: 'Ordonnance Avril 2026', t: 'PDF', cat: 'ordonnance', d: '15/04/2026', s: '124 KB', I: FileText, c: 'red', dr: 'Dr. Yao Konan' },
     { n: 'Bilan sanguin Mars', t: 'PDF', cat: 'analyse', d: '20/03/2026', s: '342 KB', I: Microscope, c: 'purple', dr: 'Lab. Pasteur' },
@@ -831,6 +1067,7 @@ export function PDocs({ data, card, sub, border, darkMode }) {
     I: doc.category === 'lab' ? Microscope : FileText,
     c: doc.category === 'lab' ? 'purple' : 'red',
     dr: 'NOVA',
+    id: doc.id,
   })) : ds;
   const filt = f === 'all' ? apiDocs : apiDocs.filter(d => d.cat === f);
   const cats = [
@@ -838,15 +1075,63 @@ export function PDocs({ data, card, sub, border, darkMode }) {
     { id: 'analyse', l: 'Analyses' }, { id: 'imagerie', l: 'Imagerie' },
     { id: 'consultation', l: 'Consultations' }, { id: 'certificat', l: 'Certificats' }
   ];
+  const addDocument = async () => {
+    try {
+      await patientApi.createDocument(docForm);
+      onReload?.(await patientApi.documents());
+      notify?.('Document ajoute');
+      setShowForm(false);
+      setDocForm({ title: 'Nouvelle ordonnance', category: 'prescription', mimeType: 'application/pdf', sizeBytes: 120000 });
+    } catch (error) {
+      notify?.(error.message || 'Erreur document', 'error');
+    }
+  };
+  const deleteDocument = async (id) => {
+    if (!id) return;
+    try {
+      await patientApi.deleteDocument(id);
+      onReload?.(await patientApi.documents());
+      notify?.('Document supprimé');
+      setPendingDelete(null);
+      setSelectedDoc(null);
+    } catch (error) {
+      notify?.(error.message || 'Erreur suppression', 'error');
+    }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{apiDocs.length} documents • Stockage chiffré</p></div>
-        <button className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
-          <FileDown className="w-3 h-3" /> Tout télécharger
+        <button onClick={() => setShowForm(true)} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
+          <Plus className="w-3 h-3" /> Ajouter
         </button>
       </div>
+      {showForm && (
+        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3 shadow-2xl`}>
+          <input value={docForm.title} onChange={(e) => setDocForm({ ...docForm, title: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <select value={docForm.category} onChange={(e) => setDocForm({ ...docForm, category: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+            <option value="prescription">Ordonnance</option>
+            <option value="lab">Analyse</option>
+            <option value="consultation">Consultation</option>
+            <option value="vaccine">Certificat</option>
+          </select>
+          <input type="number" min="0" value={docForm.sizeBytes} onChange={(e) => setDocForm({ ...docForm, sizeBytes: Number(e.target.value) })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+          <div className="flex gap-2">
+            <button onClick={addDocument} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Ajouter</button>
+            <button onClick={() => setShowForm(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+          </div>
+        </div>
+      )}
+      {selectedDoc && (
+        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 justify-between shadow-2xl`}>
+          <div>
+            <p className="font-bold">{selectedDoc.n}</p>
+            <p className={`text-xs ${sub}`}>{selectedDoc.cat} - {selectedDoc.d} - {selectedDoc.s}</p>
+          </div>
+          <button onClick={() => setSelectedDoc(null)} className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Fermer</button>
+        </div>
+      )}
       <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900' : 'bg-slate-100'} overflow-x-auto`}>
         {cats.map(c => {
           const cnt = c.id === 'all' ? apiDocs.length : apiDocs.filter(d => d.cat === c.id).length;
@@ -871,17 +1156,27 @@ export function PDocs({ data, card, sub, border, darkMode }) {
               <span className={`text-[10px] ${sub}`}>{d.d}</span><span className={`text-[10px] ${sub}`}>{d.s}</span>
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-3">
-              <button className={`px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}><Eye className="w-3 h-3" /> Voir</button>
-              <button className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-red-600 text-white flex items-center justify-center gap-1 hover:bg-red-700"><Download className="w-3 h-3" /> PDF</button>
+              <button onClick={() => setSelectedDoc(d)} className={`px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}><Eye className="w-3 h-3" /> Voir</button>
+              <button onClick={() => d.id ? setPendingDelete(d.id) : undefined} className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-red-600 text-white flex items-center justify-center gap-1 hover:bg-red-700"><Trash2 className="w-3 h-3" /> Suppr.</button>
             </div>
           </div>
         ))}
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Supprimer le document"
+          message="Cette action retirera le document de la base patient."
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => deleteDocument(pendingDelete)}
+          card={card}
+          darkMode={darkMode}
+        />
+      )}
     </div>
   );
 }
 
-function PNotes({ data, card, sub, border, darkMode }) {
+function PNotes({ data, onReload, notify, card, sub, border, darkMode }) {
   const [ns, setNs] = useState([
     { id: 1, t: 'Symptômes à surveiller', c: 'Maux de tête au réveil depuis 3 jours, palpitations occasionnelles le soir.', col: 'amber', u: 'Il y a 2h', p: true },
     { id: 2, t: 'Questions pour le RDV', c: '1. Effets Amlodipine ?\n2. Posologie réductible ?\n3. Activité sportive ?', col: 'blue', u: 'Hier', p: true },
@@ -890,6 +1185,7 @@ function PNotes({ data, card, sub, border, darkMode }) {
   ]);
   const [sel, setSel] = useState(ns[0]);
   const [edit, setEdit] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
   useEffect(() => {
     if (!data?.length) return;
     const apiNotes = data.map((note) => ({
@@ -911,17 +1207,44 @@ function PNotes({ data, card, sub, border, darkMode }) {
     purple: { bg: 'bg-purple-100', t: 'text-purple-900', b: 'border-purple-300', tab: 'bg-purple-400' }
   };
 
-  const add = () => {
-    const n = { id: Date.now(), t: 'Nouvelle note', c: '', col: 'amber', u: 'À l\'instant', p: false };
+  const add = async () => {
+    const created = await patientApi.createNote({ title: 'Nouvelle note', content: '', color: 'amber', pinned: false });
+    const n = { id: created.id, t: created.title, c: created.content, col: created.color, u: 'À l\'instant', p: created.pinned };
     setNs([n, ...ns]); setSel(n); setEdit(true);
+    onReload?.(await patientApi.notes());
   };
-  const upd = (ch) => {
+  const upd = async (ch) => {
     const u = { ...sel, ...ch, u: 'À l\'instant' };
     setSel(u); setNs(ns.map(n => n.id === u.id ? u : n));
+    await patientApi.updateNote(u.id, { title: u.t, content: u.c, color: u.col, pinned: u.p });
+    onReload?.(await patientApi.notes());
   };
-  const del = (id) => {
-    const f = ns.filter(n => n.id !== id);
-    setNs(f); if (sel?.id === id) setSel(f[0] || null);
+  const del = async (id) => {
+    try {
+      await patientApi.deleteNote(id);
+      const f = ns.filter(n => n.id !== id);
+      setNs(f); if (sel?.id === id) setSel(f[0] || null);
+      onReload?.(await patientApi.notes());
+      notify?.('Note supprimée');
+      setPendingDelete(null);
+    } catch (error) {
+      notify?.(error.message || 'Erreur suppression', 'error');
+    }
+  };
+  const updLocal = (ch) => {
+    const u = { ...sel, ...ch, u: 'A l\'instant' };
+    setSel(u); setNs(ns.map(n => n.id === u.id ? u : n));
+  };
+  const saveNote = async () => {
+    if (!sel) return;
+    try {
+      await patientApi.updateNote(sel.id, { title: sel.t, content: sel.c, color: sel.col, pinned: sel.p });
+      onReload?.(await patientApi.notes());
+      notify?.('Note enregistrée');
+      setEdit(false);
+    } catch (error) {
+      notify?.(error.message || 'Erreur note', 'error');
+    }
   };
 
   return (
@@ -953,7 +1276,7 @@ function PNotes({ data, card, sub, border, darkMode }) {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 {edit ? (
-                  <input type="text" value={sel.t} onChange={(e) => upd({ t: e.target.value })}
+                  <input type="text" value={sel.t} onChange={(e) => updLocal({ t: e.target.value })}
                     className={`flex-1 text-xl font-bold bg-transparent outline-none border-b-2 ${border} pb-1`} />
                 ) : (
                   <h3 className="text-xl font-bold flex-1">{sel.t}</h3>
@@ -962,10 +1285,10 @@ function PNotes({ data, card, sub, border, darkMode }) {
                   <button onClick={() => upd({ p: !sel.p })} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                     <Star className={`w-4 h-4 ${sel.p ? 'text-amber-500 fill-amber-500' : sub}`} />
                   </button>
-                  <button onClick={() => setEdit(!edit)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                  <button onClick={() => edit ? saveNote() : setEdit(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                     {edit ? <Save className="w-4 h-4 text-emerald-600" /> : <Pencil className="w-4 h-4" />}
                   </button>
-                  <button onClick={() => del(sel.id)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                  <button onClick={() => setPendingDelete(sel.id)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                     <Trash2 className="w-4 h-4 text-red-600" />
                   </button>
                 </div>
@@ -973,13 +1296,13 @@ function PNotes({ data, card, sub, border, darkMode }) {
               {edit && (
                 <div className="flex gap-2">
                   {Object.keys(cm).map(c => (
-                    <button key={c} onClick={() => upd({ col: c })} className={`w-6 h-6 rounded-full ${cm[c].tab} ${sel.col === c ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}></button>
+                    <button key={c} onClick={() => updLocal({ col: c })} className={`w-6 h-6 rounded-full ${cm[c].tab} ${sel.col === c ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}></button>
                   ))}
                 </div>
               )}
               <p className={`text-xs ${sub}`}>Mis à jour : {sel.u}</p>
               {edit ? (
-                <textarea value={sel.c} onChange={(e) => upd({ c: e.target.value })} placeholder="Écrivez..."
+                <textarea value={sel.c} onChange={(e) => updLocal({ c: e.target.value })} placeholder="Écrivez..."
                   className={`w-full min-h-[400px] p-4 rounded-xl border text-sm leading-relaxed ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'} focus:outline-none focus:ring-2 focus:ring-red-500 resize-none`} />
               ) : (
                 <div className={`p-4 rounded-xl ${cm[sel.col].bg} ${cm[sel.col].t} min-h-[400px] whitespace-pre-line text-sm leading-relaxed`}>
@@ -995,6 +1318,16 @@ function PNotes({ data, card, sub, border, darkMode }) {
           )}
         </div>
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Supprimer la note"
+          message="Cette action retirera definitivement cette note."
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => del(pendingDelete)}
+          card={card}
+          darkMode={darkMode}
+        />
+      )}
     </div>
   );
 }
@@ -1028,7 +1361,46 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
       {children}
     </div>
   );
-  const upd = (cat, k, v) => setS({ ...s, [cat]: { ...s[cat], [k]: v !== undefined ? v : !s[cat][k] } });
+  useEffect(() => {
+    if (!data) return;
+    setS((current) => ({
+      ...current,
+      notif: {
+        ...current.notif,
+        rdv: data.notifications?.appointments ?? current.notif.rdv,
+        pill: data.notifications?.medications ?? current.notif.pill,
+        msg: data.notifications?.messages ?? current.notif.msg,
+      },
+      priv: {
+        ...current.priv,
+        dr: data.privacy?.shareWithDoctors ?? current.priv.dr,
+        loc: data.privacy?.emergencyQr ?? current.priv.loc,
+      },
+      app: {
+        ...current.app,
+        lg: data.display?.language?.toUpperCase?.() || current.app.lg,
+      },
+    }));
+  }, [data]);
+  const upd = async (cat, k, v) => {
+    const next = { ...s, [cat]: { ...s[cat], [k]: v !== undefined ? v : !s[cat][k] } };
+    setS(next);
+    await patientApi.updateSettings({
+      notifications: {
+        appointments: next.notif.rdv,
+        medications: next.notif.pill,
+        messages: next.notif.msg,
+      },
+      privacy: {
+        emergencyQr: next.priv.loc,
+        shareWithDoctors: next.priv.dr,
+      },
+      display: {
+        language: String(next.app.lg || 'FR').toLowerCase(),
+        density: 'comfortable',
+      },
+    });
+  };
 
   return (
     <div className="space-y-4">

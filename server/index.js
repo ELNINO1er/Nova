@@ -12,7 +12,7 @@ const app = express();
 const port = Number(process.env.API_PORT || 4001);
 
 app.use(helmet());
-app.use(cors({ origin: process.env.WEB_ORIGIN || 'http://localhost:5173' }));
+app.use(cors({ origin: process.env.WEB_ORIGIN || 'http://localhost:5174' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan('dev'));
 

@@ -89,7 +89,12 @@ export default function App() {
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-            {role === 'patient' && <PatientPages page={page} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid} {...props} />}
+            {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
+              onProfileSaved={(profile) => setUser((current) => ({
+                ...current,
+                name: `${profile.firstName} ${profile.lastName}`,
+                avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
+              }))} {...props} />}
             {role === 'doctor' && <DoctorPages page={page} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
             {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
           </div>
