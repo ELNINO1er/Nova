@@ -20,10 +20,12 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
     { t: 'SUIVI MÉDICAL', i: [
       {id:'pilulier',l:'Pilulier',I:Pill},{id:'treatments',l:'Traitements',I:HeartPulse},
       {id:'rdv',l:'Rendez-vous',I:Calendar},{id:'vaccinations',l:'Vaccinations',I:Syringe},
-      {id:'dna',l:'ADN Médical',I:Droplet},{id:'history',l:'Historique',I:ClipboardList}
+      {id:'dna',l:'ADN Médical',I:Droplet},{id:'labresults',l:'Résultats labo',I:Microscope},
+      {id:'history',l:'Historique',I:ClipboardList}
     ]},
     { t: 'COMMUNICATION', i: [
       {id:'messages',l:'Messages',I:MessageCircle,b:3},
+      {id:'prescriptions',l:'Ordonnances',I:FileDown},
       {id:'documents',l:'Documents',I:FileText},
       {id:'notes',l:'Bloc-notes',I:StickyNote}
     ]},

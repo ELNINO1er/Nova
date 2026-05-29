@@ -51,6 +51,12 @@ export const patientApi = {
   }),
   deleteDocument: (id) => request(`/patient/me/documents/${id}`, { method: 'DELETE' }),
   conversations: () => request('/patient/me/conversations'),
+  conversation: (id) => request(`/patient/me/conversations/${id}`),
+  sendMessage: (id, payload) => request(`/patient/me/conversations/${id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  markConversationRead: (id) => request(`/patient/me/conversations/${id}/read`, { method: 'PATCH' }),
   notes: () => request('/patient/me/notes'),
   createNote: (payload) => request('/patient/me/notes', {
     method: 'POST',
@@ -61,6 +67,20 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   deleteNote: (id) => request(`/patient/me/notes/${id}`, { method: 'DELETE' }),
+  prescriptions: (params = {}) => request(`/patient/me/prescriptions${toQuery(params)}`),
+  prescription: (id) => request(`/patient/me/prescriptions/${id}`),
+  labResults: (params = {}) => request(`/patient/me/lab-results${toQuery(params)}`),
+  labResult: (id) => request(`/patient/me/lab-results/${id}`),
+  medicalProfile: () => request('/patient/me/medical-profile'),
+  updateMedicalProfile: (payload) => request('/patient/me/medical-profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }),
+  uploadDocument: async (formData) => {
+    const r = await fetch(`${API_BASE_URL}/patient/me/documents`, { method: 'POST', body: formData });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
+    return r.json();
+  },
   settings: () => request('/patient/me/settings'),
   updateSettings: (payload) => request('/patient/me/settings', {
     method: 'PATCH',

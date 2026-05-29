@@ -280,10 +280,11 @@ export async function getDocuments(patientId, query) {
 export async function createDocument(patientId, payload) {
   const id = randomUUID();
   await pool.execute(
-    `INSERT INTO nova_documents (id, patient_id, title, category, mime_type, size_bytes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO nova_documents (id, patient_id, title, category, mime_type, size_bytes, file_path, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, patientId, payload.title, payload.category,
-     payload.mimeType || 'application/pdf', payload.sizeBytes || 0, new Date().toISOString()]
+     payload.mimeType || 'application/pdf', payload.sizeBytes || 0,
+     payload.filePath || null, new Date().toISOString()]
   );
   const [[row]] = await pool.execute('SELECT * FROM nova_documents WHERE id = ?', [id]);
   return mapDocument(row);
@@ -295,20 +296,240 @@ export async function deleteDocument(patientId, id) {
   );
 }
 
-/* ─── Conversations ──────────────────────────────────────────── */
+/* ─── Conversations & Messages ───────────────────────────────── */
 
 export async function getConversations(patientId) {
   const [rows] = await pool.execute(
     'SELECT * FROM nova_conversations WHERE patient_id = ? ORDER BY updated_at DESC',
     [patientId]
   );
-  return rows.map((row) => ({
+  return rows.map(mapConversation);
+}
+
+export async function getConversation(patientId, conversationId) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_conversations WHERE patient_id = ? AND id = ?',
+    [patientId, conversationId]
+  );
+  if (!row) return null;
+
+  const [messages] = await pool.execute(
+    'SELECT * FROM nova_messages WHERE conversation_id = ? ORDER BY created_at ASC',
+    [conversationId]
+  );
+
+  return {
+    ...mapConversation(row),
+    messages: messages.map(mapMessage),
+  };
+}
+
+export async function createMessage(patientId, conversationId, payload) {
+  const [[conv]] = await pool.execute(
+    'SELECT * FROM nova_conversations WHERE patient_id = ? AND id = ?',
+    [patientId, conversationId]
+  );
+  if (!conv) return null;
+
+  const id = randomUUID();
+  const now = new Date().toISOString();
+
+  await pool.execute(
+    `INSERT INTO nova_messages (id, conversation_id, sender_role, body, attachment_name, is_read, created_at)
+     VALUES (?, ?, 'patient', ?, ?, 0, ?)`,
+    [id, conversationId, payload.body, payload.attachmentName || null, now]
+  );
+
+  await pool.execute(
+    `UPDATE nova_conversations
+     SET last_message = ?, updated_at = ?
+     WHERE id = ?`,
+    [payload.body.slice(0, 120), now, conversationId]
+  );
+
+  return { id, conversationId, senderRole: 'patient', body: payload.body, isRead: false, createdAt: now };
+}
+
+export async function markConversationRead(patientId, conversationId) {
+  const [[conv]] = await pool.execute(
+    'SELECT id FROM nova_conversations WHERE patient_id = ? AND id = ?',
+    [patientId, conversationId]
+  );
+  if (!conv) return null;
+
+  await pool.execute(
+    `UPDATE nova_messages SET is_read = 1
+     WHERE conversation_id = ? AND sender_role = 'doctor' AND is_read = 0`,
+    [conversationId]
+  );
+  await pool.execute(
+    'UPDATE nova_conversations SET unread_count = 0 WHERE id = ?',
+    [conversationId]
+  );
+
+  return { ok: true };
+}
+
+/* ─── Ordonnances ────────────────────────────────────────────── */
+
+export async function getPrescriptions(patientId, query = {}) {
+  const [rows] = query.status
+    ? await pool.execute(
+        'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND status = ? ORDER BY issued_at DESC',
+        [patientId, query.status]
+      )
+    : await pool.execute(
+        'SELECT * FROM nova_prescriptions WHERE patient_id = ? ORDER BY issued_at DESC',
+        [patientId]
+      );
+
+  return Promise.all(rows.map(async (row) => {
+    const [items] = await pool.execute(
+      'SELECT * FROM nova_prescription_items WHERE prescription_id = ?',
+      [row.id]
+    );
+    return {
+      id: row.id,
+      doctorName: row.doctor_name,
+      doctorSpecialty: row.doctor_specialty,
+      issuedAt: row.issued_at,
+      validUntil: row.valid_until,
+      status: row.status,
+      notes: row.notes,
+      items: items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        dosage: i.dosage,
+        frequency: i.frequency,
+        duration: i.duration,
+        instructions: i.instructions,
+      })),
+    };
+  }));
+}
+
+export async function getPrescription(patientId, id) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND id = ?',
+    [patientId, id]
+  );
+  if (!row) return null;
+  const [items] = await pool.execute(
+    'SELECT * FROM nova_prescription_items WHERE prescription_id = ?',
+    [id]
+  );
+  return {
     id: row.id,
     doctorName: row.doctor_name,
-    unreadCount: row.unread_count,
-    lastMessage: row.last_message,
-    updatedAt: row.updated_at,
+    doctorSpecialty: row.doctor_specialty,
+    issuedAt: row.issued_at,
+    validUntil: row.valid_until,
+    status: row.status,
+    notes: row.notes,
+    items: items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      dosage: i.dosage,
+      frequency: i.frequency,
+      duration: i.duration,
+      instructions: i.instructions,
+    })),
+  };
+}
+
+/* ─── Résultats de laboratoire ───────────────────────────────── */
+
+export async function getLabResults(patientId, query = {}) {
+  const [rows] = query.status
+    ? await pool.execute(
+        'SELECT * FROM nova_lab_results WHERE patient_id = ? AND status = ? ORDER BY performed_at DESC',
+        [patientId, query.status]
+      )
+    : await pool.execute(
+        'SELECT * FROM nova_lab_results WHERE patient_id = ? ORDER BY performed_at DESC',
+        [patientId]
+      );
+
+  return Promise.all(rows.map(async (row) => {
+    const [items] = await pool.execute(
+      'SELECT * FROM nova_lab_result_items WHERE lab_result_id = ? ORDER BY id ASC',
+      [row.id]
+    );
+    return {
+      id: row.id,
+      title: row.title,
+      laboratoryName: row.laboratory_name,
+      performedAt: row.performed_at,
+      status: row.status,
+      doctorName: row.doctor_name,
+      items: items.map(mapLabResultItem),
+    };
   }));
+}
+
+export async function getLabResult(patientId, id) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_lab_results WHERE patient_id = ? AND id = ?',
+    [patientId, id]
+  );
+  if (!row) return null;
+  const [items] = await pool.execute(
+    'SELECT * FROM nova_lab_result_items WHERE lab_result_id = ? ORDER BY id ASC',
+    [id]
+  );
+  return {
+    id: row.id,
+    title: row.title,
+    laboratoryName: row.laboratory_name,
+    performedAt: row.performed_at,
+    status: row.status,
+    doctorName: row.doctor_name,
+    items: items.map(mapLabResultItem),
+  };
+}
+
+/* ─── Profil médical ─────────────────────────────────────────── */
+
+export async function getMedicalProfile(patientId) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]
+  );
+  if (!row) return { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
+  return {
+    allergies:       JSON.parse(row.allergies       || '[]'),
+    chronicDiseases: JSON.parse(row.chronic_diseases || '[]'),
+    familyHistory:   JSON.parse(row.family_history   || '[]'),
+    surgicalHistory: JSON.parse(row.surgical_history || '[]'),
+    updatedAt:       row.updated_at,
+  };
+}
+
+export async function updateMedicalProfile(patientId, changes) {
+  const current = await getMedicalProfile(patientId);
+  const next = {
+    allergies:       changes.allergies       ?? current.allergies,
+    chronicDiseases: changes.chronicDiseases ?? current.chronicDiseases,
+    familyHistory:   changes.familyHistory   ?? current.familyHistory,
+    surgicalHistory: changes.surgicalHistory ?? current.surgicalHistory,
+  };
+  const now = new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_medical_profile (patient_id, allergies, chronic_diseases, family_history, surgical_history, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       allergies = VALUES(allergies),
+       chronic_diseases = VALUES(chronic_diseases),
+       family_history = VALUES(family_history),
+       surgical_history = VALUES(surgical_history),
+       updated_at = VALUES(updated_at)`,
+    [patientId,
+     JSON.stringify(next.allergies),
+     JSON.stringify(next.chronicDiseases),
+     JSON.stringify(next.familyHistory),
+     JSON.stringify(next.surgicalHistory),
+     now]
+  );
+  return { ...next, updatedAt: now };
 }
 
 /* ─── Notes ──────────────────────────────────────────────────── */
@@ -503,6 +724,29 @@ function mapAppointment(row) {
   };
 }
 
+function mapConversation(row) {
+  return {
+    id: row.id,
+    doctorName: row.doctor_name,
+    doctorSpecialty: row.doctor_specialty,
+    unreadCount: row.unread_count,
+    lastMessage: row.last_message,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMessage(row) {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    senderRole: row.sender_role,
+    body: row.body,
+    attachmentName: row.attachment_name,
+    isRead: Boolean(row.is_read),
+    createdAt: row.created_at,
+  };
+}
+
 function mapDocument(row) {
   return {
     id: row.id,
@@ -510,7 +754,19 @@ function mapDocument(row) {
     category: row.category,
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
+    filePath: row.file_path || null,
     createdAt: row.created_at,
+  };
+}
+
+function mapLabResultItem(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    value: row.value,
+    unit: row.unit,
+    referenceRange: row.reference_range,
+    status: row.status,
   };
 }
 

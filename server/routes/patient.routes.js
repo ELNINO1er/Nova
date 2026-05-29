@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import path from 'path';
 import { requirePatient } from '../middleware/auth.js';
+import { upload, uploadDir } from '../middleware/upload.js';
 import {
   createMedicationIntake,
   createAppointment,
@@ -10,18 +12,27 @@ import {
   deleteDocument,
   getAppointments,
   getConversations,
+  getConversation,
+  createMessage,
+  markConversationRead,
   getDashboard,
   getDocuments,
   getHistory,
+  getLabResults,
+  getLabResult,
   getMedicationToday,
+  getMedicalProfile,
   getNotes,
   getProfile,
+  getPrescriptions,
+  getPrescription,
   getSettings,
   getTreatments,
   getVaccinations,
   getVitals,
   updateNote,
   updateAppointment,
+  updateMedicalProfile,
   updateProfile,
   updateSettings,
   deleteNote,
@@ -138,13 +149,17 @@ router.get('/documents', wrap(async (req, res) => {
   res.json(await getDocuments(req.user.patientId, req.query));
 }));
 
-router.post('/documents', validateBody(z.object({
-  title:     z.string().min(1),
-  category:  z.string().min(1),
-  mimeType:  z.string().default('application/pdf'),
-  sizeBytes: z.number().int().nonnegative().default(0),
-})), wrap(async (req, res) => {
-  res.status(201).json(await createDocument(req.user.patientId, req.body));
+router.post('/documents', upload.single('file'), wrap(async (req, res) => {
+  const title    = req.body.title    || (req.file ? req.file.originalname : 'Document');
+  const category = req.body.category || 'other';
+  const doc = await createDocument(req.user.patientId, {
+    title,
+    category,
+    mimeType:  req.file ? req.file.mimetype    : (req.body.mimeType || 'application/pdf'),
+    sizeBytes: req.file ? req.file.size        : Number(req.body.sizeBytes || 0),
+    filePath:  req.file ? req.file.path        : null,
+  });
+  res.status(201).json(doc);
 }));
 
 router.delete('/documents/:id', wrap(async (req, res) => {
@@ -152,10 +167,70 @@ router.delete('/documents/:id', wrap(async (req, res) => {
   res.status(204).send();
 }));
 
-/* ─── Conversations ──────────────────────────────────────────── */
+/* ─── Conversations & Messages ───────────────────────────────── */
 
 router.get('/conversations', wrap(async (req, res) => {
   res.json(await getConversations(req.user.patientId));
+}));
+
+router.get('/conversations/:id', wrap(async (req, res) => {
+  const data = await getConversation(req.user.patientId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found', message: 'Conversation introuvable' });
+  res.json(data);
+}));
+
+router.post('/conversations/:id/messages', validateBody(z.object({
+  body:           z.string().min(1).max(2000),
+  attachmentName: z.string().optional(),
+})), wrap(async (req, res) => {
+  const msg = await createMessage(req.user.patientId, req.params.id, req.body);
+  if (!msg) return res.status(404).json({ error: 'not_found', message: 'Conversation introuvable' });
+  res.status(201).json(msg);
+}));
+
+router.patch('/conversations/:id/read', wrap(async (req, res) => {
+  const result = await markConversationRead(req.user.patientId, req.params.id);
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Conversation introuvable' });
+  res.json(result);
+}));
+
+/* ─── Ordonnances ────────────────────────────────────────────── */
+
+router.get('/prescriptions', wrap(async (req, res) => {
+  res.json(await getPrescriptions(req.user.patientId, req.query));
+}));
+
+router.get('/prescriptions/:id', wrap(async (req, res) => {
+  const data = await getPrescription(req.user.patientId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found', message: 'Ordonnance introuvable' });
+  res.json(data);
+}));
+
+/* ─── Résultats de laboratoire ───────────────────────────────── */
+
+router.get('/lab-results', wrap(async (req, res) => {
+  res.json(await getLabResults(req.user.patientId, req.query));
+}));
+
+router.get('/lab-results/:id', wrap(async (req, res) => {
+  const data = await getLabResult(req.user.patientId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found', message: 'Résultat introuvable' });
+  res.json(data);
+}));
+
+/* ─── Profil médical ─────────────────────────────────────────── */
+
+router.get('/medical-profile', wrap(async (req, res) => {
+  res.json(await getMedicalProfile(req.user.patientId));
+}));
+
+router.patch('/medical-profile', validateBody(z.object({
+  allergies:       z.array(z.string()).optional(),
+  chronicDiseases: z.array(z.string()).optional(),
+  familyHistory:   z.array(z.string()).optional(),
+  surgicalHistory: z.array(z.string()).optional(),
+})), wrap(async (req, res) => {
+  res.json(await updateMedicalProfile(req.user.patientId, req.body));
 }));
 
 /* ─── Notes ──────────────────────────────────────────────────── */

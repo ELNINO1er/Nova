@@ -8,6 +8,7 @@ import { initDb } from './db/database.js';
 import patientRoutes from './routes/patient.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
+import { uploadDir } from './middleware/upload.js';
 
 const app = express();
 const port = Number(process.env.API_PORT || 4001);
@@ -30,6 +31,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 }));
 
 app.use('/api/patient/me', patientRoutes);
+app.use('/uploads', express.static(uploadDir));
 
 app.use(notFoundHandler);
 app.use(errorHandler);

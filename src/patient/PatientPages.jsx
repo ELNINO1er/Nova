@@ -39,6 +39,9 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       messages: patientApi.conversations,
       documents: patientApi.documents,
       notes: patientApi.notes,
+      prescriptions: patientApi.prescriptions,
+      labresults: patientApi.labResults,
+      dna: patientApi.medicalProfile,
       settings: patientApi.settings,
     };
     const load = loaders[pageKey];
@@ -88,11 +91,13 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     treatments: <PTreatments data={apiData.treatments} {...p} />,
     rdv: <PRDV data={apiData.rdv} onReload={(value) => replacePageDataAndRefreshDashboard('rdv', value)} notify={notify} setShowVid={setShowVid} {...p} />,
     vaccinations: <PVax data={apiData.vaccinations} {...p} />,
-    dna: <PDNA data={apiData.profile || apiData.dashboard?.profile} {...p} />,
+    dna: <PDNA data={apiData.dna} profile={apiData.profile || apiData.dashboard?.profile} onReload={(value) => replacePageData('dna', value)} notify={notify} {...p} />,
     history: <PHistory data={apiData.history} {...p} />,
     messages: <PMsg data={apiData.messages} setShowVid={setShowVid} {...p} />,
     documents: <PDocs data={apiData.documents} onReload={(value) => replacePageDataAndRefreshDashboard('documents', value)} notify={notify} {...p} />,
     notes: <PNotes data={apiData.notes} onReload={(value) => replacePageData('notes', value)} notify={notify} {...p} />,
+    prescriptions: <POrdonnances data={apiData.prescriptions} {...p} />,
+    labresults: <PLabResults data={apiData.labresults} {...p} />,
     wellness: <PWell {...p} />,
     settings: <SettingsPage data={apiData.settings} {...p} />
   };
@@ -1071,32 +1076,257 @@ function PVax({ data, card, sub, border, darkMode }) {
   );
 }
 
-function PDNA({ data, card, sub, darkMode }) {
-  const profile = data;
+function PDNA({ data, profile, onReload, notify, card, sub, border, darkMode }) {
   const bloodType = profile?.bloodType || '—';
+  const [editing, setEditing]   = useState(null); // 'allergies' | 'chronicDiseases' | 'familyHistory' | 'surgicalHistory'
+  const [input, setInput]       = useState('');
+  const [saving, setSaving]     = useState(false);
+
+  const mp = data || { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
+
+  const sectionConfig = [
+    { key: 'allergies',       label: 'Allergies',                icon: AlertTriangle,  color: 'red' },
+    { key: 'chronicDiseases', label: 'Maladies chroniques',      icon: HeartPulse,     color: 'orange' },
+    { key: 'familyHistory',   label: 'Antécédents familiaux',    icon: Users,          color: 'purple' },
+    { key: 'surgicalHistory', label: 'Historique chirurgical',   icon: Stethoscope,    color: 'blue' },
+  ];
+
+  const colorMap = {
+    red:    { bg: darkMode ? 'bg-red-900/20 border-red-800' : 'bg-red-50 border-red-200', badge: 'bg-red-100 text-red-700', btn: 'text-red-500 hover:text-red-700' },
+    orange: { bg: darkMode ? 'bg-orange-900/20 border-orange-800' : 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700', btn: 'text-orange-500 hover:text-orange-700' },
+    purple: { bg: darkMode ? 'bg-purple-900/20 border-purple-800' : 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700', btn: 'text-purple-500 hover:text-purple-700' },
+    blue:   { bg: darkMode ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700', btn: 'text-blue-500 hover:text-blue-700' },
+  };
+
+  const saveSection = async (key, newList) => {
+    setSaving(true);
+    try {
+      const updated = await patientApi.updateMedicalProfile({ [key]: newList });
+      onReload?.(updated);
+      notify?.('Profil médical mis à jour');
+    } catch (e) {
+      notify?.(e.message || 'Erreur sauvegarde', 'error');
+    } finally {
+      setSaving(false);
+      setEditing(null);
+      setInput('');
+    }
+  };
+
+  const addItem = (key) => {
+    const v = input.trim();
+    if (!v) return;
+    saveSection(key, [...(mp[key] || []), v]);
+  };
+
+  const removeItem = (key, idx) => {
+    const list = (mp[key] || []).filter((_, i) => i !== idx);
+    saveSection(key, list);
+  };
+
+  if (!data) return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold">ADN Médical</h2>
+      <div className={`${card} border rounded-2xl p-6`}>
+        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse h-24 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />)}</div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">ADN Médical</h2>
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-900"><strong>Données limitées :</strong> les allergies et le profil génétique ne sont pas encore disponibles via l'API. Les informations ci-dessous proviennent du profil patient.</p>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-2xl p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/20 rounded-full -translate-y-24 translate-x-24 blur-2xl"></div>
-          <Droplet className="w-8 h-8 mb-3" />
+
+      {/* Blood type hero */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-2xl p-6 relative overflow-hidden sm:col-span-1">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/20 rounded-full -translate-y-16 translate-x-16 blur-2xl"></div>
+          <Droplet className="w-6 h-6 mb-2" />
           <p className="text-xs text-red-100">Groupe Sanguin</p>
-          <p className="text-6xl font-bold">{bloodType}</p>
+          <p className="text-5xl font-black mt-1">{bloodType}</p>
         </div>
-        <div className={`${card} border rounded-2xl p-6`}>
-          <div className="flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5 text-red-600" /><h3 className="font-bold">Allergies</h3></div>
-          <div className="py-8 flex flex-col items-center text-center">
-            <ShieldAlert className={`w-10 h-10 ${sub} mb-3`} />
-            <p className={`text-sm font-semibold ${sub}`}>Données non disponibles</p>
-            <p className={`text-xs ${sub} mt-1`}>La gestion des allergies sera disponible dans une prochaine version.</p>
+        <div className={`${card} border rounded-2xl p-5 sm:col-span-2 flex flex-col justify-center`}>
+          <p className="text-xs font-bold uppercase tracking-wider text-red-600 mb-1">Résumé du profil médical</p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {sectionConfig.map(s => (
+              <div key={s.key} className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full bg-${s.color}-500 flex-shrink-0`}></span>
+                <span className={sub}>{(mp[s.key] || []).length} {s.label.toLowerCase()}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
+
+      {/* Sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {sectionConfig.map(({ key, label, icon: Icon, color }) => {
+          const items = mp[key] || [];
+          const c = colorMap[color];
+          const isEditing = editing === key;
+          return (
+            <div key={key} className={`${card} border rounded-2xl p-5`}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-4 h-4 text-${color}-600`} />
+                  <h3 className="font-bold text-sm">{label}</h3>
+                  <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full ${c.badge}`}>{items.length}</span>
+                </div>
+                <button onClick={() => { setEditing(isEditing ? null : key); setInput(''); }}
+                  className={`text-xs font-semibold px-2 py-1 rounded-lg ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                  {isEditing ? 'Fermer' : '+ Ajouter'}
+                </button>
+              </div>
+
+              {isEditing && (
+                <div className="flex gap-2 mb-3">
+                  <input
+                    value={input} onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addItem(key)}
+                    placeholder={`Ajouter ${label.toLowerCase()}...`}
+                    className={`flex-1 px-3 py-1.5 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-300'}`}
+                    autoFocus
+                  />
+                  <button onClick={() => addItem(key)} disabled={saving || !input.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold disabled:opacity-50">
+                    OK
+                  </button>
+                </div>
+              )}
+
+              {items.length === 0 ? (
+                <p className={`text-xs ${sub} italic py-2`}>Aucun élément renseigné.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {items.map((item, idx) => (
+                    <span key={idx} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${c.bg}`}>
+                      {item}
+                      <button onClick={() => removeItem(key, idx)} className={`ml-0.5 ${c.btn}`} disabled={saving}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============ RÉSULTATS LABO ============ */
+function PLabResults({ data, card, sub, border, darkMode }) {
+  const [expanded, setExpanded] = useState(null);
+
+  const statusStyle = {
+    normal:   { badge: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' },
+    high:     { badge: 'bg-red-100 text-red-600',         bar: 'bg-red-500' },
+    low:      { badge: 'bg-amber-100 text-amber-700',     bar: 'bg-amber-500' },
+    critical: { badge: 'bg-red-200 text-red-700 font-bold', bar: 'bg-red-600' },
+  };
+  const statusLabel = { normal: 'Normal', high: 'Élevé', low: 'Bas', critical: 'Critique' };
+
+  const reportStatusColor = {
+    completed:  'bg-emerald-100 text-emerald-700',
+    pending:    'bg-amber-100 text-amber-700',
+    cancelled:  'bg-slate-100 text-slate-500',
+  };
+  const reportStatusLabel = { completed: 'Terminé', pending: 'En attente', cancelled: 'Annulé' };
+
+  if (!data) return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold">Résultats de laboratoire</h2>
+      <div className={`${card} border rounded-2xl p-6`}>
+        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse h-24 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />)}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Résultats de laboratoire</h2>
+          <p className={`text-sm ${sub}`}>{data.length} analyse{data.length > 1 ? 's' : ''}</p>
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
+          <Microscope className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucun résultat disponible</p>
+          <p className={`text-xs ${sub} mt-1`}>Vos analyses biologiques apparaîtront ici.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.map((report) => {
+            const isOpen = expanded === report.id;
+            const hasAbnormal = report.items.some(i => i.status !== 'normal');
+            return (
+              <div key={report.id} className={`${card} border rounded-2xl overflow-hidden`}>
+                <button onClick={() => setExpanded(isOpen ? null : report.id)}
+                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-black/5 transition-colors">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
+                    <Microscope className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold truncate">{report.title}</p>
+                      {hasAbnormal && <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 text-red-600">⚠ Valeurs anormales</span>}
+                    </div>
+                    <p className={`text-xs ${sub} mt-0.5`}>{report.laboratoryName} • {formatDate(report.performedAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${reportStatusColor[report.status] || 'bg-slate-100 text-slate-500'}`}>
+                      {reportStatusLabel[report.status] || report.status}
+                    </span>
+                    <ChevronRight className={`w-4 h-4 ${sub} transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className={`border-t ${border} p-4`}>
+                    {report.doctorName && (
+                      <p className={`text-xs ${sub} mb-3`}>Prescrit par <strong>{report.doctorName}</strong></p>
+                    )}
+                    <div className="space-y-2">
+                      {report.items.map((item) => {
+                        const st = statusStyle[item.status] || statusStyle.normal;
+                        return (
+                          <div key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium truncate">{item.name}</p>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${st.badge}`}>
+                                  {statusLabel[item.status] || item.status}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-base font-bold">{item.value}</span>
+                                {item.unit && <span className={`text-xs ${sub}`}>{item.unit}</span>}
+                                {item.referenceRange && (
+                                  <span className={`text-xs ${sub} ml-auto`}>Réf : {item.referenceRange}</span>
+                                )}
+                              </div>
+                              {item.status !== 'normal' && (
+                                <div className={`mt-1.5 h-1.5 w-full rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                                  <div className={`h-1.5 rounded-full ${st.bar}`} style={{ width: item.status === 'critical' ? '100%' : '65%' }}></div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1147,6 +1377,226 @@ function PHistory({ data, card, sub, darkMode }) {
   );
 }
 
+/* ============ ORDONNANCES ============ */
+function POrdonnances({ data, card, sub, border, darkMode }) {
+  const [filter, setFilter]   = useState('all');
+  const [expanded, setExpanded] = useState(null);
+  const [printing, setPrinting] = useState(null);
+
+  const statusLabel = { active: 'Active', expired: 'Expirée', cancelled: 'Annulée' };
+  const statusStyle = {
+    active:    'bg-emerald-100 text-emerald-700',
+    expired:   'bg-slate-100 text-slate-500',
+    cancelled: 'bg-red-100 text-red-600',
+  };
+
+  const prescriptions = data ?? [];
+  const filtered = filter === 'all'
+    ? prescriptions
+    : prescriptions.filter((p) => p.status === filter);
+
+  const daysLeft = (validUntil) => {
+    if (!validUntil) return null;
+    const diff = Math.ceil((new Date(validUntil) - Date.now()) / 86400000);
+    return diff;
+  };
+
+  const handlePrint = (presc) => {
+    setPrinting(presc);
+    window.setTimeout(() => {
+      window.print();
+      setPrinting(null);
+    }, 300);
+  };
+
+  if (!data) return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold">Ordonnances</h2>
+      <div className={`${card} border rounded-2xl p-6`}>
+        <div className="space-y-3">
+          {[0,1,2].map(i => <div key={i} className={`animate-pulse h-28 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />)}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Print overlay */}
+      {printing && (
+        <div className="hidden print:block fixed inset-0 bg-white p-8 z-[999]">
+          <div className="max-w-2xl mx-auto">
+            <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-slate-200">
+              <div>
+                <h1 className="text-2xl font-bold text-red-700">NOVA — Carnet Santé Ivoirien</h1>
+                <p className="text-slate-500 text-sm">Ordonnance médicale numérique</p>
+              </div>
+              <div className="text-right text-sm text-slate-500">
+                <p>Émise le {printing.issuedAt ? new Date(printing.issuedAt).toLocaleDateString('fr-FR') : '—'}</p>
+                <p>Valable jusqu'au {printing.validUntil ? new Date(printing.validUntil).toLocaleDateString('fr-FR') : '—'}</p>
+              </div>
+            </div>
+            <div className="mb-6">
+              <p className="font-bold text-lg">{printing.doctorName}</p>
+              <p className="text-slate-500">{printing.doctorSpecialty}</p>
+            </div>
+            <h3 className="font-bold mb-3 uppercase text-xs tracking-wider text-slate-400">Médicaments prescrits</h3>
+            <div className="space-y-4">
+              {printing.items.map((item, idx) => (
+                <div key={item.id} className="p-4 border rounded-xl">
+                  <p className="font-bold">{idx + 1}. {item.name} {item.dosage && `— ${item.dosage}`}</p>
+                  {item.frequency && <p className="text-sm mt-1"><span className="font-semibold">Posologie :</span> {item.frequency}</p>}
+                  {item.duration && <p className="text-sm"><span className="font-semibold">Durée :</span> {item.duration}</p>}
+                  {item.instructions && <p className="text-sm text-slate-500 mt-1 italic">{item.instructions}</p>}
+                </div>
+              ))}
+            </div>
+            {printing.notes && <p className="mt-6 text-sm text-slate-500 border-t pt-4">{printing.notes}</p>}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-2 print:hidden">
+        <div>
+          <h2 className="text-2xl font-bold">Ordonnances</h2>
+          <p className={`text-sm ${sub}`}>{prescriptions.filter(p => p.status === 'active').length} ordonnance{prescriptions.filter(p => p.status === 'active').length > 1 ? 's' : ''} active{prescriptions.filter(p => p.status === 'active').length > 1 ? 's' : ''}</p>
+        </div>
+        <div className={`flex rounded-xl overflow-hidden border ${border} text-sm font-semibold`}>
+          {[['all','Toutes'], ['active','Actives'], ['expired','Expirées']].map(([v, l]) => (
+            <button key={v} onClick={() => setFilter(v)}
+              className={`px-4 py-2 transition-colors ${filter === v ? 'bg-red-600 text-white' : (darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-50')}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center print:hidden`}>
+          <FileText className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucune ordonnance</p>
+          <p className={`text-xs ${sub} mt-1`}>Vos ordonnances apparaîtront ici après vos consultations.</p>
+        </div>
+      ) : (
+        <div className="space-y-3 print:hidden">
+          {filtered.map((presc) => {
+            const open = expanded === presc.id;
+            const days = daysLeft(presc.validUntil);
+            const expiringSoon = days !== null && days > 0 && days <= 14;
+            return (
+              <div key={presc.id} className={`${card} border rounded-2xl overflow-hidden transition-all
+                ${presc.status === 'active' ? (darkMode ? 'border-emerald-800' : 'border-emerald-200') : ''}`}>
+                {/* Header card */}
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3">
+                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0
+                        ${presc.status === 'active' ? 'bg-emerald-100 text-emerald-700' : (darkMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-400')}`}>
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold">{presc.doctorName}</p>
+                        {presc.doctorSpecialty && <p className={`text-xs ${sub}`}>{presc.doctorSpecialty}</p>}
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusStyle[presc.status] || statusStyle.expired}`}>
+                            {statusLabel[presc.status] || presc.status}
+                          </span>
+                          <span className={`text-[11px] ${sub}`}>
+                            Émise le {new Date(presc.issuedAt).toLocaleDateString('fr-FR')}
+                          </span>
+                          {presc.validUntil && (
+                            <span className={`text-[11px] font-semibold ${
+                              expiringSoon ? 'text-amber-600' :
+                              (days !== null && days <= 0) ? 'text-red-500' : sub
+                            }`}>
+                              {days !== null && days > 0
+                                ? `Valable encore ${days} jour${days > 1 ? 's' : ''}`
+                                : days !== null && days <= 0
+                                ? 'Expirée'
+                                : `Jusqu'au ${new Date(presc.validUntil).toLocaleDateString('fr-FR')}`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <button onClick={() => handlePrint(presc)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors
+                          ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                        <Download className="w-3.5 h-3.5" /> Imprimer
+                      </button>
+                      <button onClick={() => setExpanded(open ? null : presc.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
+                          ${open ? 'bg-red-600 text-white' : (darkMode ? 'bg-slate-700 text-slate-200 hover:bg-slate-600' : 'bg-slate-100 text-slate-700 hover:bg-slate-200')}`}>
+                        {open ? 'Réduire' : `Voir ${presc.items.length} méd.`}
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Résumé médicaments (toujours visible) */}
+                  {!open && (
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {presc.items.map((item) => (
+                        <span key={item.id} className={`text-[11px] px-2 py-0.5 rounded-full font-medium
+                          ${darkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                          {item.name} {item.dosage && `${item.dosage}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Détail médicaments (expandable) */}
+                {open && (
+                  <div className={`border-t ${border} px-5 pb-5 pt-4`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${sub} mb-3`}>Médicaments prescrits</p>
+                    <div className="space-y-3">
+                      {presc.items.map((item, idx) => (
+                        <div key={item.id} className={`flex gap-3 p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5
+                            ${darkMode ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-600 shadow-sm'}`}>
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm">{item.name}
+                              {item.dosage && <span className={`ml-2 text-xs font-normal ${sub}`}>{item.dosage}</span>}
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 mt-1.5">
+                              {item.frequency && (
+                                <p className={`text-xs ${sub}`}><span className="font-semibold">Posologie :</span> {item.frequency}</p>
+                              )}
+                              {item.duration && (
+                                <p className={`text-xs ${sub}`}><span className="font-semibold">Durée :</span> {item.duration}</p>
+                              )}
+                            </div>
+                            {item.instructions && (
+                              <p className={`text-xs mt-1.5 italic ${darkMode ? 'text-amber-400' : 'text-amber-700'} flex gap-1`}>
+                                <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                                {item.instructions}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {presc.notes && (
+                      <div className={`mt-3 p-3 rounded-xl text-xs ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-blue-50 text-blue-800'} flex gap-2`}>
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>{presc.notes}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PWell({ card, sub, darkMode }) {
   return (
     <div className="space-y-4">
@@ -1169,81 +1619,264 @@ function PWell({ card, sub, darkMode }) {
 }
 
 export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
-  const [sel, setSel] = useState(null);
-  const conversations = data?.length ? data.map((conversation) => ({
-    id: conversation.id,
-    n: conversation.doctorName,
-    l: conversation.lastMessage,
-    t: formatRelativeDate(conversation.updatedAt),
-    u: conversation.unreadCount,
-    on: conversation.unreadCount > 0,
-    a: initials(conversation.doctorName),
-  })) : [];
-  const activeConversation = conversations.find((c) => c.id === sel) || conversations[0];
+  const [convList, setConvList]     = useState(data || []);
+  const [selId, setSelId]           = useState(null);
+  const [convData, setConvData]     = useState(null);
+  const [convLoading, setConvLoading] = useState(false);
+  const [msgText, setMsgText]       = useState('');
+  const [sending, setSending]       = useState(false);
+  const [showList, setShowList]     = useState(true); // mobile toggle
+  const endRef   = useRef(null);
+  const inputRef = useRef(null);
 
-  if (!data) {
-    return (
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Messages</h2>
-        <div className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-96 rounded-lg`}></div></div>
-      </div>
-    );
-  }
+  useEffect(() => { if (data) setConvList(data); }, [data]);
 
-  return (
+  // auto-scroll when messages change
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [convData?.messages?.length]);
+
+  // auto-open first conversation on load
+  useEffect(() => {
+    if (convList.length > 0 && !selId) openConversation(convList[0].id);
+  }, [convList]);
+
+  const openConversation = async (id) => {
+    if (id === selId && convData) return;
+    setSelId(id);
+    setConvData(null);
+    setConvLoading(true);
+    setShowList(false);
+    try {
+      const full = await patientApi.conversation(id);
+      setConvData(full);
+      await patientApi.markConversationRead(id);
+      setConvList(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c));
+    } catch { /* ignore */ }
+    finally { setConvLoading(false); }
+  };
+
+  const sendMessage = async () => {
+    const body = msgText.trim();
+    if (!body || !selId || sending) return;
+    setSending(true);
+    setMsgText('');
+    try {
+      const msg = await patientApi.sendMessage(selId, { body });
+      setConvData(prev => ({ ...prev, messages: [...(prev.messages || []), msg] }));
+      setConvList(prev => prev.map(c =>
+        c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
+      ));
+    } catch { setMsgText(body); }
+    finally { setSending(false); }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const formatMsgTime = (iso) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    return isToday
+      ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatMsgDate = (iso) => new Date(iso).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+
+  if (!data) return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Messages</h2>
-      {conversations.length === 0 ? (
+      <div className={`${card} border rounded-2xl p-6`}>
+        <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-96 rounded-lg`}></div>
+      </div>
+    </div>
+  );
+
+  const activeConv = convList.find(c => c.id === selId);
+
+  /* ── group messages by day ── */
+  const groupedMessages = (() => {
+    if (!convData?.messages?.length) return [];
+    const groups = [];
+    let lastDate = null;
+    for (const msg of convData.messages) {
+      const day = new Date(msg.createdAt).toDateString();
+      if (day !== lastDate) { groups.push({ type: 'date', label: formatMsgDate(msg.createdAt) }); lastDate = day; }
+      groups.push({ type: 'msg', msg });
+    }
+    return groups;
+  })();
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Messages</h2>
+        <span className={`text-xs px-2 py-1 rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-100'} ${sub}`}>
+          {convList.reduce((s, c) => s + c.unreadCount, 0)} non lu{convList.reduce((s, c) => s + c.unreadCount, 0) > 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {convList.length === 0 ? (
         <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
           <MessageCircle className={`w-12 h-12 ${sub} mb-4`} />
           <p className="font-semibold">Aucune conversation</p>
           <p className={`text-xs ${sub} mt-1`}>Vos échanges avec les médecins apparaîtront ici.</p>
         </div>
       ) : (
-      <div className={`${card} border rounded-2xl overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[600px]`}>
-        <div className={`border-r ${border} overflow-y-auto`}>
-          {conversations.map(c => (
-            <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${activeConversation?.id === c.id ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
-              <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{c.a}</div>
-                {c.on && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white"></span>}
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <div className="flex items-center justify-between gap-2"><p className="font-semibold text-sm truncate">{c.n}</p><p className={`text-[10px] ${sub}`}>{c.t}</p></div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className={`text-xs ${sub} truncate`}>{c.l}</p>
-                  {c.u > 0 && <span className="px-1.5 rounded-full bg-red-600 text-white text-[10px] font-bold">{c.u}</span>}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-        <div className="md:col-span-2 flex flex-col">
-          {activeConversation ? (
-            <>
-              <div className={`p-3 border-b ${border} flex items-center justify-between`}>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{activeConversation.a}</div>
-                  <div><p className="font-bold text-sm">{activeConversation.n}</p></div>
-                </div>
-                <button onClick={() => setShowVid && setShowVid(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                  <Video className="w-4 h-4 text-emerald-600" />
-                </button>
-              </div>
-              <div className={`flex-1 p-6 flex flex-col items-center justify-center text-center ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
-                <MessageCircle className={`w-10 h-10 ${sub} mb-3`} />
-                <p className={`text-sm font-semibold ${sub}`}>Messagerie en lecture seule</p>
-                <p className={`text-xs ${sub} mt-1`}>Dernier message : {activeConversation.l}</p>
-                <p className={`text-xs ${sub} mt-3`}>L'envoi de messages sera disponible dans une prochaine version.</p>
-              </div>
-            </>
-          ) : (
-            <div className={`flex-1 flex items-center justify-center ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
-              <p className={`text-sm ${sub}`}>Sélectionnez une conversation</p>
+        <div className={`${card} border rounded-2xl overflow-hidden flex`} style={{ height: '72vh', minHeight: 500 }}>
+
+          {/* ── Liste conversations ── */}
+          <div className={`${showList ? 'flex' : 'hidden md:flex'} flex-col w-full md:w-72 shrink-0 border-r ${border}`}>
+            <div className={`p-3 border-b ${border} flex items-center gap-2`}>
+              <MessageCircle className="w-4 h-4 text-red-600" />
+              <span className="font-bold text-sm">Conversations</span>
             </div>
-          )}
+            <div className="flex-1 overflow-y-auto">
+              {convList.map(c => {
+                const unread = c.unreadCount > 0;
+                const active = c.id === selId;
+                return (
+                  <button key={c.id} onClick={() => openConversation(c.id)}
+                    className={`w-full p-3 border-b ${border} flex items-start gap-3 text-left transition-colors
+                      ${active ? (darkMode ? 'bg-red-900/30 border-l-2 border-l-red-500' : 'bg-red-50 border-l-2 border-l-red-500')
+                               : (darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50')}`}>
+                    <div className="relative shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">
+                        {initials(c.doctorName)}
+                      </div>
+                      {unread && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center">{c.unreadCount}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className={`text-sm truncate ${unread ? 'font-bold' : 'font-semibold'}`}>{c.doctorName}</p>
+                        <p className={`text-[10px] shrink-0 ${sub}`}>{formatRelativeDate(c.updatedAt)}</p>
+                      </div>
+                      {c.doctorSpecialty && <p className={`text-[11px] ${sub} mb-0.5`}>{c.doctorSpecialty}</p>}
+                      <p className={`text-xs truncate ${unread ? (darkMode ? 'text-slate-200' : 'text-slate-700') : sub}`}>{c.lastMessage}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Panneau chat ── */}
+          <div className={`${showList ? 'hidden md:flex' : 'flex'} flex-col flex-1 min-w-0`}>
+            {activeConv ? (
+              <>
+                {/* Header */}
+                <div className={`p-3 border-b ${border} flex items-center gap-3`}>
+                  <button className={`md:hidden p-1.5 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
+                    onClick={() => setShowList(true)}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    {initials(activeConv.doctorName)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm truncate">{activeConv.doctorName}</p>
+                    {activeConv.doctorSpecialty && <p className={`text-xs ${sub}`}>{activeConv.doctorSpecialty}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`} title="Appel audio">
+                      <Phone className="w-4 h-4 text-emerald-600" />
+                    </button>
+                    <button onClick={() => setShowVid?.(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`} title="Vidéo">
+                      <Video className="w-4 h-4 text-blue-600" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Messages */}
+                <div className={`flex-1 overflow-y-auto p-4 space-y-1 ${darkMode ? 'bg-slate-950' : 'bg-slate-50/60'}`}>
+                  {convLoading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="animate-spin w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full" />
+                    </div>
+                  ) : groupedMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <MessageCircle className={`w-10 h-10 ${sub} mb-2`} />
+                      <p className={`text-sm ${sub}`}>Démarrez la conversation</p>
+                    </div>
+                  ) : (
+                    groupedMessages.map((item, idx) => {
+                      if (item.type === 'date') return (
+                        <div key={`date-${idx}`} className="flex items-center gap-3 py-2">
+                          <div className={`flex-1 h-px ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                          <span className={`text-[10px] font-semibold capitalize ${sub}`}>{item.label}</span>
+                          <div className={`flex-1 h-px ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                        </div>
+                      );
+                      const { msg } = item;
+                      const isPatient = msg.senderRole === 'patient';
+                      return (
+                        <div key={msg.id} className={`flex ${isPatient ? 'justify-end' : 'justify-start'} mb-1`}>
+                          {!isPatient && (
+                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-[10px] shrink-0 mr-2 mt-1">
+                              {initials(activeConv.doctorName)}
+                            </div>
+                          )}
+                          <div className={`max-w-[72%] group`}>
+                            <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed
+                              ${isPatient
+                                ? 'bg-red-600 text-white rounded-tr-sm'
+                                : (darkMode ? 'bg-slate-800 text-slate-100 rounded-tl-sm' : 'bg-white text-slate-800 shadow-sm rounded-tl-sm border border-slate-100')
+                              }`}>
+                              {msg.body}
+                            </div>
+                            <p className={`text-[10px] mt-0.5 ${sub} ${isPatient ? 'text-right' : 'text-left'}`}>
+                              {formatMsgTime(msg.createdAt)}
+                              {isPatient && msg.isRead && <span className="ml-1 text-blue-400">✓✓</span>}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={endRef} />
+                </div>
+
+                {/* Input */}
+                <div className={`p-3 border-t ${border}`}>
+                  <div className={`flex items-end gap-2 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} px-3 py-2`}>
+                    <button className={`p-1 rounded-lg ${sub} hover:text-red-600 shrink-0 mb-0.5`} title="Joindre un fichier">
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                    <textarea
+                      ref={inputRef}
+                      value={msgText}
+                      onChange={(e) => setMsgText(e.target.value)}
+                      onKeyDown={handleKey}
+                      placeholder="Écrire un message… (Entrée pour envoyer)"
+                      rows={1}
+                      className={`flex-1 resize-none bg-transparent text-sm outline-none max-h-28 leading-relaxed ${darkMode ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400'}`}
+                      style={{ fieldSizing: 'content' }}
+                    />
+                    <button
+                      onClick={sendMessage}
+                      disabled={!msgText.trim() || sending}
+                      className="shrink-0 w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors mb-0.5">
+                      {sending
+                        ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <Send className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <p className={`text-[10px] ${sub} text-center mt-1.5`}>Messagerie médicale sécurisée · Nova</p>
+                </div>
+              </>
+            ) : (
+              <div className={`flex-1 flex flex-col items-center justify-center gap-3 ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+                <MessageCircle className={`w-12 h-12 ${sub}`} />
+                <p className={`text-sm ${sub}`}>Sélectionnez une conversation</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       )}
     </div>
   );
@@ -1252,24 +1885,23 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
 export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
   const [f, setF] = useState('all');
   const [showForm, setShowForm] = useState(false);
-  const [selectedDoc, setSelectedDoc] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [docForm, setDocForm] = useState({
-    title: 'Nouvelle ordonnance',
-    category: 'prescription',
-    mimeType: 'application/pdf',
-    sizeBytes: 120000,
-  });
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [docForm, setDocForm] = useState({ title: '', category: 'prescription' });
+  const [pickedFile, setPickedFile] = useState(null);
+  const fileInputRef = useRef(null);
+
   const apiDocs = data?.length ? data.map((doc) => ({
     n: doc.title,
-    t: doc.mimeType?.includes('pdf') ? 'PDF' : 'DOC',
+    t: doc.mimeType?.includes('pdf') ? 'PDF' : doc.mimeType?.includes('image') ? 'IMG' : 'DOC',
     cat: mapDocumentCategory(doc.category),
     d: formatDate(doc.createdAt),
     s: formatBytes(doc.sizeBytes),
     I: doc.category === 'lab' ? Microscope : doc.category === 'vaccine' ? ClipboardList : FileText,
     c: doc.category === 'lab' ? 'purple' : doc.category === 'vaccine' ? 'emerald' : 'red',
-    dr: 'NOVA',
     id: doc.id,
+    filePath: doc.filePath,
   })) : [];
   const filt = f === 'all' ? apiDocs : apiDocs.filter(d => d.cat === f);
   const cats = [
@@ -1277,17 +1909,34 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
     { id: 'analyse', l: 'Analyses' }, { id: 'consultation', l: 'Consultations' },
     { id: 'certificat', l: 'Certificats' }
   ];
-  const addDocument = async () => {
+
+  const pickFile = (file) => {
+    if (!file) return;
+    setPickedFile(file);
+    if (!docForm.title) setDocForm(f => ({ ...f, title: file.name.replace(/\.[^.]+$/, '') }));
+  };
+
+  const uploadDocument = async () => {
+    if (!pickedFile && !docForm.title) { notify?.('Sélectionnez un fichier ou saisissez un titre', 'error'); return; }
+    setUploading(true);
     try {
-      await patientApi.createDocument(docForm);
+      const fd = new FormData();
+      if (pickedFile) fd.append('file', pickedFile);
+      fd.append('title', docForm.title || pickedFile?.name || 'Document');
+      fd.append('category', docForm.category);
+      await patientApi.uploadDocument(fd);
       onReload?.(await patientApi.documents());
-      notify?.('Document ajoute');
+      notify?.('Document ajouté');
       setShowForm(false);
-      setDocForm({ title: 'Nouvelle ordonnance', category: 'prescription', mimeType: 'application/pdf', sizeBytes: 120000 });
+      setDocForm({ title: '', category: 'prescription' });
+      setPickedFile(null);
     } catch (error) {
-      notify?.(error.message || 'Erreur document', 'error');
+      notify?.(error.message || 'Erreur upload', 'error');
+    } finally {
+      setUploading(false);
     }
   };
+
   const deleteDocument = async (id) => {
     if (!id) return;
     try {
@@ -1295,7 +1944,6 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
       onReload?.(await patientApi.documents());
       notify?.('Document supprimé');
       setPendingDelete(null);
-      setSelectedDoc(null);
     } catch (error) {
       notify?.(error.message || 'Erreur suppression', 'error');
     }
@@ -1317,38 +1965,89 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} • Stockage chiffré</p></div>
         <button onClick={() => setShowForm(true)} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
-          <Plus className="w-3 h-3" /> Ajouter
+          <Plus className="w-3 h-3" /> Importer
         </button>
       </div>
+
       {showForm && (
         <>
-          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => setShowForm(false)} aria-label="Fermer"></button>
-          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
-            <h3 className="font-bold mb-4">Ajouter un document</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <input value={docForm.title} onChange={(e) => setDocForm({ ...docForm, title: e.target.value })} placeholder="Titre du document" className={`md:col-span-2 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <select value={docForm.category} onChange={(e) => setDocForm({ ...docForm, category: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => { setShowForm(false); setPickedFile(null); }} aria-label="Fermer"></button>
+          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold">Importer un document</h3>
+              <button onClick={() => { setShowForm(false); setPickedFile(null); }}><X className="w-4 h-4" /></button>
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files[0]); }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`cursor-pointer border-2 border-dashed rounded-xl p-6 text-center mb-3 transition-colors ${
+                dragOver ? 'border-red-500 bg-red-50' :
+                pickedFile ? 'border-emerald-500 bg-emerald-50' :
+                (darkMode ? 'border-slate-600 hover:border-red-500' : 'border-slate-300 hover:border-red-400')
+              }`}
+            >
+              <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp"
+                onChange={e => pickFile(e.target.files?.[0])} />
+              {pickedFile ? (
+                <div className="flex items-center justify-center gap-2 text-emerald-700">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span className="text-sm font-semibold truncate max-w-xs">{pickedFile.name}</span>
+                  <span className={`text-xs ${sub}`}>({formatBytes(pickedFile.size)})</span>
+                </div>
+              ) : (
+                <>
+                  <HardDrive className={`w-8 h-8 mx-auto mb-2 ${sub}`} />
+                  <p className={`text-sm font-medium ${sub}`}>Glissez-déposez ou cliquez pour choisir</p>
+                  <p className={`text-xs ${sub} mt-1`}>PDF, JPG, PNG, WEBP — max 10 Mo</p>
+                </>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <input value={docForm.title} onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Titre du document"
+                className={`col-span-2 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <select value={docForm.category} onChange={e => setDocForm(f => ({ ...f, category: e.target.value }))}
+                className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                 <option value="prescription">Ordonnance</option>
                 <option value="lab">Analyse</option>
                 <option value="consultation">Consultation</option>
                 <option value="vaccine">Certificat</option>
               </select>
-              <div className="md:col-span-3 flex gap-2">
-                <button onClick={addDocument} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Ajouter</button>
-                <button onClick={() => setShowForm(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
-              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={uploadDocument} disabled={uploading || (!pickedFile && !docForm.title)}
+                className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
+                {uploading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FileDown className="w-4 h-4" />}
+                {uploading ? 'Import en cours…' : 'Importer'}
+              </button>
+              <button onClick={() => { setShowForm(false); setPickedFile(null); }}
+                className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+                Annuler
+              </button>
             </div>
           </div>
         </>
       )}
-      {selectedDoc && (
-        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 justify-between shadow-2xl`}>
-          <div>
-            <p className="font-bold">{selectedDoc.n}</p>
-            <p className={`text-xs ${sub}`}>{selectedDoc.cat} - {selectedDoc.d} - {selectedDoc.s}</p>
+
+      {pendingDelete && (
+        <>
+          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => setPendingDelete(null)} aria-label="Fermer"></button>
+          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
+            <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <p className="font-bold text-center mb-1">Supprimer ce document ?</p>
+            <p className={`text-xs ${sub} text-center mb-4`}>{pendingDelete.n}</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteDocument(pendingDelete.id)} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Supprimer</button>
+              <button onClick={() => setPendingDelete(null)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+            </div>
           </div>
-          <button onClick={() => setSelectedDoc(null)} className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Fermer</button>
-        </div>
+        </>
       )}
       <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900' : 'bg-slate-100'} overflow-x-auto`}>
         {cats.map(c => {
@@ -1369,27 +2068,27 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>{d.t}</span>
             </div>
             <p className="font-semibold text-sm truncate">{d.n}</p>
-            <p className={`text-[10px] ${sub} truncate mt-0.5`}>{d.dr}</p>
+            <p className={`text-[10px] ${sub} truncate mt-0.5`}>{d.cat}</p>
             <div className={`flex items-center justify-between mt-3 pt-3 border-t border-dashed ${border}`}>
               <span className={`text-[10px] ${sub}`}>{d.d}</span><span className={`text-[10px] ${sub}`}>{d.s}</span>
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-3">
-              <button onClick={() => setSelectedDoc(d)} className={`px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}><Eye className="w-3 h-3" /> Voir</button>
-              <button onClick={() => d.id ? setPendingDelete(d.id) : undefined} className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-red-600 text-white flex items-center justify-center gap-1 hover:bg-red-700"><Trash2 className="w-3 h-3" /> Suppr.</button>
+              {d.filePath ? (
+                <a href={`http://localhost:4001/uploads/${d.filePath.split(/[\\/]/).slice(-2).join('/')}`}
+                  target="_blank" rel="noreferrer"
+                  className={`px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <Download className="w-3 h-3" /> Ouvrir
+                </a>
+              ) : (
+                <div className={`px-2 py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400'}`}>
+                  <FileText className="w-3 h-3" /> Sans fichier
+                </div>
+              )}
+              <button onClick={() => d.id ? setPendingDelete(d) : undefined} className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-red-600 text-white flex items-center justify-center gap-1 hover:bg-red-700"><Trash2 className="w-3 h-3" /> Suppr.</button>
             </div>
           </div>
         ))}
       </div>
-      {pendingDelete && (
-        <ConfirmDialog
-          title="Supprimer le document"
-          message="Cette action retirera le document de la base patient."
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={() => deleteDocument(pendingDelete)}
-          card={card}
-          darkMode={darkMode}
-        />
-      )}
     </div>
   );
 }
