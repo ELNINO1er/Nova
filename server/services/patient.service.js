@@ -1,94 +1,149 @@
 import { randomUUID } from 'node:crypto';
-import { db } from '../db/database.js';
+import { pool } from '../db/database.js';
 
-export function getDashboard(patientId) {
-  const profile = getProfile(patientId);
-  const latestVitals = getDashboardVitals(patientId);
-  const nextAppointment = db.prepare(`
-    select * from appointments
-    where patient_id = ? and starts_at >= ?
-    order by starts_at asc
-    limit 1
-  `).get(patientId, new Date().toISOString());
-  const todayMedications = getMedicationToday(patientId);
-  const unreadMessages = db.prepare('select coalesce(sum(unread_count), 0) as total from conversations where patient_id = ?').get(patientId).total;
-  const documentsCount = db.prepare('select count(*) as total from documents where patient_id = ?').get(patientId).total;
+/* ─── Dashboard ─────────────────────────────────────────────── */
+
+export async function getDashboard(patientId) {
+  const [profile, latestVitals, todayMedications] = await Promise.all([
+    getProfile(patientId),
+    getDashboardVitals(patientId),
+    getMedicationToday(patientId),
+  ]);
+
+  const [[nextRow]] = await pool.execute(
+    `SELECT * FROM nova_appointments
+     WHERE patient_id = ? AND starts_at >= ?
+     ORDER BY starts_at ASC LIMIT 1`,
+    [patientId, new Date().toISOString()]
+  );
+  const nextAppointment = nextRow ? mapAppointment(nextRow) : null;
+
+  const [[{ total: unreadMessages }]] = await pool.execute(
+    'SELECT COALESCE(SUM(unread_count), 0) AS total FROM nova_conversations WHERE patient_id = ?',
+    [patientId]
+  );
+  const [[{ total: documentsCount }]] = await pool.execute(
+    'SELECT COUNT(*) AS total FROM nova_documents WHERE patient_id = ?',
+    [patientId]
+  );
 
   return {
     profile,
-    healthScore: calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }),
+    healthScore: await calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }),
     latestVitals,
-    nextAppointment: nextAppointment ? mapAppointment(nextAppointment) : null,
+    nextAppointment,
     todayMedications,
-    unreadMessages,
-    documentsCount,
+    unreadMessages: Number(unreadMessages),
+    documentsCount: Number(documentsCount),
   };
 }
 
-export function getProfile(patientId) {
-  const row = db.prepare('select * from patients where id = ?').get(patientId);
-  if (!row) return null;
-  return mapPatient(row);
+/* ─── Profil ─────────────────────────────────────────────────── */
+
+export async function getProfile(patientId) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_patients WHERE id = ?', [patientId]
+  );
+  return row ? mapPatient(row) : null;
 }
 
-export function updateProfile(patientId, changes) {
-  const current = getProfile(patientId);
+export async function updateProfile(patientId, changes) {
+  const current = await getProfile(patientId);
   if (!current) return null;
 
   const next = {
-    first_name: changes.firstName ?? current.firstName,
-    last_name: changes.lastName ?? current.lastName,
-    phone: changes.phone ?? current.phone,
-    email: changes.email ?? current.email,
-    address: changes.address ?? current.address,
-    city: changes.city ?? current.city,
-    weight_kg: changes.weightKg ?? current.weightKg,
-    height_cm: changes.heightCm ?? current.heightCm,
-    updated_at: new Date().toISOString(),
+    first_name:               changes.firstName             ?? current.firstName,
+    last_name:                changes.lastName              ?? current.lastName,
+    birth_date:               changes.birthDate             ?? current.birthDate,
+    sex:                      changes.sex                   ?? current.sex,
+    blood_type:               changes.bloodType             ?? current.bloodType,
+    phone:                    changes.phone                 ?? current.phone,
+    email:                    changes.email                 ?? current.email,
+    address:                  changes.address               ?? current.address,
+    city:                     changes.city                  ?? current.city,
+    weight_kg:                changes.weightKg              ?? current.weightKg,
+    height_cm:                changes.heightCm              ?? current.heightCm,
+    emergency_name:           changes.emergencyName         ?? current.emergencyContact?.name,
+    emergency_relationship:   changes.emergencyRelationship ?? current.emergencyContact?.relationship,
+    emergency_phone:          changes.emergencyPhone        ?? current.emergencyContact?.phone,
+    updated_at:               new Date().toISOString(),
   };
 
-  db.prepare(`
-    update patients
-    set first_name = ?, last_name = ?, phone = ?, email = ?, address = ?, city = ?,
-        weight_kg = ?, height_cm = ?, updated_at = ?
-    where id = ?
-  `).run(next.first_name, next.last_name, next.phone, next.email, next.address, next.city, next.weight_kg, next.height_cm, next.updated_at, patientId);
+  await pool.execute(`
+    UPDATE nova_patients
+    SET first_name = ?, last_name = ?, birth_date = ?, sex = ?, blood_type = ?,
+        phone = ?, email = ?, address = ?, city = ?,
+        weight_kg = ?, height_cm = ?,
+        emergency_name = ?, emergency_relationship = ?, emergency_phone = ?,
+        updated_at = ?
+    WHERE id = ?
+  `, [
+    next.first_name, next.last_name, next.birth_date, next.sex, next.blood_type,
+    next.phone, next.email, next.address, next.city,
+    next.weight_kg, next.height_cm,
+    next.emergency_name, next.emergency_relationship, next.emergency_phone,
+    next.updated_at, patientId,
+  ]);
 
   return getProfile(patientId);
 }
 
-export function getVitals(patientId, query) {
-  const rows = query.type
-    ? db.prepare('select * from vitals where patient_id = ? and type = ? order by measured_at desc').all(patientId, query.type)
-    : db.prepare('select * from vitals where patient_id = ? order by measured_at desc').all(patientId);
+/* ─── Vitaux ─────────────────────────────────────────────────── */
+
+export async function getVitals(patientId, query) {
+  const [rows] = query.type
+    ? await pool.execute(
+        'SELECT * FROM nova_vitals WHERE patient_id = ? AND type = ? ORDER BY measured_at DESC',
+        [patientId, query.type]
+      )
+    : await pool.execute(
+        'SELECT * FROM nova_vitals WHERE patient_id = ? ORDER BY measured_at DESC',
+        [patientId]
+      );
   return rows.map(mapVital);
 }
 
-export function getTreatments(patientId) {
-  const treatments = db.prepare('select * from treatments where patient_id = ? order by started_at desc').all(patientId);
-  return treatments.map((treatment) => ({
-    id: treatment.id,
-    diagnosis: treatment.diagnosis,
-    status: treatment.status,
-    stage: treatment.stage,
-    progress: treatment.progress,
-    startedAt: treatment.started_at,
-    doctorName: treatment.doctor_name,
-    nextCheckupAt: treatment.next_checkup_at,
-    medications: db.prepare('select * from medications where treatment_id = ?').all(treatment.id).map(mapMedication),
+/* ─── Traitements ────────────────────────────────────────────── */
+
+export async function getTreatments(patientId) {
+  const [treatments] = await pool.execute(
+    'SELECT * FROM nova_treatments WHERE patient_id = ? ORDER BY started_at DESC',
+    [patientId]
+  );
+  return Promise.all(treatments.map(async (t) => {
+    const [meds] = await pool.execute(
+      'SELECT * FROM nova_medications WHERE treatment_id = ?', [t.id]
+    );
+    return {
+      id: t.id,
+      diagnosis: t.diagnosis,
+      status: t.status,
+      stage: t.stage,
+      progress: t.progress,
+      startedAt: t.started_at,
+      doctorName: t.doctor_name,
+      nextCheckupAt: t.next_checkup_at,
+      medications: meds.map(mapMedication),
+    };
   }));
 }
 
-export function getMedicationToday(patientId) {
-  const rows = db.prepare('select * from medication_schedules where patient_id = ? order by take_time asc').all(patientId);
-  const today = new Date().toISOString().slice(0, 10);
-  const intakes = db.prepare(`
-    select schedule_id, status, taken_at from medication_intakes
-    where patient_id = ? and substr(taken_at, 1, 10) = ?
-  `).all(patientId, today);
-  const intakeBySchedule = new Map(intakes.map((intake) => [intake.schedule_id, intake]));
+/* ─── Médicaments ────────────────────────────────────────────── */
 
-  return rows.map((row) => ({
+export async function getMedicationToday(patientId) {
+  const [schedules] = await pool.execute(
+    'SELECT * FROM nova_medication_schedules WHERE patient_id = ? ORDER BY take_time ASC',
+    [patientId]
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  const [intakes] = await pool.execute(
+    `SELECT schedule_id, status, taken_at FROM nova_medication_intakes
+     WHERE patient_id = ? AND LEFT(taken_at, 10) = ?`,
+    [patientId, today]
+  );
+  const intakeBySchedule = new Map(intakes.map((i) => [i.schedule_id, i]));
+
+  return schedules.map((row) => ({
     id: row.id,
     medicationId: row.medication_id,
     name: row.name,
@@ -101,66 +156,88 @@ export function getMedicationToday(patientId) {
   }));
 }
 
-export function createMedicationIntake(patientId, scheduleId, payload) {
+export async function createMedicationIntake(patientId, scheduleId, payload) {
   const now = new Date().toISOString();
   const takenAt = payload.takenAt || now;
-  const existing = db.prepare(`
-    select id from medication_intakes
-    where patient_id = ? and schedule_id = ? and substr(taken_at, 1, 10) = substr(?, 1, 10)
-  `).get(patientId, scheduleId, takenAt);
+
+  const [[existing]] = await pool.execute(
+    `SELECT id FROM nova_medication_intakes
+     WHERE patient_id = ? AND schedule_id = ? AND LEFT(taken_at, 10) = LEFT(?, 10)`,
+    [patientId, scheduleId, takenAt]
+  );
 
   if (existing) {
-    db.prepare('update medication_intakes set status = ?, taken_at = ? where id = ?').run(payload.status, takenAt, existing.id);
+    await pool.execute(
+      'UPDATE nova_medication_intakes SET status = ?, taken_at = ? WHERE id = ?',
+      [payload.status, takenAt, existing.id]
+    );
     return { id: existing.id, patientId, scheduleId, status: payload.status, takenAt };
   }
 
   const id = randomUUID();
-  db.prepare(`
-    insert into medication_intakes (id, patient_id, schedule_id, status, taken_at, created_at)
-    values (?, ?, ?, ?, ?, ?)
-  `).run(id, patientId, scheduleId, payload.status, takenAt, now);
+  await pool.execute(
+    `INSERT INTO nova_medication_intakes (id, patient_id, schedule_id, status, taken_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, patientId, scheduleId, payload.status, takenAt, now]
+  );
   return { id, patientId, scheduleId, status: payload.status, takenAt };
 }
 
-export function getAppointments(patientId) {
-  return db.prepare('select * from appointments where patient_id = ? order by starts_at asc').all(patientId).map(mapAppointment);
+/* ─── Rendez-vous ────────────────────────────────────────────── */
+
+export async function getAppointments(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_appointments WHERE patient_id = ? ORDER BY starts_at ASC',
+    [patientId]
+  );
+  return rows.map(mapAppointment);
 }
 
-export function createAppointment(patientId, payload) {
+export async function createAppointment(patientId, payload) {
   const id = randomUUID();
-  db.prepare(`
-    insert into appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
-    values (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, patientId, payload.startsAt, payload.doctorName, payload.specialty || '', payload.location || '', payload.mode || 'onsite', payload.status || 'requested');
-  return getAppointment(patientId, id);
-}
-
-export function updateAppointment(patientId, id, changes) {
-  const current = getAppointment(patientId, id);
-  if (!current) return null;
-  db.prepare(`
-    update appointments
-    set starts_at = ?, doctor_name = ?, specialty = ?, location = ?, mode = ?, status = ?
-    where patient_id = ? and id = ?
-  `).run(
-    changes.startsAt ?? current.startsAt,
-    changes.doctorName ?? current.doctorName,
-    changes.specialty ?? current.specialty,
-    changes.location ?? current.location,
-    changes.mode ?? current.mode,
-    changes.status ?? current.status,
-    patientId,
-    id,
+  await pool.execute(
+    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.startsAt, payload.doctorName,
+     payload.specialty || '', payload.location || '', payload.mode || 'onsite', payload.status || 'requested']
   );
   return getAppointment(patientId, id);
 }
 
-export function deleteAppointment(patientId, id) {
-  db.prepare('delete from appointments where patient_id = ? and id = ?').run(patientId, id);
+export async function updateAppointment(patientId, id, changes) {
+  const current = await getAppointment(patientId, id);
+  if (!current) return null;
+  await pool.execute(
+    `UPDATE nova_appointments
+     SET starts_at = ?, doctor_name = ?, specialty = ?, location = ?, mode = ?, status = ?
+     WHERE patient_id = ? AND id = ?`,
+    [
+      changes.startsAt   ?? current.startsAt,
+      changes.doctorName ?? current.doctorName,
+      changes.specialty  ?? current.specialty,
+      changes.location   ?? current.location,
+      changes.mode       ?? current.mode,
+      changes.status     ?? current.status,
+      patientId, id,
+    ]
+  );
+  return getAppointment(patientId, id);
 }
 
-export function getVaccinations(patientId) {
-  return db.prepare('select * from vaccinations where patient_id = ? order by injected_at desc').all(patientId).map((row) => ({
+export async function deleteAppointment(patientId, id) {
+  await pool.execute(
+    'DELETE FROM nova_appointments WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
+}
+
+/* ─── Vaccinations ───────────────────────────────────────────── */
+
+export async function getVaccinations(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_vaccinations WHERE patient_id = ? ORDER BY injected_at DESC',
+    [patientId]
+  );
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     injectedAt: row.injected_at,
@@ -169,8 +246,14 @@ export function getVaccinations(patientId) {
   }));
 }
 
-export function getHistory(patientId) {
-  return db.prepare('select * from medical_history where patient_id = ? order by occurred_at desc').all(patientId).map((row) => ({
+/* ─── Historique médical ─────────────────────────────────────── */
+
+export async function getHistory(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_medical_history WHERE patient_id = ? ORDER BY occurred_at DESC',
+    [patientId]
+  );
+  return rows.map((row) => ({
     id: row.id,
     type: row.type,
     title: row.title,
@@ -179,28 +262,47 @@ export function getHistory(patientId) {
   }));
 }
 
-export function getDocuments(patientId, query) {
-  const rows = query.category
-    ? db.prepare('select * from documents where patient_id = ? and category = ? order by created_at desc').all(patientId, query.category)
-    : db.prepare('select * from documents where patient_id = ? order by created_at desc').all(patientId);
+/* ─── Documents ──────────────────────────────────────────────── */
+
+export async function getDocuments(patientId, query) {
+  const [rows] = query.category
+    ? await pool.execute(
+        'SELECT * FROM nova_documents WHERE patient_id = ? AND category = ? ORDER BY created_at DESC',
+        [patientId, query.category]
+      )
+    : await pool.execute(
+        'SELECT * FROM nova_documents WHERE patient_id = ? ORDER BY created_at DESC',
+        [patientId]
+      );
   return rows.map(mapDocument);
 }
 
-export function createDocument(patientId, payload) {
+export async function createDocument(patientId, payload) {
   const id = randomUUID();
-  db.prepare(`
-    insert into documents (id, patient_id, title, category, mime_type, size_bytes, created_at)
-    values (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, patientId, payload.title, payload.category, payload.mimeType || 'application/pdf', payload.sizeBytes || 0, new Date().toISOString());
-  return mapDocument(db.prepare('select * from documents where id = ?').get(id));
+  await pool.execute(
+    `INSERT INTO nova_documents (id, patient_id, title, category, mime_type, size_bytes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.title, payload.category,
+     payload.mimeType || 'application/pdf', payload.sizeBytes || 0, new Date().toISOString()]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_documents WHERE id = ?', [id]);
+  return mapDocument(row);
 }
 
-export function deleteDocument(patientId, id) {
-  db.prepare('delete from documents where patient_id = ? and id = ?').run(patientId, id);
+export async function deleteDocument(patientId, id) {
+  await pool.execute(
+    'DELETE FROM nova_documents WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
 }
 
-export function getConversations(patientId) {
-  return db.prepare('select * from conversations where patient_id = ? order by updated_at desc').all(patientId).map((row) => ({
+/* ─── Conversations ──────────────────────────────────────────── */
+
+export async function getConversations(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_conversations WHERE patient_id = ? ORDER BY updated_at DESC',
+    [patientId]
+  );
+  return rows.map((row) => ({
     id: row.id,
     doctorName: row.doctor_name,
     unreadCount: row.unread_count,
@@ -209,63 +311,88 @@ export function getConversations(patientId) {
   }));
 }
 
-export function getNotes(patientId) {
-  return db.prepare('select * from notes where patient_id = ? order by pinned desc, updated_at desc').all(patientId).map(mapNote);
-}
+/* ─── Notes ──────────────────────────────────────────────────── */
 
-export function createNote(patientId, payload) {
-  const id = randomUUID();
-  db.prepare(`
-    insert into notes (id, patient_id, title, content, color, pinned, updated_at)
-    values (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, patientId, payload.title, payload.content || '', payload.color || 'amber', payload.pinned ? 1 : 0, new Date().toISOString());
-  return mapNote(db.prepare('select * from notes where id = ?').get(id));
-}
-
-export function updateNote(patientId, id, changes) {
-  const current = db.prepare('select * from notes where patient_id = ? and id = ?').get(patientId, id);
-  if (!current) return null;
-  db.prepare(`
-    update notes set title = ?, content = ?, color = ?, pinned = ?, updated_at = ?
-    where patient_id = ? and id = ?
-  `).run(
-    changes.title ?? current.title,
-    changes.content ?? current.content,
-    changes.color ?? current.color,
-    changes.pinned === undefined ? current.pinned : (changes.pinned ? 1 : 0),
-    new Date().toISOString(),
-    patientId,
-    id,
+export async function getNotes(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_notes WHERE patient_id = ? ORDER BY pinned DESC, updated_at DESC',
+    [patientId]
   );
-  return mapNote(db.prepare('select * from notes where id = ?').get(id));
+  return rows.map(mapNote);
 }
 
-export function deleteNote(patientId, id) {
-  db.prepare('delete from notes where patient_id = ? and id = ?').run(patientId, id);
+export async function createNote(patientId, payload) {
+  const id = randomUUID();
+  await pool.execute(
+    `INSERT INTO nova_notes (id, patient_id, title, content, color, pinned, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.title, payload.content || '',
+     payload.color || 'amber', payload.pinned ? 1 : 0, new Date().toISOString()]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_notes WHERE id = ?', [id]);
+  return mapNote(row);
 }
 
-export function getSettings(patientId) {
-  const row = db.prepare('select settings_json from patient_settings where patient_id = ?').get(patientId);
+export async function updateNote(patientId, id, changes) {
+  const [[current]] = await pool.execute(
+    'SELECT * FROM nova_notes WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
+  if (!current) return null;
+  await pool.execute(
+    `UPDATE nova_notes SET title = ?, content = ?, color = ?, pinned = ?, updated_at = ?
+     WHERE patient_id = ? AND id = ?`,
+    [
+      changes.title   ?? current.title,
+      changes.content ?? current.content,
+      changes.color   ?? current.color,
+      changes.pinned === undefined ? current.pinned : (changes.pinned ? 1 : 0),
+      new Date().toISOString(),
+      patientId, id,
+    ]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_notes WHERE id = ?', [id]);
+  return mapNote(row);
+}
+
+export async function deleteNote(patientId, id) {
+  await pool.execute(
+    'DELETE FROM nova_notes WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
+}
+
+/* ─── Paramètres ─────────────────────────────────────────────── */
+
+export async function getSettings(patientId) {
+  const [[row]] = await pool.execute(
+    'SELECT settings_json FROM nova_patient_settings WHERE patient_id = ?', [patientId]
+  );
   return row ? JSON.parse(row.settings_json) : {};
 }
 
-export function updateSettings(patientId, changes) {
-  const next = deepMerge(getSettings(patientId), changes);
-  db.prepare(`
-    insert into patient_settings (patient_id, settings_json, updated_at)
-    values (?, ?, ?)
-    on conflict(patient_id) do update set settings_json = excluded.settings_json, updated_at = excluded.updated_at
-  `).run(patientId, JSON.stringify(next), new Date().toISOString());
+export async function updateSettings(patientId, changes) {
+  const next = deepMerge(await getSettings(patientId), changes);
+  await pool.execute(
+    `INSERT INTO nova_patient_settings (patient_id, settings_json, updated_at) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = VALUES(updated_at)`,
+    [patientId, JSON.stringify(next), new Date().toISOString()]
+  );
   return next;
 }
 
-function getAppointment(patientId, id) {
-  const row = db.prepare('select * from appointments where patient_id = ? and id = ?').get(patientId, id);
+/* ─── Privées ────────────────────────────────────────────────── */
+
+async function getAppointment(patientId, id) {
+  const [[row]] = await pool.execute(
+    'SELECT * FROM nova_appointments WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
   return row ? mapAppointment(row) : null;
 }
 
-function getDashboardVitals(patientId) {
-  const rows = db.prepare('select * from vitals where patient_id = ? order by measured_at asc').all(patientId);
+async function getDashboardVitals(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_vitals WHERE patient_id = ? ORDER BY measured_at ASC',
+    [patientId]
+  );
   const byType = new Map();
 
   for (const row of rows) {
@@ -281,7 +408,6 @@ function getDashboardVitals(patientId) {
       const history = byType.get(type) || [];
       const latest = history.at(-1);
       if (!latest) return null;
-
       return {
         id: latest.id,
         type: latest.type,
@@ -292,70 +418,39 @@ function getDashboardVitals(patientId) {
         status: getVitalStatus(latest),
         history: history
           .slice(-7)
-          .map((point) => ({
-            value: point.historyValue,
-            measuredAt: point.measuredAt,
-          }))
-          .filter((point) => Number.isFinite(point.value)),
+          .map((p) => ({ value: p.historyValue, measuredAt: p.measuredAt }))
+          .filter((p) => Number.isFinite(p.value)),
       };
     })
     .filter(Boolean);
 }
 
-function vitalToHistoryValue(vital) {
-  if (vital.type === 'blood_pressure') {
-    return Number(String(vital.value).split('/')[0]);
-  }
-  return Number(vital.value);
-}
-
-function getVitalStatus(vital) {
-  const value = vitalToHistoryValue(vital);
-  if (!Number.isFinite(value)) return 'normal';
-
-  if (vital.type === 'blood_pressure') {
-    if (value >= 15 || value <= 9) return 'critical';
-    if (value >= 14 || value <= 10) return 'watch';
-  }
-  if (vital.type === 'blood_glucose') {
-    if (value >= 1.26 || value < 0.7) return 'critical';
-    if (value >= 1.1 || value < 0.8) return 'watch';
-  }
-  if (vital.type === 'heart_rate') {
-    if (value >= 120 || value <= 45) return 'critical';
-    if (value >= 100 || value <= 55) return 'watch';
-  }
-  if (vital.type === 'temperature') {
-    if (value >= 39 || value <= 35) return 'critical';
-    if (value >= 37.8 || value <= 36) return 'watch';
-  }
-
-  return 'normal';
-}
-
-function calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }) {
-  const vitalPenalty = latestVitals.reduce((total, vital) => {
-    if (vital.status === 'critical') return total + 12;
-    if (vital.status === 'watch') return total + 5;
+async function calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }) {
+  const vitalPenalty = latestVitals.reduce((total, v) => {
+    if (v.status === 'critical') return total + 12;
+    if (v.status === 'watch')    return total + 5;
     return total;
   }, 0);
 
-  const missedMedications = todayMedications.filter((medication) => medication.intake?.status === 'missed').length;
-  const waitingMedications = todayMedications.filter((medication) => !medication.intake).length;
-  const dueVaccines = db.prepare(`
-    select count(*) as total from vaccinations
-    where patient_id = ? and status = 'due_soon'
-  `).get(patientId).total;
+  const missedMeds   = todayMedications.filter((m) => m.intake?.status === 'missed').length;
+  const waitingMeds  = todayMedications.filter((m) => !m.intake).length;
+
+  const [[{ total: dueVaccines }]] = await pool.execute(
+    `SELECT COUNT(*) AS total FROM nova_vaccinations WHERE patient_id = ? AND status = 'due_soon'`,
+    [patientId]
+  );
 
   const score = 100
     - vitalPenalty
-    - missedMedications * 4
-    - waitingMedications * 2
-    - dueVaccines * 3
+    - missedMeds * 4
+    - waitingMeds * 2
+    - Number(dueVaccines) * 3
     - (nextAppointment ? 0 : 4);
 
   return Math.max(0, Math.min(100, score));
 }
+
+/* ─── Mappers ────────────────────────────────────────────────── */
 
 function mapPatient(row) {
   return {
@@ -393,12 +488,7 @@ function mapVital(row) {
 }
 
 function mapMedication(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    dosage: row.dosage,
-    frequency: row.frequency,
-  };
+  return { id: row.id, name: row.name, dosage: row.dosage, frequency: row.frequency };
 }
 
 function mapAppointment(row) {
@@ -433,6 +523,35 @@ function mapNote(row) {
     pinned: Boolean(row.pinned),
     updatedAt: row.updated_at,
   };
+}
+
+/* ─── Helpers ────────────────────────────────────────────────── */
+
+function vitalToHistoryValue(vital) {
+  if (vital.type === 'blood_pressure') return Number(String(vital.value).split('/')[0]);
+  return Number(vital.value);
+}
+
+function getVitalStatus(vital) {
+  const value = vitalToHistoryValue(vital);
+  if (!Number.isFinite(value)) return 'normal';
+  if (vital.type === 'blood_pressure') {
+    if (value >= 160 || value <= 90)  return 'critical';
+    if (value >= 140 || value <= 100) return 'watch';
+  }
+  if (vital.type === 'blood_glucose') {
+    if (value >= 1.26 || value < 0.7)  return 'critical';
+    if (value >= 1.1  || value < 0.8)  return 'watch';
+  }
+  if (vital.type === 'heart_rate') {
+    if (value >= 120 || value <= 45)  return 'critical';
+    if (value >= 100 || value <= 55)  return 'watch';
+  }
+  if (vital.type === 'temperature') {
+    if (value >= 39   || value <= 35) return 'critical';
+    if (value >= 37.8 || value <= 36) return 'watch';
+  }
+  return 'normal';
 }
 
 function deepMerge(target, source) {

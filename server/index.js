@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
+import { initDb } from './db/database.js';
 import patientRoutes from './routes/patient.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
@@ -33,6 +34,14 @@ app.use('/api/patient/me', patientRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(port, () => {
-  console.log(`NOVA API running on http://localhost:${port}`);
-});
+initDb()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`NOVA API running on http://localhost:${port}`);
+      console.log(`Base de données : MySQL (sika_sante)`);
+    });
+  })
+  .catch((err) => {
+    console.error('Erreur connexion MySQL :', err.message);
+    process.exit(1);
+  });

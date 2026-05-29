@@ -18,6 +18,7 @@ import { patientApi } from '../api/patientApi.js';
 export default function PatientPages({ page, setPage, setShowQR, pills, setPills, setShowVid, onProfileSaved, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
   const [apiData, setApiData] = useState({});
+  const [apiLoading, setApiLoading] = useState({});
   const [apiError, setApiError] = useState('');
   const [notice, setNotice] = useState(null);
 
@@ -26,7 +27,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     window.setTimeout(() => setNotice(null), 2600);
   };
 
-  useEffect(() => {
+  const loadPage = (pageKey, force = false) => {
     const loaders = {
       dashboard: patientApi.dashboard,
       profile: patientApi.profile,
@@ -40,23 +41,27 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       notes: patientApi.notes,
       settings: patientApi.settings,
     };
-    const load = loaders[page];
-    if (!load || apiData[page]) return;
+    const load = loaders[pageKey];
+    if (!load) return;
+    if (!force && apiData[pageKey]) return;
 
-    let alive = true;
+    setApiLoading((current) => ({ ...current, [pageKey]: true }));
     load()
       .then((data) => {
-        if (!alive) return;
-        setApiData((current) => ({ ...current, [page]: data }));
+        setApiData((current) => ({ ...current, [pageKey]: data }));
         setApiError('');
       })
       .catch((error) => {
-        if (!alive) return;
         setApiError(error.message);
+      })
+      .finally(() => {
+        setApiLoading((current) => ({ ...current, [pageKey]: false }));
       });
+  };
 
-    return () => { alive = false; };
-  }, [page, apiData]);
+  useEffect(() => {
+    loadPage(page);
+  }, [page]);
 
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));
@@ -64,9 +69,11 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   const replacePageDataAndRefreshDashboard = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value, dashboard: undefined }));
   };
+  const refreshDashboard = () => loadPage('dashboard', true);
+  const retryCurrentPage = () => { setApiError(''); loadPage(page, true); };
 
   const map = {
-    dashboard: <PDash data={apiData.dashboard} setPage={setPage} setShowQR={setShowQR} setShowVid={setShowVid} {...p} />,
+    dashboard: <PDash data={apiData.dashboard} loading={apiLoading.dashboard} onRefresh={refreshDashboard} setPage={setPage} setShowQR={setShowQR} setShowVid={setShowVid} {...p} />,
     profile: <PProfile data={apiData.profile} onSaved={(value) => {
       replacePageData('profile', value);
       onProfileSaved?.(value);
@@ -81,7 +88,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     treatments: <PTreatments data={apiData.treatments} {...p} />,
     rdv: <PRDV data={apiData.rdv} onReload={(value) => replacePageDataAndRefreshDashboard('rdv', value)} notify={notify} setShowVid={setShowVid} {...p} />,
     vaccinations: <PVax data={apiData.vaccinations} {...p} />,
-    dna: <PDNA {...p} />,
+    dna: <PDNA data={apiData.profile || apiData.dashboard?.profile} {...p} />,
     history: <PHistory data={apiData.history} {...p} />,
     messages: <PMsg data={apiData.messages} setShowVid={setShowVid} {...p} />,
     documents: <PDocs data={apiData.documents} onReload={(value) => replacePageDataAndRefreshDashboard('documents', value)} notify={notify} {...p} />,
@@ -92,8 +99,14 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   return (
     <>
       {apiError && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
-          API indisponible, affichage des données locales.
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>API indisponible — {apiError}</span>
+          </div>
+          <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 flex-shrink-0">
+            Réessayer
+          </button>
         </div>
       )}
       {notice && (
@@ -204,63 +217,104 @@ function ConfirmDialog({ title, message, onCancel, onConfirm, card, darkMode }) 
   );
 }
 
-function PDash({ data, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
-  const consts = [
-    { type: 'blood_pressure', l: 'Tension', v: '12/8', u: 'mmHg', I: Heart, c: 'red', d: [120,125,122,118,121,119,120] },
-    { type: 'blood_glucose', l: 'Glycémie', v: '0.95', u: 'g/L', I: Droplet, c: 'blue', d: [1.1,1.05,1.0,0.98,0.97,0.96,0.95] },
-    { type: 'heart_rate', l: 'Fréquence', v: '72', u: 'bpm', I: Activity, c: 'pink', d: [70,72,71,73,72,71,72] },
-    { type: 'temperature', l: 'Température', v: '36.8', u: 'C', I: Thermometer, c: 'orange', d: [36.7,36.8,36.9,36.8,36.7,36.8,36.8] }
-  ];
-  const iconByType = { blood_pressure: Heart, blood_glucose: Droplet, heart_rate: Activity, temperature: Thermometer };
-  const colorByType = { blood_pressure: 'red', blood_glucose: 'blue', heart_rate: 'pink', temperature: 'orange' };
-  const vitalsByType = new Map((data?.latestVitals || []).map((vital) => [vital.type, vital]));
-  const displayConsts = data?.latestVitals?.length ? consts.map((base) => {
-    const vital = vitalsByType.get(base.type);
-    if (!vital) return base;
+function DashSkeleton({ card, sub, darkMode }) {
+  const pulse = 'animate-pulse rounded-lg';
+  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
+  return (
+    <div className="space-y-5">
+      <div className={`${pulse} h-36 ${darkMode ? 'bg-slate-800' : 'bg-red-100'} rounded-2xl`}></div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className={`${card} border rounded-2xl p-6`}><div className={`${pulse} ${block} h-44 w-44 rounded-full mx-auto`}></div></div>
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-2xl p-5`}><div className={`${pulse} ${block} h-6 w-20 mb-2`}></div><div className={`${pulse} ${block} h-8 w-28 mb-3`}></div><div className={`${pulse} ${block} h-12 w-full`}></div></div>)}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-xl p-4 min-h-[92px]`}><div className={`${pulse} ${block} h-10 w-10 rounded-lg mb-3`}></div><div className={`${pulse} ${block} h-4 w-24`}></div></div>)}
+      </div>
+    </div>
+  );
+}
+
+function PDash({ data, loading, onRefresh, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
+  if (!data && loading !== false) return <DashSkeleton card={card} sub={sub} darkMode={darkMode} />;
+
+  const vitalMeta = {
+    blood_pressure: { label: 'Tension', Icon: Heart, color: 'red' },
+    blood_glucose: { label: 'Glycémie', Icon: Droplet, color: 'blue' },
+    heart_rate: { label: 'Fréquence', Icon: Activity, color: 'pink' },
+    temperature: { label: 'Température', Icon: Thermometer, color: 'orange' },
+  };
+  const cm = { red: '#dc2626', blue: '#2563eb', pink: '#db2777', orange: '#ea580c' };
+
+  const displayVitals = (data?.latestVitals || []).map((vital) => {
+    const meta = vitalMeta[vital.type] || { label: vital.label, Icon: Activity, color: 'blue' };
     return {
-      l: base.l,
-      v: String(vital.value),
-      u: vital.unit && vital.unit.includes('C') ? 'C' : vital.unit,
-      I: iconByType[vital.type] || base.I || Activity,
-      c: colorByType[vital.type] || base.c || 'blue',
-      d: vital.history?.length ? vital.history.map((point) => point.value).filter(Number.isFinite) : base.d,
+      type: vital.type,
+      label: meta.label,
+      value: String(vital.value),
+      unit: vital.unit || '',
+      Icon: meta.Icon,
+      color: meta.color,
+      history: vital.history?.map((p) => p.value).filter(Number.isFinite) || [],
       status: vital.status,
       measuredAt: vital.measuredAt,
     };
-  }) : consts;
+  });
+
   const profile = data?.profile;
-  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : 'Kouame Bamba';
-  const patientLocation = profile ? `CMU: ${profile.cmuNumber} - ${profile.city}` : 'CMU: CI-2024-0847-3692 - Cocody, Abidjan';
-  const healthScore = data?.healthScore ?? 82;
-  const healthScoreLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'A surveiller' : 'Critique';
+  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : '—';
+  const patientInitials = profile
+    ? `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase()
+    : '—';
+  const patientLocation = profile ? `CMU: ${profile.cmuNumber} — ${profile.city}` : '';
+
+  const healthScore = data?.healthScore ?? 0;
+  const healthStatus = healthScore >= 80 ? 'normal' : healthScore >= 60 ? 'watch' : 'critical';
+  const healthScoreLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'À surveiller' : 'Critique';
   const scoreDash = `${Math.round((healthScore / 100) * 264)} 264`;
+
   const remainingMedications = data?.todayMedications
-    ? data.todayMedications.filter((medication) => medication.intake?.status !== 'taken').length
-    : 3;
+    ? data.todayMedications.filter((m) => m.intake?.status !== 'taken').length
+    : 0;
   const unreadMessages = data?.unreadMessages ?? 0;
   const documentsCount = data?.documentsCount ?? 0;
-  const cm = { red: '#dc2626', blue: '#2563eb', pink: '#db2777', orange: '#ea580c' };
+
+  const nextRdv = data?.nextAppointment;
+  const hasVideoRdv = nextRdv?.mode === 'video';
 
   return (
     <div className="space-y-5">
       <div className="bg-gradient-to-br from-red-600 via-red-700 to-red-800 rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/20 rounded-full -translate-y-32 translate-x-32 blur-3xl"></div>
         <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <p className="text-red-100 text-sm">Bonjour</p>
-            <h2 className="text-2xl md:text-3xl font-bold">{patientName}</h2>
-            <p className="text-red-100 text-sm mt-1">{patientLocation}</p>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-xl font-bold border border-white/30">
+              {patientInitials}
+            </div>
+            <div>
+              <p className="text-red-100 text-sm">Bonjour</p>
+              <h2 className="text-2xl md:text-3xl font-bold">{patientName}</h2>
+              {patientLocation && <p className="text-red-100 text-sm mt-1">{patientLocation}</p>}
+            </div>
           </div>
-          <button onClick={() => setShowQR(true)} className="bg-white text-red-700 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 hover:scale-105 transition-transform shadow-xl">
-            Pass Santé d'urgence
-          </button>
+          <div className="flex items-center gap-2">
+            {onRefresh && (
+              <button onClick={onRefresh} className="bg-white/20 backdrop-blur text-white px-3 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-white/30 transition-colors" title="Rafraîchir">
+                <Activity className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={() => setShowQR(true)} className="bg-white text-red-700 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 hover:scale-105 transition-transform shadow-xl">
+              <Siren className="w-4 h-4" /> Pass Santé d'urgence
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-1 ${card} border rounded-2xl p-6`}>
           <div className="flex items-center justify-between mb-4">
-            <div><p className={`text-xs ${sub}`}>Score de Santé</p><p className="text-xs text-emerald-600 font-semibold mt-1">+3 cette semaine</p></div>
+            <p className={`text-xs ${sub}`}>Score de Santé</p>
           </div>
           <div className="flex items-center justify-center py-4">
             <div className="relative w-44 h-44">
@@ -272,43 +326,85 @@ function PDash({ data, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-4xl font-bold">{healthScore}</span>
                 <span className={`text-xs ${sub}`}>/ 100</span>
-                <span className={`text-xs font-semibold mt-1 ${dashboardStatusClass(healthScore >= 80 ? 'normal' : healthScore >= 60 ? 'watch' : 'critical')}`}>{healthScoreLabel}</span>
+                <span className={`text-xs font-semibold mt-1 ${dashboardStatusClass(healthStatus)}`}>{healthScoreLabel}</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {displayConsts.map((c, i) => {
-            const mx = Math.max(...c.d), mn = Math.min(...c.d), r = mx - mn || 1;
-            const pts = c.d.map((v, idx) => `${(idx/(c.d.length-1))*100},${100 - ((v-mn)/r)*80 - 10}`).join(' ');
+          {displayVitals.length > 0 ? displayVitals.map((vital) => {
+            const hasHistory = vital.history.length >= 2;
+            const pts = hasHistory
+              ? (() => { const mx = Math.max(...vital.history), mn = Math.min(...vital.history), r = mx - mn || 1; return vital.history.map((v, idx) => `${(idx/(vital.history.length-1))*100},${100 - ((v-mn)/r)*80 - 10}`).join(' '); })()
+              : '';
             return (
-              <div key={i} className={`${card} border rounded-2xl p-5`}>
-                <p className={`text-xs ${sub} mb-1`}>{c.l}</p>
-                <p className="text-2xl font-bold">{c.v} <span className={`text-sm font-normal ${sub}`}>{c.u}</span></p>
+              <button key={vital.type} onClick={() => setPage('treatments')} className={`${card} border rounded-2xl p-5 text-left hover:shadow-md transition-shadow`}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className={`text-xs ${sub}`}>{vital.label}</p>
+                  <vital.Icon className={`w-4 h-4 ${sub}`} />
+                </div>
+                <p className="text-2xl font-bold">{vital.value} <span className={`text-sm font-normal ${sub}`}>{vital.unit}</span></p>
                 <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className={`text-[10px] font-bold ${dashboardStatusClass(c.status)}`}>{dashboardStatusText(c.status)}</span>
-                  {c.measuredAt && <span className={`text-[10px] ${sub}`}>{formatRelativeDate(c.measuredAt)}</span>}
+                  <span className={`text-[10px] font-bold ${dashboardStatusClass(vital.status)}`}>{dashboardStatusText(vital.status)}</span>
+                  {vital.measuredAt && <span className={`text-[10px] ${sub}`}>{formatRelativeDate(vital.measuredAt)}</span>}
                 </div>
-                <div className="mt-3 h-12">
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-                    <polyline points={pts} fill="none" stroke={cm[c.c]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-              </div>
+                {hasHistory && (
+                  <div className="mt-3 h-12">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+                      <polyline points={pts} fill="none" stroke={cm[vital.color]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+              </button>
             );
-          })}
+          }) : (
+            <div className={`sm:col-span-2 ${card} border rounded-2xl p-8 flex flex-col items-center justify-center text-center`}>
+              <HeartPulse className={`w-10 h-10 ${sub} mb-3`} />
+              <p className={`text-sm font-semibold ${sub}`}>Aucune constante enregistrée</p>
+              <p className={`text-xs ${sub} mt-1`}>Vos données apparaîtront ici après votre première consultation.</p>
+            </div>
+          )}
         </div>
       </div>
 
+      {nextRdv && (
+        <div className={`${card} border rounded-2xl p-5 flex flex-col md:flex-row md:items-center gap-4`}>
+          <div className={`w-14 h-14 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'} flex flex-col items-center justify-center flex-shrink-0`}>
+            <span className="text-lg font-bold">{new Date(nextRdv.startsAt).getDate()}</span>
+            <span className={`text-[10px] ${sub}`}>{capitalize(new Date(nextRdv.startsAt).toLocaleDateString('fr-FR', { month: 'short' }).replace('.', ''))}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <h4 className="font-bold truncate">Prochain rendez-vous</h4>
+            </div>
+            <p className={`text-sm ${sub} mt-0.5`}>{nextRdv.doctorName} — {nextRdv.specialty}</p>
+            <p className={`text-xs ${sub}`}>{new Date(nextRdv.startsAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} • {nextRdv.location}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {nextRdv.mode === 'video' && (
+              <button onClick={() => setShowVid(true)} className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-red-700">
+                <Video className="w-3.5 h-3.5" /> Rejoindre
+              </button>
+            )}
+            <button onClick={() => setPage('rdv')} className={`px-4 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+              Voir tout
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          {I:Video,l:'Téléconsultation',c:'from-blue-500 to-blue-600',on:() => setShowVid(true)},
-          {I:Bell,l:`${remainingMedications} Rappels`,c:'from-orange-500 to-orange-600',on:() => setPage('pilulier')},
-          {I:MessageCircle,l:`${unreadMessages} Messages`,c:'from-purple-500 to-purple-600',on:() => setPage('messages')},
-          {I:FileText,l:`${documentsCount} Documents`,c:'from-emerald-500 to-emerald-600',on:() => setPage('documents')}
+          hasVideoRdv
+            ? {I:Video,l:'Téléconsultation',c:'from-blue-500 to-blue-600',on:() => setShowVid(true)}
+            : {I:Video,l:'Téléconsultation',c:'from-slate-400 to-slate-500',on:() => setPage('rdv'),disabled:true},
+          {I:Bell,l:`${remainingMedications} Rappel${remainingMedications > 1 ? 's' : ''}`,c:'from-orange-500 to-orange-600',on:() => setPage('pilulier')},
+          {I:MessageCircle,l:`${unreadMessages} Message${unreadMessages > 1 ? 's' : ''}`,c:'from-purple-500 to-purple-600',on:() => setPage('messages')},
+          {I:FileText,l:`${documentsCount} Document${documentsCount > 1 ? 's' : ''}`,c:'from-emerald-500 to-emerald-600',on:() => setPage('documents')}
         ].map((a, i) => (
-          <button key={i} onClick={a.on} className={`${card} border rounded-xl p-4 min-h-[92px] flex flex-col items-start gap-3 text-left hover:scale-105 transition-transform`}>
+          <button key={i} onClick={a.on} className={`${card} border rounded-xl p-4 min-h-[92px] flex flex-col items-start gap-3 text-left hover:scale-105 transition-transform ${a.disabled ? 'opacity-50' : ''}`}>
             <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${a.c} flex items-center justify-center text-white shadow-md`}>
               <a.I className="w-5 h-5" />
             </div>
@@ -323,111 +419,188 @@ function PDash({ data, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
 function PProfile({ data, onSaved, card, sub, border, darkMode }) {
   const [edit, setEdit] = useState(false);
   const [d, setD] = useState({
-    firstName: 'Kouamé', lastName: 'Bamba', birthDate: '1974-03-15', sex: 'M',
-    cmu: 'CI-2024-0847-3692', phone: '0789452311', email: 'k.bamba@example.ci',
-    address: 'Cocody, Rue des Jardins', city: 'Abidjan',
-    bloodType: 'O+', weight: '78', height: '175',
-    eName: 'Aya Bamba', eRel: 'Épouse', ePhone: '0700112233', profession: 'Ingénieur'
+    firstName: '', lastName: '', birthDate: '', sex: '',
+    cmu: '', phone: '', email: '',
+    address: '', city: '',
+    bloodType: '', weight: '', height: '',
+    eName: '', eRel: '', ePhone: '',
   });
 
   useEffect(() => {
     if (!data) return;
-    setD((current) => ({
-      ...current,
-      firstName: data.firstName || current.firstName,
-      lastName: data.lastName || current.lastName,
-      birthDate: data.birthDate || current.birthDate,
-      sex: data.sex || current.sex,
-      cmu: data.cmuNumber || current.cmu,
-      phone: data.phone || current.phone,
-      email: data.email || current.email,
-      address: data.address || current.address,
-      city: data.city || current.city,
-      bloodType: data.bloodType || current.bloodType,
-      weight: data.weightKg ? String(data.weightKg) : current.weight,
-      height: data.heightCm ? String(data.heightCm) : current.height,
-      eName: data.emergencyContact?.name || current.eName,
-      eRel: data.emergencyContact?.relationship || current.eRel,
-      ePhone: data.emergencyContact?.phone || current.ePhone,
-    }));
+    setD({
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      birthDate: data.birthDate || '',
+      sex: data.sex || '',
+      cmu: data.cmuNumber || '',
+      phone: data.phone || '',
+      email: data.email || '',
+      address: data.address || '',
+      city: data.city || '',
+      bloodType: data.bloodType || '',
+      weight: data.weightKg ? String(data.weightKg) : '',
+      height: data.heightCm ? String(data.heightCm) : '',
+      eName: data.emergencyContact?.name || '',
+      eRel: data.emergencyContact?.relationship || '',
+      ePhone: data.emergencyContact?.phone || '',
+    });
   }, [data]);
 
-  const F = ({ l, n, t = 'text', I, full = false }) => (
-    <div className={full ? 'md:col-span-2' : ''}>
-      <label className={`text-[11px] font-bold uppercase tracking-wider ${sub} flex items-center gap-1`}>
-        {I && <I className="w-3 h-3" />} {l}
-      </label>
-      {edit ? (
-        <input type={t} defaultValue={d[n] || ''} onChange={(e) => { d[n] = e.target.value; }} onBlur={() => setD((current) => ({ ...current }))}
-          className={`mt-1.5 w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`} />
-      ) : (
-        <p className="mt-1.5 text-sm font-semibold py-2">{d[n] || '—'}</p>
-      )}
-    </div>
-  );
+  const profileInitials = `${d.firstName?.[0] || ''}${d.lastName?.[0] || ''}`.toUpperCase() || '—';
+  const profileAge = d.birthDate ? Math.floor((Date.now() - new Date(d.birthDate).getTime()) / 31557600000) : null;
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const inputCls = `mt-1.5 w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`;
 
   const saveProfile = async () => {
-    const updated = await patientApi.updateProfile({
-      firstName: d.firstName,
-      lastName: d.lastName,
-      phone: d.phone,
-      email: d.email,
-      address: d.address,
-      city: d.city,
-      weightKg: Number(d.weight),
-      heightCm: Number(d.height),
-    });
-    onSaved?.(updated);
-    setEdit(false);
+    setSaving(true);
+    setSaveError('');
+    try {
+      const updated = await patientApi.updateProfile({
+        firstName:             d.firstName,
+        lastName:              d.lastName,
+        birthDate:             d.birthDate || undefined,
+        sex:                   d.sex       || undefined,
+        bloodType:             d.bloodType || undefined,
+        phone:                 d.phone     || undefined,
+        email:                 d.email     || undefined,
+        address:               d.address   || undefined,
+        city:                  d.city      || undefined,
+        weightKg:              Number(d.weight) || undefined,
+        heightCm:              Number(d.height) || undefined,
+        emergencyName:         d.eName     || undefined,
+        emergencyRelationship: d.eRel      || undefined,
+        emergencyPhone:        d.ePhone    || undefined,
+      });
+      onSaved?.(updated);
+      setEdit(false);
+    } catch (error) {
+      setSaveError(error.message || 'Erreur lors de la sauvegarde');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <div className="animate-pulse bg-red-100 rounded-2xl h-40"></div>
+        {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-32 rounded-lg`}></div></div>)}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white flex flex-col md:flex-row md:items-center gap-4 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/20 rounded-full -translate-y-24 translate-x-24 blur-2xl"></div>
-        <div className="relative w-24 h-24 rounded-3xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl font-bold border-2 border-white/30">KB</div>
+        <div className="relative w-24 h-24 rounded-3xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl font-bold border-2 border-white/30">{profileInitials}</div>
         <div className="relative flex-1">
           <h2 className="text-2xl font-bold">{d.firstName} {d.lastName}</h2>
           <p className="text-red-100 text-sm font-mono">{d.cmu}</p>
           <div className="flex flex-wrap gap-2 mt-3">
-            <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{d.bloodType}</span>
-            <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">52 ans</span>
-            <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{d.city}</span>
+            {d.bloodType && <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{d.bloodType}</span>}
+            {profileAge !== null && <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{profileAge} ans</span>}
+            {d.city && <span className="px-2 py-1 rounded-full bg-white/20 text-xs font-semibold">{d.city}</span>}
           </div>
         </div>
-        <button onClick={() => edit ? saveProfile() : setEdit(true)} className="relative bg-white text-red-700 px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow-lg">
-          {edit ? <><Save className="w-4 h-4" /> Enregistrer</> : <><Edit3 className="w-4 h-4" /> Modifier</>}
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          {saveError && <p className="text-xs text-red-200 bg-red-900/40 px-3 py-1 rounded-lg max-w-xs text-right">{saveError}</p>}
+          <div className="flex gap-2">
+            {edit && <button onClick={() => { setEdit(false); setSaveError(''); }} className="relative bg-white/20 text-white px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow">
+              <X className="w-4 h-4" /> Annuler
+            </button>}
+            <button onClick={() => edit ? saveProfile() : setEdit(true)} disabled={saving} className="relative bg-white text-red-700 px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow-lg disabled:opacity-50">
+              {edit ? <><Save className="w-4 h-4" /> {saving ? 'Sauvegarde...' : 'Enregistrer'}</> : <><Edit3 className="w-4 h-4" /> Modifier</>}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4 flex items-center gap-2"><User className="w-4 h-4 text-red-600" /> Informations personnelles</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <F l="Prénom" n="firstName" /><F l="Nom" n="lastName" />
-          <F l="Date de naissance" n="birthDate" t="date" I={Calendar} /><F l="Sexe" n="sex" />
-          <F l="Profession" n="profession" /><F l="N° CMU" n="cmu" />
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Prénom</label>
+            {edit ? <input value={d.firstName} onChange={(e) => setD({ ...d, firstName: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.firstName || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Nom</label>
+            {edit ? <input value={d.lastName} onChange={(e) => setD({ ...d, lastName: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.lastName || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub} flex items-center gap-1`}><Calendar className="w-3 h-3" /> Date de naissance</label>
+            {edit ? <input type="date" value={d.birthDate} onChange={(e) => setD({ ...d, birthDate: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.birthDate || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Sexe</label>
+            {edit ? <input value={d.sex} onChange={(e) => setD({ ...d, sex: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.sex || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>N° CMU</label>
+            <p className="mt-1.5 text-sm font-semibold py-2">{d.cmu || '—'}</p>
+          </div>
         </div>
       </div>
 
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4 flex items-center gap-2"><Phone className="w-4 h-4 text-red-600" /> Coordonnées</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <F l="Téléphone" n="phone" I={Smartphone} /><F l="Email" n="email" I={Mail} />
-          <F l="Adresse" n="address" full I={MapPin} /><F l="Ville" n="city" />
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub} flex items-center gap-1`}><Smartphone className="w-3 h-3" /> Téléphone</label>
+            {edit ? <input value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.phone || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub} flex items-center gap-1`}><Mail className="w-3 h-3" /> Email</label>
+            {edit ? <input value={d.email} onChange={(e) => setD({ ...d, email: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.email || '—'}</p>}
+          </div>
+          <div className="md:col-span-2">
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub} flex items-center gap-1`}><MapPin className="w-3 h-3" /> Adresse</label>
+            {edit ? <input value={d.address} onChange={(e) => setD({ ...d, address: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.address || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Ville</label>
+            {edit ? <input value={d.city} onChange={(e) => setD({ ...d, city: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.city || '—'}</p>}
+          </div>
         </div>
       </div>
 
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4 flex items-center gap-2"><Heart className="w-4 h-4 text-red-600" /> Données médicales</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <F l="Groupe sanguin" n="bloodType" /><F l="Poids (kg)" n="weight" /><F l="Taille (cm)" n="height" />
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Groupe sanguin</label>
+            {edit ? <input value={d.bloodType} onChange={(e) => setD({ ...d, bloodType: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.bloodType || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Poids (kg)</label>
+            {edit ? <input value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.weight || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Taille (cm)</label>
+            {edit ? <input value={d.height} onChange={(e) => setD({ ...d, height: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.height || '—'}</p>}
+          </div>
         </div>
       </div>
 
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4 flex items-center gap-2"><Siren className="w-4 h-4 text-red-600" /> Contact d'urgence</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <F l="Nom" n="eName" /><F l="Lien" n="eRel" /><F l="Téléphone" n="ePhone" />
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Nom</label>
+            {edit ? <input value={d.eName} onChange={(e) => setD({ ...d, eName: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.eName || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Lien</label>
+            {edit ? <input value={d.eRel} onChange={(e) => setD({ ...d, eRel: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.eRel || '—'}</p>}
+          </div>
+          <div>
+            <label className={`text-[11px] font-bold uppercase tracking-wider ${sub}`}>Téléphone</label>
+            {edit ? <input value={d.ePhone} onChange={(e) => setD({ ...d, ePhone: e.target.value })} className={inputCls} /> : <p className="mt-1.5 text-sm font-semibold py-2">{d.ePhone || '—'}</p>}
+          </div>
         </div>
       </div>
     </div>
@@ -435,23 +608,17 @@ function PProfile({ data, onSaved, card, sub, border, darkMode }) {
 }
 
 function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMode }) {
-  const fallbackMeds = [
-    { id: 1, n: 'Amlodipine', d: '5mg', t: '08:00', p: 'Matin', c: 'bg-blue-500' },
-    { id: 2, n: 'Metformine', d: '500mg', t: '08:00', p: 'Matin', c: 'bg-emerald-500' },
-    { id: 3, n: 'Aspirine', d: '100mg', t: '12:30', p: 'Midi', c: 'bg-red-500', i: true },
-    { id: 4, n: 'Metformine', d: '500mg', t: '20:00', p: 'Soir', c: 'bg-emerald-500' },
-    { id: 5, n: 'Vitamine D', d: '1000UI', t: '20:00', p: 'Soir', c: 'bg-amber-500' }
-  ];
+  const pillColorMap = { blue: 'bg-blue-500', emerald: 'bg-emerald-500', red: 'bg-red-500', amber: 'bg-amber-500', purple: 'bg-purple-500' };
   const meds = data?.length ? data.map((item) => ({
     id: item.id,
     n: item.name,
     d: item.dosage,
     t: item.time,
     p: item.period,
-    c: `bg-${item.color || 'blue'}-500`,
+    c: pillColorMap[item.color] || 'bg-blue-500',
     i: item.interaction,
     status: item.intake?.status || 'pending',
-  })) : fallbackMeds;
+  })) : [];
   useEffect(() => {
     if (!data?.length) return;
     const statuses = {};
@@ -460,26 +627,50 @@ function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMod
   }, [data, setPills]);
   const cnt = Object.values(pills).filter((status) => status === 'taken' || status === true).length;
   const missed = Object.values(pills).filter((status) => status === 'missed').length;
-  const obs = Math.round((cnt / meds.length) * 100);
+  const obs = meds.length ? Math.round((cnt / meds.length) * 100) : 0;
+  const obsLabel = obs >= 80 ? 'Excellent' : obs >= 50 ? 'À améliorer' : obs > 0 ? 'Insuffisant' : '—';
+  const obsColor = obs >= 80 ? 'text-emerald-600' : obs >= 50 ? 'text-amber-600' : 'text-red-600';
+  const obsBadge = obs >= 80 ? 'bg-emerald-100 text-emerald-700' : obs >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
   const nextDue = meds.find((med) => !['taken', 'skipped', 'missed'].includes(pills[med.id] || med.status));
+  const interactionMeds = meds.filter((m) => m.i);
   const markMedicationStatus = async (id, status) => {
     setPills({ ...pills, [id]: status });
     try {
       await patientApi.markMedication(id, { status });
       onReload?.(await patientApi.todayMedications());
-      notify?.('Pilulier mis a jour');
+      notify?.('Pilulier mis à jour');
     } catch (error) {
       notify?.(error.message || 'Erreur pilulier', 'error');
     }
   };
 
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Pilulier Numérique</h2>
+        <div className={`${card} border rounded-2xl p-8`}>
+          <div className="animate-pulse space-y-4">
+            {[0,1,2].map(i => <div key={i} className={`h-16 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}></div>)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Pilulier Numérique</h2>
+      {meds.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center justify-center text-center`}>
+          <Pill className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucun médicament programmé</p>
+          <p className={`text-xs ${sub} mt-1`}>Vos prises apparaîtront ici une fois prescrites par votre médecin.</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-2 ${card} border rounded-2xl p-6`}>
           <div className="flex items-center justify-between mb-6">
-            <div><h3 className="font-bold text-lg">Aujourd'hui</h3><p className={`text-xs ${sub}`}>{cnt} / {meds.length} pris{missed ? ` - ${missed} oublié` : ''}</p></div>
+            <div><h3 className="font-bold text-lg">Aujourd'hui</h3><p className={`text-xs ${sub}`}>{cnt} / {meds.length} pris{missed ? ` — ${missed} oublié${missed > 1 ? 's' : ''}` : ''}</p></div>
             <span className="text-xs font-semibold text-red-600 flex items-center gap-1"><Bell className="w-3 h-3" /> Prochain {nextDue?.t || 'terminé'}</span>
           </div>
           <div className={`h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} mb-6 overflow-hidden`}>
@@ -489,36 +680,40 @@ function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMod
             {['Matin','Midi','Soir'].map(per => {
               const pm = meds.filter(m => m.p === per);
               if (!pm.length) return null;
+              const pending = pm.filter(m => !['taken','missed','skipped'].includes(pills[m.id] || m.status));
+              const done    = pm.filter(m =>  ['taken','missed','skipped'].includes(pills[m.id] || m.status));
               return (
                 <div key={per}>
                   <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
                     {per === 'Soir' ? <Moon className="w-4 h-4 text-indigo-500" /> : <Sun className="w-4 h-4 text-amber-500" />}
                     {per} • {pm[0].t}
+                    {pending.length === 0 && <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>Terminé</span>}
                   </h4>
                   <div className="space-y-2">
                     {pm.map(m => {
                       const status = pills[m.id] || m.status || 'pending';
-                      const done = status === 'taken' || status === true;
+                      const isTaken = status === 'taken' || status === true;
                       const skipped = status === 'skipped';
                       const isMissed = status === 'missed';
+                      const isDone = isTaken || skipped || isMissed;
                       return (
-                      <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl border ${done ? 'opacity-70 bg-emerald-50 border-emerald-200' : isMissed ? 'bg-red-50 border-red-200' : skipped ? 'bg-slate-50 border-slate-200 opacity-70' : darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                        <div className={`w-2 h-12 rounded-full ${m.c}`}></div>
+                      <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isTaken ? 'bg-emerald-50 border-emerald-200' : isMissed ? 'bg-red-50 border-red-200' : skipped ? (darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200') : darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${isDone ? 'opacity-60' : ''}`}>
+                        <div className={`w-2 h-12 rounded-full ${m.c} ${isDone ? 'opacity-50' : ''}`}></div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <p className={`font-semibold ${done || skipped ? 'line-through' : ''}`}>{m.n}</p>
-                            {m.i && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Interaction</span>}
+                            <p className={`font-semibold text-sm ${isDone ? 'line-through text-slate-400' : ''}`}>{m.n}</p>
+                            {m.i && !isDone && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Interaction</span>}
                           </div>
                           <p className={`text-xs ${sub}`}>{m.d} • {m.t}</p>
                         </div>
                         <div className="flex items-center gap-1">
-                          <button onClick={() => markMedicationStatus(m.id, 'taken')} className={`w-9 h-9 rounded-full flex items-center justify-center ${done ? 'bg-emerald-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Pris">
+                          <button onClick={() => markMedicationStatus(m.id, 'taken')} className={`w-9 h-9 rounded-full flex items-center justify-center ${isTaken ? 'bg-emerald-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Pris">
                             <Check className="w-4 h-4" strokeWidth={3} />
                           </button>
-                          <button onClick={() => markMedicationStatus(m.id, 'missed')} className={`w-9 h-9 rounded-full flex items-center justify-center ${isMissed ? 'bg-red-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Oublie">
+                          <button onClick={() => markMedicationStatus(m.id, 'missed')} className={`w-9 h-9 rounded-full flex items-center justify-center ${isMissed ? 'bg-red-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Oublié">
                             <X className="w-4 h-4" strokeWidth={3} />
                           </button>
-                          <button onClick={() => markMedicationStatus(m.id, 'skipped')} className={`w-9 h-9 rounded-full flex items-center justify-center ${skipped ? 'bg-slate-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Ignore">
+                          <button onClick={() => markMedicationStatus(m.id, 'skipped')} className={`w-9 h-9 rounded-full flex items-center justify-center ${skipped ? 'bg-slate-600 text-white' : darkMode ? 'bg-slate-700' : 'bg-slate-100'}`} title="Ignoré">
                             <Clock className="w-4 h-4" />
                           </button>
                         </div>
@@ -533,68 +728,87 @@ function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMod
         <div className="space-y-4">
           <div className={`${card} border rounded-2xl p-6 text-center`}>
             <Award className="w-5 h-5 text-amber-500 mx-auto mb-2" />
-            <p className="text-5xl font-bold text-emerald-600">{obs}<span className="text-2xl">%</span></p>
-            <p className={`text-xs ${sub} mt-2`}>Observance hebdo</p>
-            <span className="inline-block mt-3 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">Excellent 🏆</span>
+            <p className={`text-5xl font-bold ${obsColor}`}>{obs}<span className="text-2xl">%</span></p>
+            <p className={`text-xs ${sub} mt-2`}>Observance du jour</p>
+            <span className={`inline-block mt-3 px-3 py-1 rounded-full text-xs font-bold ${obsBadge}`}>{obsLabel}</span>
           </div>
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div><h4 className="font-bold text-sm text-red-900">Interaction détectée</h4><p className="text-xs mt-1 text-red-800">Aspirine + Anticoagulant</p></div>
+          {interactionMeds.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-sm text-red-900">Interaction détectée</h4>
+                  <p className="text-xs mt-1 text-red-800">{interactionMeds.map(m => m.n).join(', ')} — Consultez votre médecin</p>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
+      )}
     </div>
   );
 }
 
 function PTreatments({ data, card, sub, darkMode }) {
-  const fallbackTreatments = [
-    { n: 'Hypertension artérielle', s: 'Stade 1', pr: 75, du: 'Depuis Janvier 2024', dr: 'Dr. Aïcha Touré',
-      m: ['Amlodipine 5mg', 'Aspirine 100mg'], nc: '02 Mai 2026',
-      o: [{l:'Tension < 14/9',d:true},{l:'Réduction sel',d:true},{l:'Activité physique',d:false},{l:'Perte 5kg',d:false}], c: 'red' },
-    { n: 'Diabète Type 2', s: 'Contrôlé', pr: 90, du: 'Depuis Mars 2023', dr: 'Dr. Mariam Bamba',
-      m: ['Metformine 500mg x2'], nc: '15 Mai 2026',
-      o: [{l:'HbA1c < 7%',d:true},{l:'Glycémie < 1.2 g/L',d:true},{l:'Suivi ophtalmo',d:true},{l:'Régime',d:true}], c: 'blue' }
-  ];
-  const colors = ['red', 'blue', 'emerald', 'amber'];
-  const ts = data?.length ? data.map((t, index) => ({
-    n: t.diagnosis,
-    s: t.stage || t.status,
-    pr: t.progress || 0,
-    du: t.startedAt ? `Depuis ${formatDate(t.startedAt)}` : 'En cours',
-    dr: t.doctorName || 'Médecin référent',
-    m: t.medications?.map((m) => `${m.name} ${m.dosage || ''}`.trim()) || [],
-    nc: t.nextCheckupAt ? formatDate(t.nextCheckupAt) : 'À planifier',
-    o: fallbackTreatments[index]?.o || [],
-    c: colors[index % colors.length],
-  })) : fallbackTreatments;
+  const colorMap = { red: { bar: 'bg-red-500', barGrad: 'bg-red-500', badge: 'bg-red-100 text-red-700' }, blue: { bar: 'bg-blue-500', barGrad: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700' }, emerald: { bar: 'bg-emerald-500', barGrad: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700' }, amber: { bar: 'bg-amber-500', barGrad: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' } };
+  const colorKeys = ['red', 'blue', 'emerald', 'amber'];
+  const ts = data?.length ? data.map((t, index) => {
+    const c = colorKeys[index % colorKeys.length];
+    return {
+      n: t.diagnosis,
+      s: t.stage || capitalize(t.status),
+      pr: t.progress || 0,
+      du: t.startedAt ? `Depuis ${formatDate(t.startedAt)}` : 'En cours',
+      dr: t.doctorName || 'Médecin référent',
+      m: t.medications?.map((m) => `${m.name} ${m.dosage || ''}`.trim()) || [],
+      nc: t.nextCheckupAt ? formatDate(t.nextCheckupAt) : 'À planifier',
+      c,
+    };
+  }) : [];
+
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Mes Traitements</h2>
+        {[0,1].map(i => <div key={i} className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-40 rounded-lg`}></div></div>)}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div><h2 className="text-2xl font-bold">Mes Traitements</h2><p className={`text-sm ${sub}`}>Suivi de pathologies en cours</p></div>
-        <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">{ts.length} actifs</span>
+        <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">{ts.length} actif{ts.length > 1 ? 's' : ''}</span>
       </div>
-      {ts.map((t, i) => (
+      {ts.length === 0 && (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center justify-center text-center`}>
+          <HeartPulse className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucun traitement en cours</p>
+          <p className={`text-xs ${sub} mt-1`}>Vos traitements apparaîtront ici une fois prescrits.</p>
+        </div>
+      )}
+      {ts.map((t, i) => {
+        const colors = colorMap[t.c] || colorMap.red;
+        return (
         <div key={i} className={`${card} border rounded-2xl p-6 relative overflow-hidden`}>
-          <div className={`absolute top-0 left-0 w-1 h-full bg-${t.c}-500`}></div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-xl font-bold">{t.n}</h3>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold bg-${t.c}-100 text-${t.c}-700`}>{t.s}</span>
-                </div>
-                <p className={`text-xs ${sub}`}>{t.du} • {t.dr}</p>
+          <div className={`absolute top-0 left-0 w-1 h-full ${colors.bar}`}></div>
+          <div className="space-y-4 pl-2">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-xl font-bold">{t.n}</h3>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${colors.badge}`}>{t.s}</span>
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-semibold">Progression</span><span className="text-xs font-bold">{t.pr}%</span></div>
-                <div className={`h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} overflow-hidden`}>
-                  <div className={`h-full bg-gradient-to-r from-${t.c}-500 to-${t.c}-600`} style={{ width: `${t.pr}%` }}></div>
-                </div>
+              <p className={`text-xs ${sub}`}>{t.du} • {t.dr}</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-semibold">Progression</span><span className="text-xs font-bold">{t.pr}%</span></div>
+              <div className={`h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} overflow-hidden`}>
+                <div className={`h-full ${colors.barGrad}`} style={{ width: `${t.pr}%` }}></div>
               </div>
+            </div>
+            {t.m.length > 0 && (
               <div>
                 <h4 className="text-xs font-bold uppercase mb-2">Médicaments</h4>
                 <div className="flex flex-wrap gap-2">
@@ -605,27 +819,14 @@ function PTreatments({ data, card, sub, darkMode }) {
                   ))}
                 </div>
               </div>
-              <div className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'} flex items-center gap-3`}>
-                <CalendarClock className="w-5 h-5 text-red-600" />
-                <div className="flex-1"><p className="text-xs font-bold">Prochain contrôle</p><p className={`text-xs ${sub}`}>{t.nc}</p></div>
-              </div>
-            </div>
-            <div className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-              <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-1"><Target className="w-3 h-3" /> Objectifs</h4>
-              <div className="space-y-2">
-                {t.o.map((o, oi) => (
-                  <div key={oi} className="flex items-start gap-2">
-                    <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${o.d ? 'bg-emerald-600' : darkMode ? 'bg-slate-700' : 'bg-slate-300'}`}>
-                      {o.d && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
-                    </div>
-                    <span className={`text-xs ${o.d ? 'line-through opacity-60' : ''}`}>{o.l}</span>
-                  </div>
-                ))}
-              </div>
+            )}
+            <div className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'} flex items-center gap-3`}>
+              <CalendarClock className="w-5 h-5 text-red-600" />
+              <div className="flex-1"><p className="text-xs font-bold">Prochain contrôle</p><p className={`text-xs ${sub}`}>{t.nc}</p></div>
             </div>
           </div>
         </div>
-      ))}
+      );})}
     </div>
   );
 }
@@ -641,11 +842,6 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
     location: 'CHU Treichville',
     mode: 'onsite',
   });
-  const fallbackRdv = [
-    { d: '02 Mai', t: '14:30', dr: 'Dr. Aïcha Touré', sp: 'Cardiologie', l: 'CHU Treichville', dl: 4, v: false },
-    { d: '15 Mai', t: '09:00', dr: 'Dr. Yao Konan', sp: 'Médecine générale', l: 'Téléconsultation', dl: 17, v: true },
-    { d: '28 Mai', t: '11:00', dr: 'Dr. Mariam Bamba', sp: 'Endocrinologie', l: 'PISAM Cocody', dl: 30, v: false }
-  ];
   const rs = data?.length ? data.map((r) => {
     const date = new Date(r.startsAt);
     const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86400000));
@@ -662,7 +858,7 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
       status: r.status,
       mode: r.mode,
     };
-  }) : fallbackRdv;
+  }) : [];
   const resetRdvForm = () => {
     setEditingId(null);
     setForm({ startsAt: '2026-06-01T09:00', doctorName: 'Dr. Aïcha Touré', specialty: 'Médecine générale', location: 'CHU Treichville', mode: 'onsite' });
@@ -707,6 +903,15 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
     }
   };
 
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Mes Rendez-vous</h2>
+        {[0,1,2].map(i => <div key={i} className={`${card} border rounded-2xl p-5`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-lg`}></div></div>)}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -716,20 +921,26 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
         </button>
       </div>
       {showForm && (
-        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 grid grid-cols-1 md:grid-cols-3 gap-3 shadow-2xl`}>
-          <input type="datetime-local" value={form.startsAt} onChange={(e) => setForm({...form, startsAt: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <input value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <select value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
-            <option value="onsite">Présentiel</option>
-            <option value="video">Téléconsultation</option>
-          </select>
-          <input value={form.specialty} onChange={(e) => setForm({...form, specialty: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <input value={form.location} onChange={(e) => setForm({...form, location: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <div className="flex gap-2">
-            <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Créer</button>
-            <button onClick={() => { setShowForm(false); resetRdvForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+        <>
+          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => { setShowForm(false); resetRdvForm(); }} aria-label="Fermer"></button>
+          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
+            <h3 className="font-bold mb-4">{editingId ? 'Modifier le rendez-vous' : 'Nouveau rendez-vous'}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input type="datetime-local" value={form.startsAt} onChange={(e) => setForm({...form, startsAt: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <input value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} placeholder="Médecin" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <select value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+                <option value="onsite">Présentiel</option>
+                <option value="video">Téléconsultation</option>
+              </select>
+              <input value={form.specialty} onChange={(e) => setForm({...form, specialty: e.target.value})} placeholder="Spécialité" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <input value={form.location} onChange={(e) => setForm({...form, location: e.target.value})} placeholder="Lieu" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <div className="flex gap-2">
+                <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">{editingId ? 'Modifier' : 'Créer'}</button>
+                <button onClick={() => { setShowForm(false); resetRdvForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">
@@ -755,7 +966,7 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
                         <Video className="w-3 h-3" /> Rejoindre
                       </button>
                     ) : (
-                      <button className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold`}>Itinéraire</button>
+                      <button onClick={() => { if (r.l) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.l)}`, '_blank'); }} className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold flex items-center gap-1`}><MapPin className="w-3 h-3" /> Itinéraire</button>
                     )}
                     {r.id && (
                       <>
@@ -796,21 +1007,24 @@ function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
 }
 
 function PVax({ data, card, sub, border, darkMode }) {
-  const fallbackVaccinations = [
-    { n: 'Tétanos', d: '02/04/2026', s: 'À jour', c: 'emerald', x: '02/04/2036' },
-    { n: 'Hépatite B', d: '15/01/2024', s: 'À jour', c: 'emerald', x: 'Aucun rappel' },
-    { n: 'Fièvre jaune', d: '20/06/2020', s: 'À jour', c: 'emerald', x: 'À vie' },
-    { n: 'Méningite', d: '10/02/2023', s: 'Rappel 2026', c: 'amber', x: '10/02/2026' },
-    { n: 'Grippe', d: '15/10/2025', s: 'À jour', c: 'emerald', x: '15/10/2026' },
-    { n: 'COVID-19', d: '20/09/2025', s: 'À jour', c: 'emerald', x: 'Sur recommandation' }
-  ];
-  const vs = data?.length ? data.map((v) => ({
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Carnet Vaccinal</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-28 rounded-2xl`}></div>)}
+        </div>
+        <div className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-40 rounded-lg`}></div></div>
+      </div>
+    );
+  }
+  const vs = data.length ? data.map((v) => ({
     n: v.name,
     d: v.injectedAt ? formatDate(v.injectedAt) : 'Non renseigné',
-    s: v.status === 'due_soon' ? 'Rappel 2026' : 'À jour',
+    s: v.status === 'due_soon' ? 'Rappel prévu' : 'À jour',
     c: v.status === 'due_soon' ? 'amber' : 'emerald',
     x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
-  })) : fallbackVaccinations;
+  })) : [];
   const upToDateCount = vs.filter((v) => v.c === 'emerald').length;
   const dueSoonCount = vs.filter((v) => v.c === 'amber').length;
   const coverage = vs.length ? Math.round((upToDateCount / vs.length) * 100) : 0;
@@ -830,45 +1044,56 @@ function PVax({ data, card, sub, border, darkMode }) {
       </div>
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4">Historique complet</h3>
+        {vs.length === 0 ? (
+          <div className="py-8 flex flex-col items-center text-center">
+            <Syringe className={`w-10 h-10 ${sub} mb-3`} />
+            <p className={`text-sm ${sub}`}>Aucun vaccin enregistré</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {vs.map((v, i) => (
+          {vs.map((v, i) => {
+            const isAmber = v.c === 'amber';
+            return (
             <div key={i} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <div className="flex items-center justify-between mb-3">
-                <div className={`w-10 h-10 rounded-lg bg-${v.c}-100 flex items-center justify-center`}><Syringe className={`w-5 h-5 text-${v.c}-600`} /></div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold bg-${v.c}-100 text-${v.c}-700`}>{v.s}</span>
+                <div className={`w-10 h-10 rounded-lg ${isAmber ? 'bg-amber-100' : 'bg-emerald-100'} flex items-center justify-center`}><Syringe className={`w-5 h-5 ${isAmber ? 'text-amber-600' : 'text-emerald-600'}`} /></div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isAmber ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{v.s}</span>
               </div>
               <p className="font-bold">{v.n}</p>
               <p className={`text-xs ${sub} mt-1`}>{v.d}</p>
               <p className={`text-xs ${sub} mt-2`}>Prochain : <strong>{v.x}</strong></p>
             </div>
-          ))}
+          );})}
         </div>
+        )}
       </div>
     </div>
   );
 }
 
-function PDNA({ card, sub, darkMode }) {
+function PDNA({ data, card, sub, darkMode }) {
+  const profile = data;
+  const bloodType = profile?.bloodType || '—';
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">ADN Médical</h2>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-amber-900"><strong>Données limitées :</strong> les allergies et le profil génétique ne sont pas encore disponibles via l'API. Les informations ci-dessous proviennent du profil patient.</p>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-2xl p-6 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/20 rounded-full -translate-y-24 translate-x-24 blur-2xl"></div>
           <Droplet className="w-8 h-8 mb-3" />
           <p className="text-xs text-red-100">Groupe Sanguin</p>
-          <p className="text-6xl font-bold">O+</p>
-          <p className="text-xs text-red-100 mt-2">Donneur universel</p>
+          <p className="text-6xl font-bold">{bloodType}</p>
         </div>
         <div className={`${card} border rounded-2xl p-6`}>
           <div className="flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5 text-red-600" /><h3 className="font-bold">Allergies</h3></div>
-          <div className="space-y-2">
-            {[{n:'Pénicilline',s:'Sévère',c:'bg-red-600'},{n:'Arachides',s:'Modérée',c:'bg-amber-500'},{n:'Pollen',s:'Légère',c:'bg-yellow-500'}].map((a, i) => (
-              <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-white'} border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
-                <div className="flex items-center gap-3"><div className={`w-2 h-8 rounded-full ${a.c}`}></div><span className="font-semibold">{a.n}</span></div>
-                <span className={`px-2 py-1 rounded-full text-xs font-bold ${a.c} text-white`}>{a.s}</span>
-              </div>
-            ))}
+          <div className="py-8 flex flex-col items-center text-center">
+            <ShieldAlert className={`w-10 h-10 ${sub} mb-3`} />
+            <p className={`text-sm font-semibold ${sub}`}>Données non disponibles</p>
+            <p className={`text-xs ${sub} mt-1`}>La gestion des allergies sera disponible dans une prochaine version.</p>
           </div>
         </div>
       </div>
@@ -876,22 +1101,36 @@ function PDNA({ card, sub, darkMode }) {
   );
 }
 
+function historyTypeLabel(type) {
+  const map = { consultation: 'Consultation', lab: 'Analyse', prescription: 'Ordonnance', vaccine: 'Vaccination' };
+  return map[type] || capitalize(type || '');
+}
+
 function PHistory({ data, card, sub, darkMode }) {
-  const fallbackHistory = [
-    { d: '15 Avril 2026', dr: 'Dr. Yao Konan', sp: 'Médecine générale', di: 'Hypertension stade 1' },
-    { d: '02 Avril 2026', dr: 'Dr. Aïcha Touré', sp: 'Cardiologie', di: 'Suivi tensionnel' },
-    { d: '15 Mars 2026', dr: 'Dr. Mariam Bamba', sp: 'Endocrinologie', di: 'Diabète T2 contrôlé' },
-    { d: '20 Février 2026', dr: 'Dr. Yao Konan', sp: 'Médecine générale', di: 'Paludisme simple' }
-  ];
-  const cs = data?.length ? data.map((item) => ({
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Historique médical</h2>
+        <div className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-48 rounded-lg`}></div></div>
+      </div>
+    );
+  }
+  const cs = data.map((item) => ({
     d: formatDate(item.occurredAt),
     dr: item.doctorName,
-    sp: item.type,
+    sp: historyTypeLabel(item.type),
     di: item.title,
-  })) : fallbackHistory;
+  }));
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Historique médical</h2>
+      {cs.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
+          <ClipboardList className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucun historique</p>
+          <p className={`text-xs ${sub} mt-1`}>Votre historique médical apparaîtra ici après vos premières consultations.</p>
+        </div>
+      ) : (
       <div className={`${card} border rounded-2xl p-6 space-y-3`}>
         {cs.map((c, i) => (
           <div key={i} className={`flex flex-col md:flex-row md:items-center gap-3 p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -900,12 +1139,10 @@ function PHistory({ data, card, sub, darkMode }) {
               <p className="font-semibold">{c.dr} <span className={`text-xs font-normal ${sub}`}>• {c.sp}</span></p>
               <p className={`text-sm ${sub} mt-0.5`}>{c.di}</p>
             </div>
-            <button className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-red-700">
-              <Download className="w-3 h-3" /> PDF
-            </button>
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -914,23 +1151,16 @@ function PWell({ card, sub, darkMode }) {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Bien-être & Prévention</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {[{l:'Pas',cur:7842,t:10000,u:'pas',I:Activity,c:'blue'},{l:'Hydratation',cur:1.4,t:2.5,u:'L',I:Droplet,c:'cyan'},{l:'Sommeil',cur:7.2,t:8,u:'h',I:Moon,c:'purple'}].map((g, i) => {
-          const pct = Math.min(100, (g.cur / g.t) * 100);
-          return (
-            <div key={i} className={`${card} border rounded-2xl p-6`}>
-              <div className={`w-10 h-10 rounded-lg bg-${g.c}-100 flex items-center justify-center mb-3`}><g.I className={`w-5 h-5 text-${g.c}-600`} /></div>
-              <p className={`text-xs ${sub}`}>{g.l}</p>
-              <p className="text-3xl font-bold mt-1">{g.cur} <span className={`text-sm font-normal ${sub}`}>/ {g.t} {g.u}</span></p>
-              <div className={`h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} mt-3 overflow-hidden`}>
-                <div className={`h-full bg-${g.c}-500`} style={{ width: `${pct}%` }}></div>
-              </div>
-            </div>
-          );
-        })}
+      <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
+        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center mb-4">
+          <Target className="w-10 h-10 text-emerald-600" />
+        </div>
+        <h3 className="text-xl font-bold">Bientôt disponible</h3>
+        <p className={`text-sm ${sub} mt-2 max-w-md`}>Le suivi de bien-être (activité physique, hydratation, sommeil) sera disponible dans une prochaine version de NOVA.</p>
+        <span className={`mt-4 px-4 py-2 rounded-full text-xs font-bold ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>Fonctionnalité en développement</span>
       </div>
       <div className="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-2xl p-6">
-        <span className="px-3 py-1 rounded-full bg-white/20 backdrop-blur text-xs font-bold inline-block">Conseil saison sèche 🌞</span>
+        <span className="px-3 py-1 rounded-full bg-white/20 backdrop-blur text-xs font-bold inline-block">Conseil santé</span>
         <h3 className="text-2xl font-bold mt-3">Hydratez-vous régulièrement</h3>
         <p className="text-amber-100 text-sm mt-2">Buvez 2,5L d'eau par jour, surtout entre 10h et 16h.</p>
       </div>
@@ -939,52 +1169,47 @@ function PWell({ card, sub, darkMode }) {
 }
 
 export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
-  const [sel, setSel] = useState(0);
-  const [msg, setMsg] = useState('');
-  const cv = [
-    { id: 0, n: 'Dr. Aïcha Touré', sp: 'Cardiologie', l: 'Vos résultats sont arrivés', t: '14:32', u: 2, on: true, a: 'AT' },
-    { id: 1, n: 'Dr. Yao Konan', sp: 'Médecine générale', l: 'RDV confirmé pour le 15', t: 'Hier', u: 0, on: false, a: 'YK' },
-    { id: 2, n: 'Dr. Mariam Bamba', sp: 'Endocrinologie', l: 'Pensez à votre HbA1c', t: 'Lundi', u: 1, on: true, a: 'MB' }
-  ];
+  const [sel, setSel] = useState(null);
   const conversations = data?.length ? data.map((conversation) => ({
     id: conversation.id,
     n: conversation.doctorName,
-    sp: 'Médecin référent',
     l: conversation.lastMessage,
     t: formatRelativeDate(conversation.updatedAt),
     u: conversation.unreadCount,
     on: conversation.unreadCount > 0,
     a: initials(conversation.doctorName),
-  })) : cv;
-  const activeConversation = conversations.find((conversation) => conversation.id === sel) || conversations[0];
-  const ms = [
-    { f: 'd', t: 'Bonjour Kouamé.', tm: '14:25' },
-    { f: 'd', t: 'Vos résultats sont arrivés. Tout est positif.', tm: '14:25' },
-    { f: 'm', t: 'Merci Docteur.', tm: '14:28' },
-    { f: 'd', t: 'Continuez l\'Amlodipine et réduisez le sel.', tm: '14:30' },
-    { f: 'd', t: 'Compte-rendu en pièce jointe.', tm: '14:32', at: 'cardio.pdf' }
-  ];
+  })) : [];
+  const activeConversation = conversations.find((c) => c.id === sel) || conversations[0];
+
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Messages</h2>
+        <div className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-96 rounded-lg`}></div></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Messages</h2>
+      {conversations.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
+          <MessageCircle className={`w-12 h-12 ${sub} mb-4`} />
+          <p className="font-semibold">Aucune conversation</p>
+          <p className={`text-xs ${sub} mt-1`}>Vos échanges avec les médecins apparaîtront ici.</p>
+        </div>
+      ) : (
       <div className={`${card} border rounded-2xl overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[600px]`}>
         <div className={`border-r ${border} overflow-y-auto`}>
-          <div className={`p-3 border-b ${border}`}>
-            <div className="relative">
-              <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${sub}`} />
-              <input type="text" placeholder="Rechercher..." className={`w-full pl-9 pr-3 py-2 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`} />
-            </div>
-          </div>
-            {conversations.map(c => (
-            <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${(sel === c.id || activeConversation?.id === c.id) ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
+          {conversations.map(c => (
+            <button key={c.id} onClick={() => setSel(c.id)} className={`w-full p-3 border-b ${border} flex items-start gap-3 ${activeConversation?.id === c.id ? darkMode ? 'bg-slate-800' : 'bg-red-50' : darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
               <div className="relative">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{c.a}</div>
                 {c.on && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white"></span>}
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <div className="flex items-center justify-between gap-2"><p className="font-semibold text-sm truncate">{c.n}</p><p className={`text-[10px] ${sub}`}>{c.t}</p></div>
-                <p className={`text-[10px] ${sub} mb-0.5`}>{c.sp}</p>
                 <div className="flex items-center justify-between gap-2">
                   <p className={`text-xs ${sub} truncate`}>{c.l}</p>
                   {c.u > 0 && <span className="px-1.5 rounded-full bg-red-600 text-white text-[10px] font-bold">{c.u}</span>}
@@ -994,45 +1219,32 @@ export function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
           ))}
         </div>
         <div className="md:col-span-2 flex flex-col">
-          <div className={`p-3 border-b ${border} flex items-center justify-between`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{activeConversation?.a || 'DR'}</div>
-              <div><p className="font-bold text-sm">{activeConversation?.n || 'Médecin référent'}</p><p className="text-[10px] text-emerald-600 font-semibold">{activeConversation?.on ? 'En ligne' : 'Disponible'}</p></div>
-            </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setShowVid && setShowVid(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                <Video className="w-4 h-4 text-emerald-600" />
-              </button>
-              <button className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                <PhoneCall className="w-4 h-4 text-blue-600" />
-              </button>
-            </div>
-          </div>
-          <div className={`flex-1 p-4 space-y-3 overflow-y-auto ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
-            {ms.map((m, i) => (
-              <div key={i} className={`flex ${m.f === 'm' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[75%] ${m.f === 'm' ? 'bg-red-600 text-white rounded-br-sm' : darkMode ? 'bg-slate-800' : 'bg-white'} rounded-2xl px-4 py-2 shadow-sm border ${m.f === 'm' ? 'border-red-600' : darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
-                  <p className="text-sm">{m.t}</p>
-                  {m.at && (
-                    <div className={`mt-2 p-2 rounded-lg ${m.f === 'm' ? 'bg-white/20' : darkMode ? 'bg-slate-700' : 'bg-slate-100'} flex items-center gap-2`}>
-                      <FileText className="w-4 h-4" /><span className="text-xs flex-1">{m.at}</span><Download className="w-3 h-3" />
-                    </div>
-                  )}
-                  <p className={`text-[10px] mt-1 ${m.f === 'm' ? 'text-red-100' : sub}`}>{m.tm}</p>
+          {activeConversation ? (
+            <>
+              <div className={`p-3 border-b ${border} flex items-center justify-between`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm">{activeConversation.a}</div>
+                  <div><p className="font-bold text-sm">{activeConversation.n}</p></div>
                 </div>
+                <button onClick={() => setShowVid && setShowVid(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                  <Video className="w-4 h-4 text-emerald-600" />
+                </button>
               </div>
-            ))}
-          </div>
-          <div className={`p-3 border-t ${border} flex items-center gap-2`}>
-            <button className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}><Paperclip className="w-4 h-4" /></button>
-            <input type="text" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Écrire..."
-              className={`flex-1 px-3 py-2 rounded-xl border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'} focus:outline-none focus:ring-2 focus:ring-red-500`} />
-            <button onClick={() => setMsg('')} className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center hover:bg-red-700">
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
+              <div className={`flex-1 p-6 flex flex-col items-center justify-center text-center ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+                <MessageCircle className={`w-10 h-10 ${sub} mb-3`} />
+                <p className={`text-sm font-semibold ${sub}`}>Messagerie en lecture seule</p>
+                <p className={`text-xs ${sub} mt-1`}>Dernier message : {activeConversation.l}</p>
+                <p className={`text-xs ${sub} mt-3`}>L'envoi de messages sera disponible dans une prochaine version.</p>
+              </div>
+            </>
+          ) : (
+            <div className={`flex-1 flex items-center justify-center ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+              <p className={`text-sm ${sub}`}>Sélectionnez une conversation</p>
+            </div>
+          )}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -1048,32 +1260,22 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
     mimeType: 'application/pdf',
     sizeBytes: 120000,
   });
-  const ds = [
-    { n: 'Ordonnance Avril 2026', t: 'PDF', cat: 'ordonnance', d: '15/04/2026', s: '124 KB', I: FileText, c: 'red', dr: 'Dr. Yao Konan' },
-    { n: 'Bilan sanguin Mars', t: 'PDF', cat: 'analyse', d: '20/03/2026', s: '342 KB', I: Microscope, c: 'purple', dr: 'Lab. Pasteur' },
-    { n: 'Radio thorax', t: 'IMG', cat: 'imagerie', d: '01/03/2026', s: '1.2 MB', I: Eye, c: 'blue', dr: 'CHU Treichville' },
-    { n: 'Échographie', t: 'IMG', cat: 'imagerie', d: '15/02/2026', s: '892 KB', I: Eye, c: 'blue', dr: 'PISAM' },
-    { n: 'Compte-rendu Cardio', t: 'PDF', cat: 'consultation', d: '02/04/2026', s: '210 KB', I: FileText, c: 'red', dr: 'Dr. Aïcha Touré' },
-    { n: 'Certificat médical', t: 'PDF', cat: 'certificat', d: '10/01/2026', s: '78 KB', I: ClipboardList, c: 'emerald', dr: 'Dr. Yao Konan' },
-    { n: 'Ordonnance Mars 2026', t: 'PDF', cat: 'ordonnance', d: '15/03/2026', s: '118 KB', I: FileText, c: 'red', dr: 'Dr. Mariam Bamba' },
-    { n: 'Bilan endocrinien', t: 'PDF', cat: 'analyse', d: '15/03/2026', s: '256 KB', I: Microscope, c: 'purple', dr: 'Lab. Pasteur' }
-  ];
   const apiDocs = data?.length ? data.map((doc) => ({
     n: doc.title,
     t: doc.mimeType?.includes('pdf') ? 'PDF' : 'DOC',
     cat: mapDocumentCategory(doc.category),
     d: formatDate(doc.createdAt),
     s: formatBytes(doc.sizeBytes),
-    I: doc.category === 'lab' ? Microscope : FileText,
-    c: doc.category === 'lab' ? 'purple' : 'red',
+    I: doc.category === 'lab' ? Microscope : doc.category === 'vaccine' ? ClipboardList : FileText,
+    c: doc.category === 'lab' ? 'purple' : doc.category === 'vaccine' ? 'emerald' : 'red',
     dr: 'NOVA',
     id: doc.id,
-  })) : ds;
+  })) : [];
   const filt = f === 'all' ? apiDocs : apiDocs.filter(d => d.cat === f);
   const cats = [
     { id: 'all', l: 'Tous' }, { id: 'ordonnance', l: 'Ordonnances' },
-    { id: 'analyse', l: 'Analyses' }, { id: 'imagerie', l: 'Imagerie' },
-    { id: 'consultation', l: 'Consultations' }, { id: 'certificat', l: 'Certificats' }
+    { id: 'analyse', l: 'Analyses' }, { id: 'consultation', l: 'Consultations' },
+    { id: 'certificat', l: 'Certificats' }
   ];
   const addDocument = async () => {
     try {
@@ -1099,29 +1301,45 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
     }
   };
 
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Mes Documents</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-2xl p-4`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-32 rounded-lg`}></div></div>)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{apiDocs.length} documents • Stockage chiffré</p></div>
+        <div><h2 className="text-2xl font-bold">Mes Documents</h2><p className={`text-sm ${sub}`}>{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} • Stockage chiffré</p></div>
         <button onClick={() => setShowForm(true)} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
           <Plus className="w-3 h-3" /> Ajouter
         </button>
       </div>
       {showForm && (
-        <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3 shadow-2xl`}>
-          <input value={docForm.title} onChange={(e) => setDocForm({ ...docForm, title: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <select value={docForm.category} onChange={(e) => setDocForm({ ...docForm, category: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
-            <option value="prescription">Ordonnance</option>
-            <option value="lab">Analyse</option>
-            <option value="consultation">Consultation</option>
-            <option value="vaccine">Certificat</option>
-          </select>
-          <input type="number" min="0" value={docForm.sizeBytes} onChange={(e) => setDocForm({ ...docForm, sizeBytes: Number(e.target.value) })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-          <div className="flex gap-2">
-            <button onClick={addDocument} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Ajouter</button>
-            <button onClick={() => setShowForm(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+        <>
+          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => setShowForm(false)} aria-label="Fermer"></button>
+          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
+            <h3 className="font-bold mb-4">Ajouter un document</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={docForm.title} onChange={(e) => setDocForm({ ...docForm, title: e.target.value })} placeholder="Titre du document" className={`md:col-span-2 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <select value={docForm.category} onChange={(e) => setDocForm({ ...docForm, category: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+                <option value="prescription">Ordonnance</option>
+                <option value="lab">Analyse</option>
+                <option value="consultation">Consultation</option>
+                <option value="vaccine">Certificat</option>
+              </select>
+              <div className="md:col-span-3 flex gap-2">
+                <button onClick={addDocument} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Ajouter</button>
+                <button onClick={() => setShowForm(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
       {selectedDoc && (
         <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 justify-between shadow-2xl`}>
@@ -1177,17 +1395,12 @@ export function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
 }
 
 function PNotes({ data, onReload, notify, card, sub, border, darkMode }) {
-  const [ns, setNs] = useState([
-    { id: 1, t: 'Symptômes à surveiller', c: 'Maux de tête au réveil depuis 3 jours, palpitations occasionnelles le soir.', col: 'amber', u: 'Il y a 2h', p: true },
-    { id: 2, t: 'Questions pour le RDV', c: '1. Effets Amlodipine ?\n2. Posologie réductible ?\n3. Activité sportive ?', col: 'blue', u: 'Hier', p: true },
-    { id: 3, t: 'Régime alimentaire', c: 'Réduire sel, augmenter légumes. 2L d\'eau/jour.', col: 'emerald', u: '2 jours', p: false },
-    { id: 4, t: 'Tension matin', c: '15/04 : 13/8\n16/04 : 12/8\n17/04 : 14/9\n18/04 : 15/9 ⚠️', col: 'red', u: '3 jours', p: false }
-  ]);
-  const [sel, setSel] = useState(ns[0]);
+  const [ns, setNs] = useState([]);
+  const [sel, setSel] = useState(null);
   const [edit, setEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   useEffect(() => {
-    if (!data?.length) return;
+    if (!data) return;
     const apiNotes = data.map((note) => ({
       id: note.id,
       t: note.title,
@@ -1197,7 +1410,7 @@ function PNotes({ data, onReload, notify, card, sub, border, darkMode }) {
       p: note.pinned,
     }));
     setNs(apiNotes);
-    setSel(apiNotes[0]);
+    if (!sel || !apiNotes.find(n => n.id === sel.id)) setSel(apiNotes[0] || null);
   }, [data]);
   const cm = {
     amber: { bg: 'bg-amber-100', t: 'text-amber-900', b: 'border-amber-300', tab: 'bg-amber-400' },
@@ -1247,10 +1460,19 @@ function PNotes({ data, onReload, notify, card, sub, border, darkMode }) {
     }
   };
 
+  if (!data) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Bloc-notes</h2>
+        <div className={`${card} border rounded-2xl p-4 min-h-[600px]`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-96 rounded-lg`}></div></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div><h2 className="text-2xl font-bold">Bloc-notes</h2><p className={`text-sm ${sub}`}>{ns.length} notes</p></div>
+        <div><h2 className="text-2xl font-bold">Bloc-notes</h2><p className={`text-sm ${sub}`}>{ns.length} note{ns.length > 1 ? 's' : ''}</p></div>
         <button onClick={add} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
           <Plus className="w-4 h-4" /> Nouvelle note
         </button>
@@ -1336,7 +1558,7 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
   const [as, setAs] = useState('notif');
   const [s, setS] = useState({
     notif: { pill: true, rdv: true, msg: true, eme: true, news: true, promo: false },
-    priv: { dr: true, fam: false, res: true, loc: false },
+    priv: { dr: true, fam: false, res: true, qr: true },
     sec: { bio: true, ds: true, lock: '5min' },
     app: { fs: 'normal', lg: 'FR', anim: false, hc: false },
     h: { w: 'kg', t: 'C', bp: 'mmHg', g: 'g/L' }
@@ -1374,7 +1596,7 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
       priv: {
         ...current.priv,
         dr: data.privacy?.shareWithDoctors ?? current.priv.dr,
-        loc: data.privacy?.emergencyQr ?? current.priv.loc,
+        qr: data.privacy?.emergencyQr ?? current.priv.qr,
       },
       app: {
         ...current.app,
@@ -1392,7 +1614,7 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
         messages: next.notif.msg,
       },
       privacy: {
-        emergencyQr: next.priv.loc,
+        emergencyQr: next.priv.qr,
         shareWithDoctors: next.priv.dr,
       },
       display: {
@@ -1432,7 +1654,7 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
               <R l="Partage avec mes médecins" d="Médecins liés à votre dossier"><T ch={s.priv.dr} on={() => upd('priv', 'dr')} /></R>
               <R l="Partage familial" d="Membres autorisés"><T ch={s.priv.fam} on={() => upd('priv', 'fam')} /></R>
               <R l="Recherche anonyme" d="Améliorer santé publique"><T ch={s.priv.res} on={() => upd('priv', 'res')} /></R>
-              <R l="Géolocalisation" d="Services d'urgence"><T ch={s.priv.loc} on={() => upd('priv', 'loc')} /></R>
+              <R l="QR Code d'urgence" d="Accès rapide aux infos médicales"><T ch={s.priv.qr} on={() => upd('priv', 'qr')} /></R>
               <button className={`w-full mt-3 p-3 rounded-xl text-sm font-semibold ${darkMode ? 'bg-slate-800' : 'bg-slate-100'} flex items-center justify-center gap-2`}>
                 <Eye className="w-4 h-4" /> Qui a consulté mon dossier ?
               </button>
@@ -1441,6 +1663,10 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
           {as === 'sec' && (
             <div className="space-y-3">
               <h3 className="font-bold text-lg flex items-center gap-2"><Shield className="w-5 h-5 text-emerald-600" /> Sécurité</h3>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-900">Ces paramètres sont enregistrés localement. Ils seront synchronisés avec le serveur dans une prochaine version.</p>
+              </div>
               <R l="Authentification biométrique" d="Empreinte ou face ID"><T ch={s.sec.bio} on={() => upd('sec', 'bio')} /></R>
               <R l="Double authentification" d="Code SMS supplémentaire"><T ch={s.sec.ds} on={() => upd('sec', 'ds')} /></R>
               <R l="Verrouillage automatique" d="Délai déconnexion">
@@ -1448,9 +1674,6 @@ export function SettingsPage({ data, card, sub, border, darkMode }) {
                   <option>Jamais</option><option>1min</option><option>5min</option><option>15min</option>
                 </select>
               </R>
-              <button className={`w-full p-3 rounded-xl text-sm font-semibold ${darkMode ? 'bg-slate-800' : 'bg-slate-100'} flex items-center justify-center gap-2`}>
-                <KeyRound className="w-4 h-4" /> Changer mot de passe
-              </button>
             </div>
           )}
           {as === 'app' && (
