@@ -18,18 +18,29 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
   const sec = role === 'patient' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Accueil',I:Home},{id:'profile',l:'Mon profil',I:User}]},
     { t: 'SUIVI MÉDICAL', i: [
-      {id:'pilulier',l:'Pilulier',I:Pill},{id:'treatments',l:'Traitements',I:HeartPulse},
+      {id:'vitals',l:'Mes constantes',I:Activity},{id:'pilulier',l:'Pilulier',I:Pill},
+      {id:'treatments',l:'Traitements',I:HeartPulse},
       {id:'rdv',l:'Rendez-vous',I:Calendar},{id:'vaccinations',l:'Vaccinations',I:Syringe},
       {id:'dna',l:'ADN Médical',I:Droplet},{id:'labresults',l:'Résultats labo',I:Microscope},
       {id:'history',l:'Historique',I:ClipboardList}
     ]},
     { t: 'COMMUNICATION', i: [
+      {id:'notifications',l:'Notifications',I:Bell,b:5},
       {id:'messages',l:'Messages',I:MessageCircle,b:3},
       {id:'prescriptions',l:'Ordonnances',I:FileDown},
       {id:'documents',l:'Documents',I:FileText},
       {id:'notes',l:'Bloc-notes',I:StickyNote}
     ]},
-    { t: 'BIEN-ÊTRE', i: [{id:'wellness',l:'Bien-être',I:Target}]},
+    { t: 'SOINS', i: [
+      {id:'doctors',  l:'Trouver un médecin', I:Stethoscope},
+      {id:'pharmacy', l:'Pharmacie',          I:Pill},
+      {id:'urgence',  l:'SOS Urgence',        I:Siren},
+      {id:'assistant',l:'Assistant Nova IA',  I:Bot},
+    ]},
+    { t: 'BIEN-ÊTRE & ASSURANCE', i: [
+      {id:'wellness',  l:'Bien-être',   I:Target},
+      {id:'insurance', l:'Assurance',   I:ShieldCheck},
+    ]},
     { t: 'COMPTE', i: [{id:'settings',l:'Paramètres',I:Settings}]}
   ] : role === 'doctor' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import mysql from 'mysql2/promise';
+import bcrypt from 'bcrypt';
 
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -18,6 +19,12 @@ export async function initDb() {
     await createTables(conn);
     await seedDemo(conn);
     await seedVitalHistory(conn);
+    await seedDoctors(conn);
+    await seedNotifications(conn);
+    await seedWellnessGoals(conn);
+    await seedUsers(conn);
+    await seedInsurance(conn);
+    await seedPharmacies(conn);
   } finally {
     conn.release();
   }
@@ -284,6 +291,138 @@ async function createTables(conn) {
       updated_at VARCHAR(30) NOT NULL
     )
   `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_wellness_goals (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      target FLOAT NOT NULL,
+      current_value FLOAT NOT NULL DEFAULT 0,
+      unit VARCHAR(30),
+      icon VARCHAR(50),
+      color VARCHAR(30) NOT NULL DEFAULT 'emerald',
+      completed TINYINT(1) NOT NULL DEFAULT 0,
+      created_at VARCHAR(30) NOT NULL,
+      updated_at VARCHAR(30) NOT NULL,
+      INDEX idx_nwg_patient (patient_id)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctors (
+      id VARCHAR(36) PRIMARY KEY,
+      first_name VARCHAR(100) NOT NULL,
+      last_name VARCHAR(100) NOT NULL,
+      specialty VARCHAR(100) NOT NULL,
+      sub_specialty VARCHAR(100),
+      city VARCHAR(100) NOT NULL DEFAULT 'Abidjan',
+      address VARCHAR(255),
+      phone VARCHAR(30),
+      email VARCHAR(191),
+      rating FLOAT NOT NULL DEFAULT 4.5,
+      reviews_count INT NOT NULL DEFAULT 0,
+      experience_years INT NOT NULL DEFAULT 5,
+      languages VARCHAR(255) NOT NULL DEFAULT 'Français',
+      bio TEXT,
+      avatar_initials VARCHAR(4),
+      avatar_color VARCHAR(30) NOT NULL DEFAULT 'red',
+      consultation_fee INT NOT NULL DEFAULT 15000,
+      accepts_cmu TINYINT(1) NOT NULL DEFAULT 1,
+      is_available TINYINT(1) NOT NULL DEFAULT 1,
+      INDEX idx_nd_specialty (specialty),
+      INDEX idx_nd_city (city)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctor_slots (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      slot_date VARCHAR(20) NOT NULL,
+      slot_time VARCHAR(10) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'available',
+      patient_id VARCHAR(36),
+      INDEX idx_nds_doctor (doctor_id),
+      INDEX idx_nds_date (slot_date),
+      UNIQUE KEY uq_slot (doctor_id, slot_date, slot_time)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_notifications (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      body TEXT,
+      link_page VARCHAR(50),
+      is_read TINYINT(1) NOT NULL DEFAULT 0,
+      created_at VARCHAR(30) NOT NULL,
+      INDEX idx_nnot_patient (patient_id),
+      INDEX idx_nnot_created (created_at)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_users (
+      id VARCHAR(36) PRIMARY KEY,
+      phone VARCHAR(20) NOT NULL UNIQUE,
+      code_hash VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'patient',
+      patient_id VARCHAR(36),
+      name VARCHAR(200),
+      avatar VARCHAR(10),
+      created_at VARCHAR(30) NOT NULL
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_insurance (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      provider VARCHAR(150) NOT NULL,
+      policy_number VARCHAR(100),
+      holder_name VARCHAR(200),
+      coverage_type VARCHAR(100),
+      valid_from VARCHAR(20),
+      valid_to VARCHAR(20),
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      reimbursement_rate INT NOT NULL DEFAULT 70,
+      logo_color VARCHAR(20) NOT NULL DEFAULT 'blue',
+      INDEX idx_nins_patient (patient_id)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_pharmacies (
+      id VARCHAR(36) PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,
+      address VARCHAR(255),
+      city VARCHAR(100),
+      phone VARCHAR(30),
+      is_open TINYINT(1) NOT NULL DEFAULT 1,
+      opens_at VARCHAR(10),
+      closes_at VARCHAR(10),
+      is_duty TINYINT(1) NOT NULL DEFAULT 0,
+      distance_km FLOAT,
+      INDEX idx_nph_city (city)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_pharmacy_orders (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      pharmacy_id VARCHAR(36) NOT NULL,
+      prescription_id VARCHAR(36),
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      notes TEXT,
+      created_at VARCHAR(30) NOT NULL,
+      INDEX idx_npo_patient (patient_id)
+    )
+  `);
 }
 
 async function seedDemo(conn) {
@@ -466,37 +605,173 @@ async function seedDemo(conn) {
 }
 
 async function seedVitalHistory(conn) {
-  const vitals = [
-    ['vital-bp-20260422','patient-demo','blood_pressure','Tension','12/8','mmHg','2026-04-22T07:30:00.000Z'],
-    ['vital-bp-20260423','patient-demo','blood_pressure','Tension','13/8','mmHg','2026-04-23T07:30:00.000Z'],
-    ['vital-bp-20260424','patient-demo','blood_pressure','Tension','12/8','mmHg','2026-04-24T07:30:00.000Z'],
-    ['vital-bp-20260425','patient-demo','blood_pressure','Tension','12/7','mmHg','2026-04-25T07:30:00.000Z'],
-    ['vital-bp-20260426','patient-demo','blood_pressure','Tension','13/8','mmHg','2026-04-26T07:30:00.000Z'],
-    ['vital-bp-20260427','patient-demo','blood_pressure','Tension','12/8','mmHg','2026-04-27T07:30:00.000Z'],
-    ['vital-glucose-20260422','patient-demo','blood_glucose','Glycémie','1.10','g/L','2026-04-22T07:35:00.000Z'],
-    ['vital-glucose-20260423','patient-demo','blood_glucose','Glycémie','1.05','g/L','2026-04-23T07:35:00.000Z'],
-    ['vital-glucose-20260424','patient-demo','blood_glucose','Glycémie','1.00','g/L','2026-04-24T07:35:00.000Z'],
-    ['vital-glucose-20260425','patient-demo','blood_glucose','Glycémie','0.98','g/L','2026-04-25T07:35:00.000Z'],
-    ['vital-glucose-20260426','patient-demo','blood_glucose','Glycémie','0.97','g/L','2026-04-26T07:35:00.000Z'],
-    ['vital-glucose-20260427','patient-demo','blood_glucose','Glycémie','0.96','g/L','2026-04-27T07:35:00.000Z'],
-    ['vital-heart-20260422','patient-demo','heart_rate','Fréquence','70','bpm','2026-04-22T07:40:00.000Z'],
-    ['vital-heart-20260423','patient-demo','heart_rate','Fréquence','72','bpm','2026-04-23T07:40:00.000Z'],
-    ['vital-heart-20260424','patient-demo','heart_rate','Fréquence','71','bpm','2026-04-24T07:40:00.000Z'],
-    ['vital-heart-20260425','patient-demo','heart_rate','Fréquence','73','bpm','2026-04-25T07:40:00.000Z'],
-    ['vital-heart-20260426','patient-demo','heart_rate','Fréquence','72','bpm','2026-04-26T07:40:00.000Z'],
-    ['vital-heart-20260427','patient-demo','heart_rate','Fréquence','71','bpm','2026-04-27T07:40:00.000Z'],
-    ['vital-temp-20260422','patient-demo','temperature','Température','36.7','°C','2026-04-22T07:45:00.000Z'],
-    ['vital-temp-20260423','patient-demo','temperature','Température','36.8','°C','2026-04-23T07:45:00.000Z'],
-    ['vital-temp-20260424','patient-demo','temperature','Température','36.9','°C','2026-04-24T07:45:00.000Z'],
-    ['vital-temp-20260425','patient-demo','temperature','Température','36.8','°C','2026-04-25T07:45:00.000Z'],
-    ['vital-temp-20260426','patient-demo','temperature','Température','36.7','°C','2026-04-26T07:45:00.000Z'],
-    ['vital-temp-20260427','patient-demo','temperature','Température','36.8','°C','2026-04-27T07:45:00.000Z'],
-  ];
+  // 30 days of vitals history (April 22 → May 21, 2026)
+  const bpValues    = ['12/8','13/8','12/8','12/7','13/9','13/8','12/8','14/9','13/8','12/8','12/7','13/8','12/8','13/8','12/7','12/8','13/8','12/8','14/8','13/8','12/8','13/9','12/8','12/8','13/8','12/7','12/8','13/8','12/8','12/8'];
+  const glucoseVals = [1.10,1.05,1.00,0.98,0.97,0.96,1.02,1.05,1.00,0.99,0.97,0.98,1.01,1.03,0.99,0.97,0.96,1.00,1.04,1.02,0.99,0.98,0.97,0.96,1.00,1.01,0.99,0.98,0.97,0.96];
+  const hrValues    = [70,72,71,73,72,71,74,73,72,71,70,72,71,73,74,72,71,70,73,72,71,70,72,74,73,72,71,70,71,72];
+  const tempValues  = [36.7,36.8,36.9,36.8,36.7,36.8,36.7,36.9,36.8,36.7,36.8,36.7,36.9,36.8,36.7,36.8,36.7,36.9,37.0,36.8,36.7,36.8,36.9,36.8,36.7,36.8,36.7,36.8,36.9,36.8];
+
+  const vitals = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date('2026-04-22T00:00:00.000Z');
+    d.setDate(d.getDate() + i);
+    const ds = d.toISOString().slice(0, 10).replace(/-/g, '');
+    const iso = d.toISOString();
+    vitals.push([`vital-bp-${ds}`,     'patient-demo','blood_pressure','Tension artérielle', bpValues[i],          'mmHg', iso.replace('T00', 'T07').replace('.000Z', ':30:00.000Z')]);
+    vitals.push([`vital-gl-${ds}`,     'patient-demo','blood_glucose',  'Glycémie',           String(glucoseVals[i]),'g/L',  iso.replace('T00', 'T07').replace('.000Z', ':35:00.000Z')]);
+    vitals.push([`vital-hr-${ds}`,     'patient-demo','heart_rate',     'Fréquence cardiaque',String(hrValues[i]),   'bpm',  iso.replace('T00', 'T07').replace('.000Z', ':40:00.000Z')]);
+    vitals.push([`vital-tmp-${ds}`,    'patient-demo','temperature',    'Température',        String(tempValues[i]), '°C',   iso.replace('T00', 'T07').replace('.000Z', ':45:00.000Z')]);
+  }
 
   for (const row of vitals) {
     await conn.query(
       `INSERT IGNORE INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at) VALUES (?,?,?,?,?,?,?)`,
       row
+    );
+  }
+}
+
+async function seedDoctors(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_doctors LIMIT 1');
+  if (existing) return;
+
+  const doctors = [
+    ['doc-001','Abdoulaye','Koné','Cardiologie','Cardiologie interventionnelle','Abidjan - Plateau','Immeuble Médical, Av. Terrasson de Fougères','+225 27 20 31 00 01',4.9,127,18,'fr',6,'Spécialiste en maladies cardiovasculaires avec 18 ans d\'expérience. Ancien interne à l\'Hôpital de Paris.','AK','red',25000,1],
+    ['doc-002','Mariam','Touré','Gynécologie-Obstétrique','Grossesse à risque','Abidjan - Cocody','Clinique Sainte Marie, Cocody','+225 27 22 44 33 00',4.8,98,12,'fr',4,'Gynécologue obstétricienne dédiée à la santé maternelle et féminine.','MT','purple',20000,1],
+    ['doc-003','Sékou','Bamba','Médecine générale',null,'Abidjan - Yopougon','Centre de Santé de Yopougon','+225 27 23 55 66 77',4.7,203,8,'fr',3,'Médecin généraliste de proximité, prise en charge globale du patient.','SB','blue',10000,1],
+    ['doc-004','Ibrahim','Coulibaly','Endocrinologie','Diabétologie','Abidjan - Deux-Plateaux','Clinique les 2 Plateaux','+225 27 22 41 00 30',4.8,76,15,'fr',5,'Expert en diabète et maladies métaboliques. Formé à l\'Université de Bordeaux.','IC','orange',22000,1],
+    ['doc-005','Fatou','Ouattara','Pédiatrie','Néonatologie','Abidjan - Treichville','CHU de Treichville, Pédiatrie','+225 27 21 75 12 12',4.9,154,10,'fr',3,'Pédiatre passionnée par le suivi de l\'enfant de la naissance à l\'adolescence.','FO','emerald',15000,1],
+    ['doc-006','Amadou','Diallo','Neurologie',null,'Abidjan - Marcory','Clinique Marcory','+225 27 21 26 00 90',4.6,45,20,'fr,en',6,'Neurologue spécialisé dans les AVC, l\'épilepsie et les céphalées chroniques.','AD','indigo',30000,0],
+    ['doc-007','Paul','N\'Goran','Dermatologie','Dermatologie esthétique','Abidjan - Cocody','Dermacos, Riviera 2','+225 27 22 49 17 17',4.7,89,14,'fr',4,'Dermatologue expert en maladies cutanées et en dermatologie esthétique.','PN','pink',18000,1],
+    ['doc-008','Marie-Hélène','Koffi','Ophtalmologie',null,'Abidjan - Plateau','Cabinet Ophtalmologique du Plateau','+225 27 20 32 44 55',4.8,112,16,'fr',5,'Ophtalmologue spécialiste des troubles de la vision et de la chirurgie oculaire.','MK','cyan',20000,1],
+  ];
+
+  for (const [id,fn,ln,sp,subsp,city,addr,ph,rat,rev,exp,lang,fee_k,bio,init,color,fee,cmu] of doctors) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_doctors (id,first_name,last_name,specialty,sub_specialty,city,address,phone,rating,reviews_count,experience_years,languages,bio,avatar_initials,avatar_color,consultation_fee,accepts_cmu,is_available)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id,fn,ln,sp,subsp,city,addr,ph,rat,rev,exp,lang,bio,init,color,fee*1000,cmu,1]
+    );
+  }
+
+  // Generate slots for next 14 days for each doctor
+  const times = ['08:00','08:30','09:00','09:30','10:00','10:30','14:00','14:30','15:00','15:30','16:00','16:30'];
+  const docIds = doctors.map(d => d[0]);
+  const today = new Date('2026-05-29T00:00:00.000Z');
+
+  for (const docId of docIds) {
+    for (let d = 1; d <= 14; d++) {
+      const dt = new Date(today);
+      dt.setDate(dt.getDate() + d);
+      const dow = dt.getDay();
+      if (dow === 0) continue; // skip Sunday
+      const dateStr = dt.toISOString().slice(0, 10);
+      const dayTimes = dow === 6 ? times.slice(0, 6) : times; // Saturday: morning only
+      for (const t of dayTimes) {
+        const slotId = `slot-${docId}-${dateStr}-${t.replace(':', '')}`;
+        await conn.query(
+          `INSERT IGNORE INTO nova_doctor_slots (id, doctor_id, slot_date, slot_time, status) VALUES (?,?,?,?,'available')`,
+          [slotId, docId, dateStr, t]
+        );
+      }
+    }
+  }
+}
+
+async function seedNotifications(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_notifications LIMIT 1');
+  if (existing) return;
+
+  const now = new Date();
+  const notifs = [
+    ['notif-001','patient-demo','appointment','RDV demain à 10h00','Dr. Koné Abdoulaye – Cardiologie – Clinique du Plateau','rdv', '2026-05-28T08:00:00.000Z'],
+    ['notif-002','patient-demo','medication','Médicament manqué','Vous n\'avez pas pris votre Metformine ce soir.','pilulier', '2026-05-28T21:00:00.000Z'],
+    ['notif-003','patient-demo','vaccine','Vaccin à renouveler','Votre vaccin contre la fièvre typhoïde arrive à expiration dans 30 jours.','vaccinations', '2026-05-27T09:00:00.000Z'],
+    ['notif-004','patient-demo','message','Nouveau message','Dr. Coulibaly Ibrahim vous a répondu.','messages', '2026-05-27T14:30:00.000Z'],
+    ['notif-005','patient-demo','result','Résultats disponibles','Votre bilan lipidique du 25/05/2026 est prêt.','labresults', '2026-05-25T16:00:00.000Z'],
+  ];
+
+  for (const [id, pid, type, title, body, link, created_at] of notifs) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_notifications (id,patient_id,type,title,body,link_page,is_read,created_at) VALUES (?,?,?,?,?,?,0,?)`,
+      [id, pid, type, title, body, link, created_at]
+    );
+  }
+}
+
+async function seedWellnessGoals(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_wellness_goals LIMIT 1');
+  if (existing) return;
+
+  const now = new Date().toISOString();
+  const goals = [
+    ['wg-001','patient-demo','steps',       'Pas quotidiens',      10000, 6200, 'pas',   'Activity', 'blue',    0, now, now],
+    ['wg-002','patient-demo','water',        'Hydratation',         2500,  1800, 'mL',    'Droplet',  'cyan',    0, now, now],
+    ['wg-003','patient-demo','sleep',        'Sommeil',             8,     6.5,  'h',     'Moon',     'indigo',  0, now, now],
+    ['wg-004','patient-demo','weight',       'Objectif poids',      80,    86,   'kg',    'Scale',    'amber',   0, now, now],
+    ['wg-005','patient-demo','blood_pressure','Tension cible',      13,    12.5, 'cmHg',  'HeartPulse','red',   0, now, now],
+  ];
+
+  for (const [id,pid,type,title,target,current,unit,icon,color,completed,created_at,updated_at] of goals) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_wellness_goals (id,patient_id,type,title,target,current_value,unit,icon,color,completed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id,pid,type,title,target,current,unit,icon,color,completed,created_at,updated_at]
+    );
+  }
+}
+
+async function seedUsers(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_users LIMIT 1');
+  if (existing) return;
+
+  const codeHash = await bcrypt.hash('0000', 10);
+  const now = new Date().toISOString();
+  const users = [
+    ['user-001', '0789452311', 'patient', 'patient-demo', 'Kouamé Bamba', 'KB'],
+    ['user-002', '0102030405', 'patient', 'patient-demo', 'Adjoua Koné',  'AK'],
+  ];
+  for (const [id, phone, role, patientId, name, avatar] of users) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, phone, codeHash, role, patientId, name, avatar, now]
+    );
+  }
+}
+
+async function seedInsurance(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_insurance LIMIT 1');
+  if (existing) return;
+
+  const insurances = [
+    ['ins-001', 'patient-demo', 'MUGEFCI',  'MUG-2024-0098723',    'BAMBA Kouamé', 'Hospitalisation + Consultations',      '2024-01-01', '2026-12-31', 'active', 80, 'blue'],
+    ['ins-002', 'patient-demo', 'CNAMGS',   'CMU-CI-2024-0847-3692','BAMBA Kouamé', 'CMU – Couverture Maladie Universelle',  '2024-03-15', '2027-03-15', 'active', 70, 'emerald'],
+  ];
+  for (const [id, pid, provider, policy, holder, coverage, from, to, status, rate, color] of insurances) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_insurance (id,patient_id,provider,policy_number,holder_name,coverage_type,valid_from,valid_to,status,reimbursement_rate,logo_color) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, pid, provider, policy, holder, coverage, from, to, status, rate, color]
+    );
+  }
+}
+
+async function seedPharmacies(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_pharmacies LIMIT 1');
+  if (existing) return;
+
+  const pharmacies = [
+    ['ph-001','Pharmacie du Plateau',         'Avenue Botreau-Roussel, Plateau',         'Abidjan - Plateau',       '+225 27 20 31 47 00',1,'07:30','21:00',1,1.2],
+    ['ph-002','Pharmacie Princesse',           'Rue des Jardins, Cocody',                 'Abidjan - Cocody',        '+225 27 22 44 08 08',1,'08:00','22:00',0,2.8],
+    ['ph-003','Pharmacie PISAM',               'Bd Latrille, en face du PISAM',           'Abidjan - Cocody',        '+225 27 22 41 19 60',1,'07:00','23:00',0,3.1],
+    ['ph-004','Pharmacie de Yopougon-Maroc',   'Quartier Maroc, Yopougon',                'Abidjan - Yopougon',      '+225 27 23 51 43 43',1,'08:00','21:00',0,7.4],
+    ['ph-005','Pharmacie Sainte Famille',      'Rue 12, Treichville',                     'Abidjan - Treichville',   '+225 27 21 24 07 07',0,'08:30','20:00',0,5.0],
+    ['ph-006','Pharmacie Abobo Centre',        'Avenue principale, Abobo-Gare',           'Abidjan - Abobo',         '+225 27 23 80 10 10',1,'07:30','21:30',0,9.2],
+    ['ph-007','Pharmacie Marcory Santé',       'Carrefour Marcory, Bd VGE',               'Abidjan - Marcory',       '+225 27 21 26 55 55',1,'08:00','22:00',0,4.6],
+    ['ph-008','Pharmacie Deux-Plateaux',       'Rue des Combattants, Deux-Plateaux',      'Abidjan - Deux-Plateaux', '+225 27 22 41 77 88',1,'08:00','20:30',0,3.9],
+  ];
+  for (const [id,name,address,city,phone,isOpen,opens,closes,isDuty,dist] of pharmacies) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_pharmacies (id,name,address,city,phone,is_open,opens_at,closes_at,is_duty,distance_km) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [id,name,address,city,phone,isOpen,opens,closes,isDuty,dist]
     );
   }
 }

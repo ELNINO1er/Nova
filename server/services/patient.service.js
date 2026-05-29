@@ -437,6 +437,136 @@ export async function getPrescription(patientId, id) {
   };
 }
 
+/* ─── Vitaux (ajout manuel) ──────────────────────────────────── */
+
+export async function addVital(patientId, payload) {
+  const id = randomUUID();
+  const now = payload.measuredAt || new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, payload.label, String(payload.value), payload.unit || '', now]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_vitals WHERE id = ?', [id]);
+  return mapVital(row);
+}
+
+/* ─── Médecins ───────────────────────────────────────────────── */
+
+export async function getDoctors(query = {}) {
+  let sql = 'SELECT * FROM nova_doctors WHERE 1=1';
+  const params = [];
+
+  if (query.specialty) {
+    sql += ' AND specialty = ?';
+    params.push(query.specialty);
+  }
+  if (query.city) {
+    sql += ' AND city LIKE ?';
+    params.push(`%${query.city}%`);
+  }
+  if (query.q) {
+    sql += ' AND (CONCAT(first_name," ",last_name) LIKE ? OR specialty LIKE ?)';
+    params.push(`%${query.q}%`, `%${query.q}%`);
+  }
+  if (query.acceptsCmu === 'true') {
+    sql += ' AND accepts_cmu = 1';
+  }
+  sql += ' ORDER BY rating DESC, reviews_count DESC';
+
+  const [rows] = await pool.execute(sql, params);
+  return rows.map(mapDoctor);
+}
+
+export async function getDoctor(id) {
+  const [[row]] = await pool.execute('SELECT * FROM nova_doctors WHERE id = ?', [id]);
+  if (!row) return null;
+  return mapDoctor(row);
+}
+
+export async function getDoctorSlots(doctorId, query = {}) {
+  let sql = 'SELECT * FROM nova_doctor_slots WHERE doctor_id = ? AND status = "available"';
+  const params = [doctorId];
+
+  if (query.date) {
+    sql += ' AND slot_date = ?';
+    params.push(query.date);
+  } else {
+    const today = new Date().toISOString().slice(0, 10);
+    sql += ' AND slot_date >= ?';
+    params.push(today);
+  }
+  sql += ' ORDER BY slot_date ASC, slot_time ASC';
+
+  const [rows] = await pool.execute(sql, params);
+  return rows.map((r) => ({
+    id: r.id,
+    doctorId: r.doctor_id,
+    date: r.slot_date,
+    time: r.slot_time,
+    status: r.status,
+  }));
+}
+
+export async function bookSlot(patientId, slotId) {
+  const [[slot]] = await pool.execute(
+    'SELECT * FROM nova_doctor_slots WHERE id = ? AND status = "available"',
+    [slotId]
+  );
+  if (!slot) return null;
+
+  await pool.execute(
+    'UPDATE nova_doctor_slots SET status = "booked", patient_id = ? WHERE id = ?',
+    [patientId, slotId]
+  );
+
+  const [[doctor]] = await pool.execute('SELECT * FROM nova_doctors WHERE id = ?', [slot.doctor_id]);
+  const apptId = randomUUID();
+  const startsAt = `${slot.slot_date}T${slot.slot_time}:00.000Z`;
+
+  await pool.execute(
+    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed')`,
+    [apptId, patientId, startsAt,
+     `Dr. ${doctor.first_name} ${doctor.last_name}`,
+     doctor.specialty, doctor.city]
+  );
+
+  return { slotId, appointmentId: apptId, doctorName: `Dr. ${doctor.first_name} ${doctor.last_name}`, startsAt };
+}
+
+/* ─── Notifications ──────────────────────────────────────────── */
+
+export async function getNotifications(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC',
+    [patientId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    body: r.body,
+    linkPage: r.link_page,
+    isRead: Boolean(r.is_read),
+    createdAt: r.created_at,
+  }));
+}
+
+export async function markNotificationRead(patientId, id) {
+  await pool.execute(
+    'UPDATE nova_notifications SET is_read = 1 WHERE patient_id = ? AND id = ?',
+    [patientId, id]
+  );
+}
+
+export async function markAllNotificationsRead(patientId) {
+  await pool.execute(
+    'UPDATE nova_notifications SET is_read = 1 WHERE patient_id = ?',
+    [patientId]
+  );
+}
+
 /* ─── Résultats de laboratoire ───────────────────────────────── */
 
 export async function getLabResults(patientId, query = {}) {
@@ -579,6 +709,95 @@ export async function deleteNote(patientId, id) {
   await pool.execute(
     'DELETE FROM nova_notes WHERE patient_id = ? AND id = ?', [patientId, id]
   );
+}
+
+/* ─── Fiche Urgence ──────────────────────────────────────────── */
+
+export async function getEmergencyCard(patientId) {
+  const [[patient]] = await pool.execute('SELECT * FROM nova_patients WHERE id = ?', [patientId]);
+  if (!patient) return null;
+
+  const [[mpRow]] = await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
+  const mp = mpRow ? {
+    allergies:       JSON.parse(mpRow.allergies       || '[]'),
+    chronicDiseases: JSON.parse(mpRow.chronic_diseases || '[]'),
+    surgicalHistory: JSON.parse(mpRow.surgical_history || '[]'),
+  } : { allergies: [], chronicDiseases: [], surgicalHistory: [] };
+
+  const [activeTreatments] = await pool.execute(
+    `SELECT t.diagnosis, m.name, m.dosage FROM nova_treatments t
+     JOIN nova_medications m ON m.treatment_id = t.id
+     WHERE t.patient_id = ? AND t.status = 'active'`,
+    [patientId]
+  );
+
+  return {
+    id: patient.id,
+    firstName: patient.first_name,
+    lastName: patient.last_name,
+    birthDate: patient.birth_date,
+    sex: patient.sex,
+    bloodType: patient.blood_type,
+    phone: patient.phone,
+    cmuNumber: patient.cmu_number,
+    emergencyContact: {
+      name: patient.emergency_name,
+      relationship: patient.emergency_relationship,
+      phone: patient.emergency_phone,
+    },
+    allergies:       mp.allergies,
+    chronicDiseases: mp.chronicDiseases,
+    surgicalHistory: mp.surgicalHistory,
+    currentMedications: activeTreatments.map(r => ({ name: r.name, dosage: r.dosage, diagnosis: r.diagnosis })),
+  };
+}
+
+/* ─── Wellness Goals ─────────────────────────────────────────── */
+
+export async function getWellnessGoals(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_wellness_goals WHERE patient_id = ? ORDER BY completed ASC, created_at DESC',
+    [patientId]
+  );
+  return rows.map(mapGoal);
+}
+
+export async function createWellnessGoal(patientId, payload) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_wellness_goals (id,patient_id,type,title,target,current_value,unit,icon,color,completed,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,0,?,?)`,
+    [id, patientId, payload.type, payload.title, payload.target,
+     payload.currentValue ?? 0, payload.unit ?? '', payload.icon ?? 'Target',
+     payload.color ?? 'emerald', now, now]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_wellness_goals WHERE id = ?', [id]);
+  return mapGoal(row);
+}
+
+export async function updateWellnessGoal(patientId, id, changes) {
+  const [[current]] = await pool.execute(
+    'SELECT * FROM nova_wellness_goals WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
+  if (!current) return null;
+  const now = new Date().toISOString();
+  const next = {
+    current_value: changes.currentValue ?? current.current_value,
+    completed:     changes.completed !== undefined ? (changes.completed ? 1 : 0) : current.completed,
+    title:         changes.title     ?? current.title,
+    target:        changes.target    ?? current.target,
+  };
+  await pool.execute(
+    `UPDATE nova_wellness_goals SET current_value=?,completed=?,title=?,target=?,updated_at=? WHERE id=?`,
+    [next.current_value, next.completed, next.title, next.target, now, id]
+  );
+  const [[row]] = await pool.execute('SELECT * FROM nova_wellness_goals WHERE id = ?', [id]);
+  return mapGoal(row);
+}
+
+export async function deleteWellnessGoal(patientId, id) {
+  await pool.execute('DELETE FROM nova_wellness_goals WHERE patient_id = ? AND id = ?', [patientId, id]);
 }
 
 /* ─── Paramètres ─────────────────────────────────────────────── */
@@ -759,6 +978,47 @@ function mapDocument(row) {
   };
 }
 
+function mapGoal(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    target: Number(row.target),
+    currentValue: Number(row.current_value),
+    unit: row.unit,
+    icon: row.icon,
+    color: row.color,
+    completed: Boolean(row.completed),
+    progress: row.target > 0 ? Math.min(100, Math.round((Number(row.current_value) / Number(row.target)) * 100)) : 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapDoctor(row) {
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    fullName: `Dr. ${row.first_name} ${row.last_name}`,
+    specialty: row.specialty,
+    subSpecialty: row.sub_specialty,
+    city: row.city,
+    address: row.address,
+    phone: row.phone,
+    rating: row.rating,
+    reviewsCount: row.reviews_count,
+    experienceYears: row.experience_years,
+    languages: row.languages,
+    bio: row.bio,
+    avatarInitials: row.avatar_initials,
+    avatarColor: row.avatar_color,
+    consultationFee: row.consultation_fee,
+    acceptsCmu: Boolean(row.accepts_cmu),
+    isAvailable: Boolean(row.is_available),
+  };
+}
+
 function mapLabResultItem(row) {
   return {
     id: row.id,
@@ -818,4 +1078,101 @@ function deepMerge(target, source) {
       : value;
   }
   return next;
+}
+
+/* ─── Assurance ──────────────────────────────────────────────── */
+
+export async function getInsurance(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_insurance WHERE patient_id = ? ORDER BY status DESC',
+    [patientId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    provider: r.provider,
+    policyNumber: r.policy_number,
+    holderName: r.holder_name,
+    coverageType: r.coverage_type,
+    validFrom: r.valid_from,
+    validTo: r.valid_to,
+    status: r.status,
+    reimbursementRate: r.reimbursement_rate,
+    logoColor: r.logo_color,
+  }));
+}
+
+/* ─── Pharmacies ─────────────────────────────────────────────── */
+
+export async function getPharmacies(query = {}) {
+  let sql = 'SELECT * FROM nova_pharmacies';
+  const args = [];
+  if (query.search) {
+    sql += ' WHERE name LIKE ? OR city LIKE ? OR address LIKE ?';
+    const s = `%${query.search}%`;
+    args.push(s, s, s);
+  }
+  sql += ' ORDER BY is_duty DESC, is_open DESC, distance_km ASC';
+  const [rows] = await pool.execute(sql, args);
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    address: r.address,
+    city: r.city,
+    phone: r.phone,
+    isOpen: Boolean(r.is_open),
+    opensAt: r.opens_at,
+    closesAt: r.closes_at,
+    isDuty: Boolean(r.is_duty),
+    distanceKm: r.distance_km,
+  }));
+}
+
+export async function getPharmacyOrders(patientId) {
+  const [rows] = await pool.execute(
+    `SELECT po.*, ph.name AS pharmacy_name, ph.address AS pharmacy_address, ph.phone AS pharmacy_phone
+     FROM nova_pharmacy_orders po
+     JOIN nova_pharmacies ph ON ph.id = po.pharmacy_id
+     WHERE po.patient_id = ?
+     ORDER BY po.created_at DESC`,
+    [patientId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    pharmacyId: r.pharmacy_id,
+    pharmacyName: r.pharmacy_name,
+    pharmacyAddress: r.pharmacy_address,
+    pharmacyPhone: r.pharmacy_phone,
+    prescriptionId: r.prescription_id,
+    status: r.status,
+    notes: r.notes,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function createPharmacyOrder(patientId, payload) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_pharmacy_orders (id, patient_id, pharmacy_id, prescription_id, status, notes, created_at)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    [id, patientId, payload.pharmacyId, payload.prescriptionId || null, payload.notes || null, now]
+  );
+  const [[row]] = await pool.execute(
+    `SELECT po.*, ph.name AS pharmacy_name, ph.address AS pharmacy_address, ph.phone AS pharmacy_phone
+     FROM nova_pharmacy_orders po
+     JOIN nova_pharmacies ph ON ph.id = po.pharmacy_id
+     WHERE po.id = ?`,
+    [id]
+  );
+  return {
+    id: row.id,
+    pharmacyId: row.pharmacy_id,
+    pharmacyName: row.pharmacy_name,
+    pharmacyAddress: row.pharmacy_address,
+    pharmacyPhone: row.pharmacy_phone,
+    prescriptionId: row.prescription_id,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.created_at,
+  };
 }

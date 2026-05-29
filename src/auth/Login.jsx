@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { ACCOUNTS } from '../data/accounts.js';
+import { authApi } from '../api/authApi.js';
 
 /* ============== LOGIN ============== */
 export default function Login({ auth, setAuth, onLogin }) {
@@ -25,12 +26,20 @@ export default function Login({ auth, setAuth, onLogin }) {
   const cleaned = phone.replace(/\s/g, '');
   const fmt = (v) => v.replace(/\D/g,'').slice(0,10).replace(/(\d{2})(?=\d)/g,'$1 ').trim();
 
-  const submit = () => {
+  const submit = async () => {
     setErr('');
     if (cleaned.length !== 10) return setErr('Numéro invalide.');
-    if (!ACCOUNTS[cleaned]) return setErr('Numéro non reconnu.');
     setLoad(true);
-    setTimeout(() => { setLoad(false); setAuth('otp'); }, 500);
+    try {
+      await authApi.check(cleaned);
+      setAuth('otp');
+    } catch {
+      // Fallback démo pour médecins/admin non-JWT
+      if (ACCOUNTS[cleaned]) { setAuth('otp'); }
+      else { setErr('Numéro non reconnu.'); }
+    } finally {
+      setLoad(false);
+    }
   };
 
   const onOtp = (i, v) => {
@@ -40,12 +49,21 @@ export default function Login({ auth, setAuth, onLogin }) {
     if (n.every(d => d !== '')) setTimeout(() => verify(n.join('')), 200);
   };
 
-  const verify = (code) => {
+  const verify = async (code) => {
     setLoad(true);
-    setTimeout(() => {
-      if (code === '0000') onLogin(ACCOUNTS[cleaned]);
-      else { setErr('Code incorrect. Indice : 0000'); setLoad(false); }
-    }, 400);
+    try {
+      const { token, user } = await authApi.login(cleaned, code);
+      authApi.setToken(token);
+      onLogin(user);
+    } catch {
+      // Fallback démo (médecin/admin)
+      if (code === '0000' && ACCOUNTS[cleaned]) {
+        onLogin(ACCOUNTS[cleaned]);
+      } else {
+        setErr('Code incorrect. Indice : 0000');
+        setLoad(false);
+      }
+    }
   };
 
   return (

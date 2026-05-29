@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
+import QRCode from 'qrcode';
 import { requirePatient } from '../middleware/auth.js';
 import { upload, uploadDir } from '../middleware/upload.js';
 import {
+  getInsurance,
+  getPharmacies,
+  getPharmacyOrders,
+  createPharmacyOrder,
   createMedicationIntake,
   createAppointment,
   createDocument,
@@ -16,13 +21,25 @@ import {
   createMessage,
   markConversationRead,
   getDashboard,
+  getDoctors,
+  getDoctor,
+  getDoctorSlots,
+  bookSlot,
   getDocuments,
+  getEmergencyCard,
   getHistory,
   getLabResults,
   getLabResult,
   getMedicationToday,
   getMedicalProfile,
   getNotes,
+  getNotifications,
+  getWellnessGoals,
+  createWellnessGoal,
+  updateWellnessGoal,
+  deleteWellnessGoal,
+  markNotificationRead,
+  markAllNotificationsRead,
   getProfile,
   getPrescriptions,
   getPrescription,
@@ -30,6 +47,7 @@ import {
   getTreatments,
   getVaccinations,
   getVitals,
+  addVital,
   updateNote,
   updateAppointment,
   updateMedicalProfile,
@@ -77,6 +95,23 @@ router.patch('/profile', validateBody(z.object({
 
 router.get('/vitals', wrap(async (req, res) => {
   res.json(await getVitals(req.user.patientId, req.query));
+}));
+
+router.post('/vitals', validateBody(z.object({
+  type:       z.enum(['blood_pressure','blood_glucose','heart_rate','temperature']),
+  value:      z.string().min(1),
+  label:      z.string().optional(),
+  unit:       z.string().optional(),
+  measuredAt: z.string().datetime().optional(),
+})), wrap(async (req, res) => {
+  const labels = { blood_pressure: 'Tension artérielle', blood_glucose: 'Glycémie', heart_rate: 'Fréquence cardiaque', temperature: 'Température' };
+  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C' };
+  const payload = {
+    ...req.body,
+    label: req.body.label || labels[req.body.type],
+    unit:  req.body.unit  || units[req.body.type],
+  };
+  res.status(201).json(await addVital(req.user.patientId, payload));
 }));
 
 /* ─── Traitements & Médicaments ──────────────────────────────── */
@@ -206,6 +241,44 @@ router.get('/prescriptions/:id', wrap(async (req, res) => {
   res.json(data);
 }));
 
+/* ─── Médecins ───────────────────────────────────────────────── */
+
+router.get('/doctors', wrap(async (req, res) => {
+  res.json(await getDoctors(req.query));
+}));
+
+router.get('/doctors/:id', wrap(async (req, res) => {
+  const doc = await getDoctor(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'not_found', message: 'Médecin introuvable' });
+  res.json(doc);
+}));
+
+router.get('/doctors/:id/slots', wrap(async (req, res) => {
+  res.json(await getDoctorSlots(req.params.id, req.query));
+}));
+
+router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
+  const result = await bookSlot(req.user.patientId, req.params.slotId);
+  if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
+  res.status(201).json(result);
+}));
+
+/* ─── Notifications ──────────────────────────────────────────── */
+
+router.get('/notifications', wrap(async (req, res) => {
+  res.json(await getNotifications(req.user.patientId));
+}));
+
+router.patch('/notifications/:id/read', wrap(async (req, res) => {
+  await markNotificationRead(req.user.patientId, req.params.id);
+  res.json({ ok: true });
+}));
+
+router.patch('/notifications/read-all', wrap(async (req, res) => {
+  await markAllNotificationsRead(req.user.patientId);
+  res.json({ ok: true });
+}));
+
 /* ─── Résultats de laboratoire ───────────────────────────────── */
 
 router.get('/lab-results', wrap(async (req, res) => {
@@ -260,6 +333,95 @@ router.patch('/notes/:id', validateBody(z.object({
 router.delete('/notes/:id', wrap(async (req, res) => {
   await deleteNote(req.user.patientId, req.params.id);
   res.status(204).send();
+}));
+
+/* ─── Fiche Urgence ──────────────────────────────────────────── */
+
+router.get('/emergency-card', wrap(async (req, res) => {
+  const card = await getEmergencyCard(req.user.patientId);
+  if (!card) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable' });
+  res.json(card);
+}));
+
+router.get('/emergency-card/qr', wrap(async (req, res) => {
+  const card = await getEmergencyCard(req.user.patientId);
+  if (!card) return res.status(404).json({ error: 'not_found' });
+
+  const payload = JSON.stringify({
+    n: `${card.firstName} ${card.lastName}`,
+    dob: card.birthDate,
+    bt: card.bloodType,
+    al: card.allergies.join(', ') || 'Aucune',
+    ec: card.emergencyContact?.phone || '',
+    cmu: card.cmuNumber,
+  });
+
+  const dataUrl = await QRCode.toDataURL(payload, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 300,
+    color: { dark: '#0f172a', light: '#ffffff' },
+  });
+
+  res.json({ qr: dataUrl, payload });
+}));
+
+/* ─── Wellness Goals ─────────────────────────────────────────── */
+
+router.get('/wellness-goals', wrap(async (req, res) => {
+  res.json(await getWellnessGoals(req.user.patientId));
+}));
+
+router.post('/wellness-goals', validateBody(z.object({
+  type:         z.string().min(1),
+  title:        z.string().min(1),
+  target:       z.number().positive(),
+  currentValue: z.number().min(0).default(0),
+  unit:         z.string().default(''),
+  icon:         z.string().default('Target'),
+  color:        z.string().default('emerald'),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createWellnessGoal(req.user.patientId, req.body));
+}));
+
+router.patch('/wellness-goals/:id', validateBody(z.object({
+  title:        z.string().min(1).optional(),
+  target:       z.number().positive().optional(),
+  currentValue: z.number().min(0).optional(),
+  completed:    z.boolean().optional(),
+})), wrap(async (req, res) => {
+  const result = await updateWellnessGoal(req.user.patientId, req.params.id, req.body);
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Objectif introuvable' });
+  res.json(result);
+}));
+
+router.delete('/wellness-goals/:id', wrap(async (req, res) => {
+  await deleteWellnessGoal(req.user.patientId, req.params.id);
+  res.status(204).send();
+}));
+
+/* ─── Assurance ──────────────────────────────────────────────── */
+
+router.get('/insurance', wrap(async (req, res) => {
+  res.json(await getInsurance(req.user.patientId));
+}));
+
+/* ─── Pharmacies ─────────────────────────────────────────────── */
+
+router.get('/pharmacies', wrap(async (req, res) => {
+  res.json(await getPharmacies(req.query));
+}));
+
+router.get('/pharmacy-orders', wrap(async (req, res) => {
+  res.json(await getPharmacyOrders(req.user.patientId));
+}));
+
+router.post('/pharmacy-orders', validateBody(z.object({
+  pharmacyId:     z.string().min(1),
+  prescriptionId: z.string().optional(),
+  notes:          z.string().max(500).optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createPharmacyOrder(req.user.patientId, req.body));
 }));
 
 /* ─── Paramètres ─────────────────────────────────────────────── */

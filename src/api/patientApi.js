@@ -1,9 +1,13 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
 
+const getToken = () => localStorage.getItem('nova_token') || '';
+
 async function request(path, options = {}) {
+  const token = getToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     ...options,
@@ -69,6 +73,21 @@ export const patientApi = {
   deleteNote: (id) => request(`/patient/me/notes/${id}`, { method: 'DELETE' }),
   prescriptions: (params = {}) => request(`/patient/me/prescriptions${toQuery(params)}`),
   prescription: (id) => request(`/patient/me/prescriptions/${id}`),
+  vitals: (params = {}) => request(`/patient/me/vitals${toQuery(params)}`),
+  addVital: (payload) => request('/patient/me/vitals', { method: 'POST', body: JSON.stringify(payload) }),
+  emergencyCard: () => request('/patient/me/emergency-card'),
+  emergencyCardQr: () => request('/patient/me/emergency-card/qr'),
+  wellnessGoals: () => request('/patient/me/wellness-goals'),
+  createWellnessGoal: (payload) => request('/patient/me/wellness-goals', { method: 'POST', body: JSON.stringify(payload) }),
+  updateWellnessGoal: (id, payload) => request(`/patient/me/wellness-goals/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteWellnessGoal: (id) => request(`/patient/me/wellness-goals/${id}`, { method: 'DELETE' }),
+  doctors: (params = {}) => request(`/patient/me/doctors${toQuery(params)}`),
+  doctor: (id) => request(`/patient/me/doctors/${id}`),
+  doctorSlots: (id, params = {}) => request(`/patient/me/doctors/${id}/slots${toQuery(params)}`),
+  bookSlot: (doctorId, slotId) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST' }),
+  notifications: () => request('/patient/me/notifications'),
+  markNotificationRead: (id) => request(`/patient/me/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () => request('/patient/me/notifications/read-all', { method: 'PATCH' }),
   labResults: (params = {}) => request(`/patient/me/lab-results${toQuery(params)}`),
   labResult: (id) => request(`/patient/me/lab-results/${id}`),
   medicalProfile: () => request('/patient/me/medical-profile'),
@@ -77,10 +96,22 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   uploadDocument: async (formData) => {
-    const r = await fetch(`${API_BASE_URL}/patient/me/documents`, { method: 'POST', body: formData });
+    const token = getToken();
+    const r = await fetch(`${API_BASE_URL}/patient/me/documents`, {
+      method: 'POST',
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
     return r.json();
   },
+  insurance: () => request('/patient/me/insurance'),
+  pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
+  pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
+  createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
   settings: () => request('/patient/me/settings'),
   updateSettings: (payload) => request('/patient/me/settings', {
     method: 'PATCH',

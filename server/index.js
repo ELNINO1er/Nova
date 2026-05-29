@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import { initDb } from './db/database.js';
 import patientRoutes from './routes/patient.routes.js';
+import authRoutes from './routes/auth.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 import { uploadDir } from './middleware/upload.js';
@@ -30,6 +31,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
   customSiteTitle: 'NOVA API Docs',
 }));
 
+app.use('/api/auth', authRoutes);
 app.use('/api/patient/me', patientRoutes);
 app.use('/uploads', express.static(uploadDir));
 
