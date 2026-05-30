@@ -10,7 +10,8 @@ export async function loginUser(phone, code) {
   return {
     id:        user.id,
     role:      user.role,
-    patientId: user.patient_id,
+    patientId: user.patient_id  || null,
+    doctorId:  user.doctor_id   || null,
     name:      user.name,
     avatar:    user.avatar,
   };

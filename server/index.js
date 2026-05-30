@@ -6,7 +6,8 @@ import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import { initDb } from './db/database.js';
 import patientRoutes from './routes/patient.routes.js';
-import authRoutes from './routes/auth.routes.js';
+import doctorRoutes  from './routes/doctor.routes.js';
+import authRoutes    from './routes/auth.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 import { uploadDir } from './middleware/upload.js';
@@ -33,6 +34,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/patient/me', patientRoutes);
+app.use('/api/doctor/me',  doctorRoutes);
 app.use('/uploads', express.static(uploadDir));
 
 app.use(notFoundHandler);

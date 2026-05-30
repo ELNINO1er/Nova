@@ -45,7 +45,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
   ] : role === 'doctor' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],
       a: { l: 'Nouveau patient', I: UserPlus, on: onCP }},
-    { t: 'ACTIVITÉ', i: [{id:'consultations',l:'Consultations',I:ClipboardList},{id:'stats',l:'Statistiques',I:TrendingUp}]},
+    { t: 'ACTIVITÉ', i: [{id:'agenda',l:'Agenda RDV',I:CalendarClock},{id:'consultations',l:'Consultations',I:ClipboardList},{id:'prescriptions',l:'Ordonnances',I:FileDown},{id:'lab-requests',l:'Demandes labo',I:Microscope},{id:'stats',l:'Statistiques',I:TrendingUp}]},
     { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:5},{id:'documents',l:'Documents',I:FileText}]},
     { t: 'COMPTE', i: [{id:'profile',l:'Mon profil',I:User},{id:'settings',l:'Paramètres',I:Settings}]}
   ] : [

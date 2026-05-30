@@ -1,0 +1,149 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { requireDoctor } from '../middleware/auth.js';
+import {
+  getDoctorDashboard,
+  getDoctorPatients,
+  getDoctorPatient,
+  getDoctorAppointments,
+  updateDoctorAppointment,
+  getDoctorConsultations,
+  createConsultation,
+  updateConsultation,
+  getDoctorStats,
+  getDoctorProfile,
+  getDoctorPrescriptions,
+  getDoctorPrescription,
+  createDoctorPrescription,
+  getDoctorLabRequests,
+  createDoctorLabRequest,
+} from '../services/doctor.service.js';
+
+const router = Router();
+router.use(requireDoctor);
+
+const wrap = (fn) => (req, res, next) => fn(req, res).catch(next);
+
+function validateBody(schema) {
+  return (req, res, next) => {
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(422).json({ error: 'validation_error', details: parsed.error.flatten() });
+    req.body = parsed.data;
+    next();
+  };
+}
+
+/* ─── Dashboard ────────────────────────────────────────────── */
+router.get('/dashboard', wrap(async (req, res) => {
+  res.json(await getDoctorDashboard(req.user.doctorId));
+}));
+
+/* ─── Patients ─────────────────────────────────────────────── */
+router.get('/patients', wrap(async (req, res) => {
+  res.json(await getDoctorPatients(req.user.doctorId, req.query));
+}));
+
+router.get('/patients/:id', wrap(async (req, res) => {
+  const data = await getDoctorPatient(req.user.doctorId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable ou non autorisé.' });
+  res.json(data);
+}));
+
+/* ─── Rendez-vous ──────────────────────────────────────────── */
+router.get('/appointments', wrap(async (req, res) => {
+  res.json(await getDoctorAppointments(req.user.doctorId, req.query));
+}));
+
+router.patch('/appointments/:id', validateBody(z.object({
+  status:   z.enum(['confirmed','cancelled','requested']).optional(),
+  startsAt: z.string().datetime().optional(),
+  location: z.string().optional(),
+})), wrap(async (req, res) => {
+  const result = await updateDoctorAppointment(req.user.doctorId, req.params.id, req.body);
+  if (!result) return res.status(404).json({ error: 'not_found' });
+  res.json(result);
+}));
+
+/* ─── Consultations ────────────────────────────────────────── */
+router.get('/consultations', wrap(async (req, res) => {
+  res.json(await getDoctorConsultations(req.user.doctorId));
+}));
+
+router.post('/consultations', validateBody(z.object({
+  patientId:          z.string().min(1),
+  motif:              z.string().optional(),
+  diagnosisMain:      z.string().optional(),
+  diagnosisSecondary: z.string().optional(),
+  notes:              z.string().optional(),
+  recommendations:    z.string().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createConsultation(req.user.doctorId, req.body));
+}));
+
+router.patch('/consultations/:id', validateBody(z.object({
+  motif:              z.string().optional(),
+  diagnosisMain:      z.string().optional(),
+  diagnosisSecondary: z.string().optional(),
+  notes:              z.string().optional(),
+  recommendations:    z.string().optional(),
+  status:             z.enum(['draft','completed']).optional(),
+})), wrap(async (req, res) => {
+  const result = await updateConsultation(req.user.doctorId, req.params.id, req.body);
+  if (!result) return res.status(404).json({ error: 'not_found' });
+  res.json(result);
+}));
+
+/* ─── Statistiques ─────────────────────────────────────────── */
+router.get('/stats', wrap(async (req, res) => {
+  res.json(await getDoctorStats(req.user.doctorId));
+}));
+
+/* ─── Profil ────────────────────────────────────────────────── */
+router.get('/profile', wrap(async (req, res) => {
+  const data = await getDoctorProfile(req.user.doctorId);
+  if (!data) return res.status(404).json({ error: 'not_found' });
+  res.json(data);
+}));
+
+/* ─── Ordonnances (médecin) ─────────────────────────────────── */
+router.get('/prescriptions', wrap(async (req, res) => {
+  res.json(await getDoctorPrescriptions(req.user.doctorId));
+}));
+
+router.get('/prescriptions/:id', wrap(async (req, res) => {
+  const data = await getDoctorPrescription(req.user.doctorId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found' });
+  res.json(data);
+}));
+
+router.post('/prescriptions', validateBody(z.object({
+  patientId: z.string().min(1),
+  items:     z.array(z.object({
+    name:         z.string().min(1),
+    dosage:       z.string().optional(),
+    frequency:    z.string().optional(),
+    duration:     z.string().optional(),
+    instructions: z.string().optional(),
+  })).min(1),
+  notes:     z.string().optional(),
+  validDays: z.number().int().positive().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
+}));
+
+/* ─── Demandes d'analyses ───────────────────────────────────── */
+router.get('/lab-requests', wrap(async (req, res) => {
+  res.json(await getDoctorLabRequests(req.user.doctorId));
+}));
+
+router.post('/lab-requests', validateBody(z.object({
+  patientId:      z.string().min(1),
+  type:           z.string().min(1),
+  title:          z.string().min(1),
+  notes:          z.string().optional(),
+  consultationId: z.string().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createDoctorLabRequest(req.user.doctorId, req.body));
+}));
+
+export default router;

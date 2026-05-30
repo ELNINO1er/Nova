@@ -95,7 +95,7 @@ export default function App() {
                 name: `${profile.firstName} ${profile.lastName}`,
                 avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
               }))} {...props} />}
-            {role === 'doctor' && <DoctorPages page={page} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
+            {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
             {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
           </div>
         </main>

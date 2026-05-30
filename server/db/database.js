@@ -25,6 +25,8 @@ export async function initDb() {
     await seedUsers(conn);
     await seedInsurance(conn);
     await seedPharmacies(conn);
+    await seedDoctorUser(conn);
+    await seedDoctorData(conn);
   } finally {
     conn.release();
   }
@@ -423,6 +425,65 @@ async function createTables(conn) {
       INDEX idx_npo_patient (patient_id)
     )
   `);
+
+  /* ── Phase 5A : Espace médecin ──────────────────────────────── */
+
+  // Migration : ajouter doctor_id aux rendez-vous et aux utilisateurs
+  await conn.query(`ALTER TABLE nova_appointments ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
+  await conn.query(`ALTER TABLE nova_appointments ADD INDEX idx_na_doctor (doctor_id)`).catch(() => {});
+  await conn.query(`ALTER TABLE nova_users ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_consultations (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      doctor_id VARCHAR(36) NOT NULL,
+      motif TEXT,
+      diagnosis_main VARCHAR(255),
+      diagnosis_secondary VARCHAR(255),
+      notes TEXT,
+      recommendations TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'completed',
+      started_at VARCHAR(30) NOT NULL,
+      completed_at VARCHAR(30),
+      INDEX idx_ncons_patient (patient_id),
+      INDEX idx_ncons_doctor (doctor_id),
+      INDEX idx_ncons_started (started_at)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_lab_requests (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      doctor_id VARCHAR(36) NOT NULL,
+      consultation_id VARCHAR(36),
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      notes TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      requested_at VARCHAR(30) NOT NULL,
+      INDEX idx_nlreq_patient (patient_id),
+      INDEX idx_nlreq_doctor (doctor_id)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctor_reputation (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      patient_id VARCHAR(36) NOT NULL,
+      consultation_id VARCHAR(36),
+      rating FLOAT NOT NULL,
+      comment TEXT,
+      created_at VARCHAR(30) NOT NULL,
+      INDEX idx_ndr_doctor (doctor_id)
+    )
+  `);
+
+  /* ── Phase 5B : Ordonnances médecin ─────────────────────────── */
+  await conn.query(`ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
+  await conn.query(`ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`).catch(() => {});
 }
 
 async function seedDemo(conn) {
@@ -772,6 +833,85 @@ async function seedPharmacies(conn) {
     await conn.query(
       `INSERT IGNORE INTO nova_pharmacies (id,name,address,city,phone,is_open,opens_at,closes_at,is_duty,distance_km) VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [id,name,address,city,phone,isOpen,opens,closes,isDuty,dist]
+    );
+  }
+}
+
+async function seedDoctorUser(conn) {
+  const [[existing]] = await conn.query(`SELECT id FROM nova_users WHERE phone = '0601234567'`);
+  if (existing) return;
+  const codeHash = await bcrypt.hash('0000', 10);
+  const now = new Date().toISOString();
+  await conn.query(
+    `INSERT IGNORE INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+    ['user-doc-001','0601234567',codeHash,'doctor',null,'doc-001','Dr. Aïcha Touré','AT',now]
+  );
+}
+
+async function seedDoctorData(conn) {
+  const [[existing]] = await conn.query(`SELECT id FROM nova_consultations LIMIT 1`);
+  if (existing) return;
+
+  // Lier les rendez-vous existants au médecin doc-001
+  await conn.query(`UPDATE nova_appointments SET doctor_id = 'doc-001' WHERE id = 'apt-1'`);
+  await conn.query(`UPDATE nova_appointments SET doctor_id = 'doc-001' WHERE id = 'apt-3' AND doctor_id IS NULL`);
+
+  // Ajouter des RDV supplémentaires pour doc-001 avec patient-demo
+  const now = new Date();
+  const tomorrow  = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const nextWeek  = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+
+  const appts = [
+    ['apt-doc-1','patient-demo',tomorrow.toISOString().replace(/T.*/, 'T09:00:00.000Z'),'Dr. Aïcha Touré','Cardiologie','CHU Treichville','onsite','confirmed','doc-001'],
+    ['apt-doc-2','patient-demo',tomorrow.toISOString().replace(/T.*/, 'T10:30:00.000Z'),'Dr. Aïcha Touré','Cardiologie','Téléconsultation','video','confirmed','doc-001'],
+    ['apt-doc-3','patient-demo',nextWeek.toISOString().replace(/T.*/, 'T14:00:00.000Z'),'Dr. Aïcha Touré','Cardiologie','CHU Treichville','onsite','requested','doc-001'],
+    ['apt-doc-4','patient-demo',yesterday.toISOString().replace(/T.*/, 'T09:30:00.000Z'),'Dr. Aïcha Touré','Cardiologie','CHU Treichville','onsite','confirmed','doc-001'],
+  ];
+  for (const [id,pid,sat,dn,sp,loc,mode,status,docId] of appts) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_appointments (id,patient_id,starts_at,doctor_name,specialty,location,mode,status,doctor_id) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id,pid,sat,dn,sp,loc,mode,status,docId]
+    );
+  }
+
+  // Consultations démo pour doc-001
+  const consultations = [
+    ['cons-001','patient-demo','doc-001',
+     'Suivi hypertension artérielle – palpitations matinales signalées',
+     'Hypertension artérielle stade 1','Troubles du rythme légers',
+     'PA mesurée à 145/92 mmHg. Patient sous Amlodipine 5mg. Bonne compliance thérapeutique.',
+     'Continuer le traitement actuel. Réduire sel <5g/j. Contrôle dans 4 semaines.',
+     'completed', yesterday.toISOString().replace(/T.*/, 'T09:30:00.000Z'), yesterday.toISOString().replace(/T.*/, 'T10:00:00.000Z')],
+    ['cons-002','patient-demo','doc-001',
+     'Bilan cardiaque annuel',
+     'Cardiomyopathie hypertensive légère',null,
+     'ECG normal. Échographie cardiaque : FE 62%. Légère hypertrophie du VG.',
+     'Maintenir traitement antihypertenseur. ECG de contrôle à 6 mois.',
+     'completed','2026-04-20T09:30:00.000Z','2026-04-20T10:15:00.000Z'],
+    ['cons-003','patient-demo','doc-001',
+     'Douleurs thoraciques atypiques',
+     'Douleurs thoraciques fonctionnelles',null,
+     'Douleurs non coronariennes à l\'effort. Troponines normales. ECG de repos normal.',
+     'Épreuve d\'effort programmée. Éviter le stress. Paracétamol si douleur.',
+     'completed','2026-03-05T14:00:00.000Z','2026-03-05T14:45:00.000Z'],
+  ];
+  for (const [id,pid,did,motif,dm,ds,notes,reco,status,started,completed] of consultations) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_consultations (id,patient_id,doctor_id,motif,diagnosis_main,diagnosis_secondary,notes,recommendations,status,started_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [id,pid,did,motif,dm,ds,notes,reco,status,started,completed]
+    );
+  }
+
+  // Réputation
+  const ratings = [
+    ['rep-001','doc-001','patient-demo','cons-002',4.9,'Excellent médecin, très à l\'écoute.','2026-04-21T08:00:00.000Z'],
+    ['rep-002','doc-001','patient-demo','cons-003',4.7,'Diagnostic rapide et précis.','2026-03-06T10:00:00.000Z'],
+  ];
+  for (const [id,did,pid,cid,rating,comment,created] of ratings) {
+    await conn.query(
+      `INSERT IGNORE INTO nova_doctor_reputation (id,doctor_id,patient_id,consultation_id,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)`,
+      [id,did,pid,cid,rating,comment,created]
     );
   }
 }
