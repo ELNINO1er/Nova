@@ -27,6 +27,7 @@ export async function initDb() {
     await seedPharmacies(conn);
     await seedDoctorUser(conn);
     await seedDoctorData(conn);
+    await seedRbac(conn);
   } finally {
     conn.release();
   }
@@ -557,6 +558,148 @@ async function createTables(conn) {
     )
   `);
 
+  /* ═══════════════════════════════════════════════════════════
+     ÉTAPE 2 — RBAC, Consentements, Pharmacie, Famille, FK
+     ═══════════════════════════════════════════════════════════ */
+
+  /* ── RBAC ─────────────────────────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_roles (
+      id VARCHAR(36) PRIMARY KEY,
+      name VARCHAR(50) NOT NULL UNIQUE,
+      description VARCHAR(255),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_permissions (
+      id VARCHAR(36) PRIMARY KEY,
+      code VARCHAR(100) NOT NULL UNIQUE,
+      description VARCHAR(255),
+      module VARCHAR(50) NOT NULL
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_role_permissions (
+      role_id VARCHAR(36) NOT NULL,
+      permission_id VARCHAR(36) NOT NULL,
+      PRIMARY KEY (role_id, permission_id),
+      FOREIGN KEY (role_id) REFERENCES nova_roles(id) ON DELETE CASCADE,
+      FOREIGN KEY (permission_id) REFERENCES nova_permissions(id) ON DELETE CASCADE
+    )
+  `);
+
+  /* ── Consentements (accès dossier patient) ────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_consents (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      doctor_id VARCHAR(36) NOT NULL,
+      status ENUM('pending','granted','revoked') NOT NULL DEFAULT 'pending',
+      scope JSON NOT NULL,
+      requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      responded_at DATETIME,
+      expires_at DATETIME,
+      INDEX idx_consent_patient (patient_id),
+      INDEX idx_consent_doctor (doctor_id),
+      INDEX idx_consent_status (status)
+    )
+  `);
+
+  /* ── Pharmacie — utilisateurs et délivrances ──────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_pharmacy_users (
+      id VARCHAR(36) PRIMARY KEY,
+      pharmacy_id VARCHAR(36) NOT NULL,
+      user_id VARCHAR(36) NOT NULL,
+      role ENUM('pharmacist','preparer','admin') NOT NULL DEFAULT 'pharmacist',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_phu_pharmacy (pharmacy_id),
+      INDEX idx_phu_user (user_id)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_dispenses (
+      id VARCHAR(36) PRIMARY KEY,
+      prescription_id VARCHAR(36) NOT NULL,
+      pharmacy_id VARCHAR(36) NOT NULL,
+      pharmacist_user_id VARCHAR(36) NOT NULL,
+      patient_id VARCHAR(36) NOT NULL,
+      status ENUM('full','partial','refused') NOT NULL,
+      notes TEXT,
+      dispensed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_disp_prescription (prescription_id),
+      INDEX idx_disp_pharmacy (pharmacy_id),
+      INDEX idx_disp_patient (patient_id)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_dispense_items (
+      id VARCHAR(36) PRIMARY KEY,
+      dispense_id VARCHAR(36) NOT NULL,
+      prescription_item_id VARCHAR(36) NOT NULL,
+      quantity_dispensed INT NOT NULL DEFAULT 1,
+      substituted TINYINT(1) NOT NULL DEFAULT 0,
+      substitution_name VARCHAR(200),
+      substitution_reason VARCHAR(255),
+      INDEX idx_di_dispense (dispense_id),
+      INDEX idx_di_item (prescription_item_id)
+    )
+  `);
+
+  /* ── Dossier familial ─────────────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_family_members (
+      id VARCHAR(36) PRIMARY KEY,
+      owner_patient_id VARCHAR(36) NOT NULL,
+      member_patient_id VARCHAR(36),
+      relationship ENUM('child','spouse','parent','sibling','other') NOT NULL,
+      first_name VARCHAR(100) NOT NULL,
+      last_name VARCHAR(100) NOT NULL,
+      birth_date DATE,
+      notes TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_fm_owner (owner_patient_id)
+    )
+  `);
+
+  /* ── Migrations : Ajouter timestamps manquants ────────────── */
+  const addColumns = [
+    'ALTER TABLE nova_patients ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_patients ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_treatments ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_medications ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_appointments ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_appointments ADD COLUMN updated_at VARCHAR(30)',
+    'ALTER TABLE nova_appointments ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_prescriptions ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_prescriptions ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_consultations ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_consultations ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_doctors ADD COLUMN created_at VARCHAR(30)',
+    'ALTER TABLE nova_doctors ADD COLUMN updated_at VARCHAR(30)',
+    'ALTER TABLE nova_users ADD COLUMN updated_at VARCHAR(30)',
+    'ALTER TABLE nova_users ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_pharmacies ADD COLUMN created_at VARCHAR(30)',
+  ];
+  for (const sql of addColumns) {
+    await conn.query(sql).catch(() => {});
+  }
+
+  /* ── Normalisation : ajouter doctor_id FK là où manquant ──── */
+  const addFKColumns = [
+    'ALTER TABLE nova_appointments ADD COLUMN doctor_id_fk VARCHAR(36) DEFAULT NULL',
+    'ALTER TABLE nova_conversations ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL',
+    'ALTER TABLE nova_lab_results ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL',
+  ];
+  for (const sql of addFKColumns) {
+    await conn.query(sql).catch(() => {});
+  }
+
   // Add missing indexes (idempotent via IF NOT EXISTS / IGNORE)
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_nms_medication ON nova_medication_schedules (medication_id)',
@@ -565,6 +708,10 @@ async function createTables(conn) {
     'CREATE INDEX IF NOT EXISTS idx_ndr_patient ON nova_doctor_reputation (patient_id)',
     'CREATE INDEX IF NOT EXISTS idx_npi_prescription ON nova_prescription_items (prescription_id)',
     'CREATE INDEX IF NOT EXISTS idx_nlri_labresult ON nova_lab_result_items (lab_result_id)',
+    'CREATE INDEX IF NOT EXISTS idx_na_doctor_fk ON nova_appointments (doctor_id_fk)',
+    'CREATE INDEX IF NOT EXISTS idx_nc_doctor ON nova_conversations (doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_nlr_doctor ON nova_lab_results (doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_nfm_member ON nova_family_members (member_patient_id)',
   ];
   for (const sql of indexes) {
     await conn.query(sql).catch(() => {});
@@ -998,5 +1145,78 @@ async function seedDoctorData(conn) {
       `INSERT IGNORE INTO nova_doctor_reputation (id,doctor_id,patient_id,consultation_id,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)`,
       [id,did,pid,cid,rating,comment,created]
     );
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SEED RBAC — Rôles et Permissions
+   ═══════════════════════════════════════════════════════════════ */
+async function seedRbac(conn) {
+  const [[existing]] = await conn.query('SELECT id FROM nova_roles LIMIT 1');
+  if (existing) return;
+
+  // Rôles
+  const roles = [
+    ['role-patient',    'patient',    'Accès espace patient'],
+    ['role-doctor',     'doctor',     'Accès espace médecin'],
+    ['role-pharmacist', 'pharmacist', 'Accès espace pharmacie'],
+    ['role-admin',      'admin',      'Accès complet administration'],
+  ];
+  for (const [id, name, desc] of roles) {
+    await conn.query('INSERT IGNORE INTO nova_roles (id, name, description) VALUES (?, ?, ?)', [id, name, desc]);
+  }
+
+  // Permissions
+  const permissions = [
+    // Patient
+    ['perm-p-dashboard',   'patient.dashboard',        'Voir tableau de bord patient',     'patient'],
+    ['perm-p-profile',     'patient.profile',           'Voir/modifier profil',             'patient'],
+    ['perm-p-vitals',      'patient.vitals',            'Voir/ajouter constantes',          'patient'],
+    ['perm-p-appointments','patient.appointments',      'Gérer rendez-vous',                'patient'],
+    ['perm-p-prescriptions','patient.prescriptions',    'Voir ordonnances',                 'patient'],
+    ['perm-p-documents',   'patient.documents',         'Gérer documents',                  'patient'],
+    ['perm-p-messages',    'patient.messages',          'Messagerie',                       'patient'],
+    ['perm-p-labresults',  'patient.lab_results',       'Voir résultats labo',              'patient'],
+    ['perm-p-consents',    'patient.consents',          'Gérer consentements accès',        'patient'],
+    ['perm-p-family',      'patient.family',            'Gérer dossier familial',           'patient'],
+    // Doctor
+    ['perm-d-dashboard',   'doctor.dashboard',          'Voir tableau de bord médecin',     'doctor'],
+    ['perm-d-patients',    'doctor.patients',           'Voir patients autorisés',          'doctor'],
+    ['perm-d-patients-c',  'doctor.patients.create',    'Créer un patient',                 'doctor'],
+    ['perm-d-consult',     'doctor.consultations',      'Gérer consultations',              'doctor'],
+    ['perm-d-prescribe',   'doctor.prescriptions',      'Créer ordonnances',                'doctor'],
+    ['perm-d-lab',         'doctor.lab_requests',       'Prescrire examens',                'doctor'],
+    ['perm-d-alerts',      'doctor.alerts',             'Gérer alertes',                    'doctor'],
+    ['perm-d-consents',    'doctor.consents.request',   'Demander accès dossier',           'doctor'],
+    // Pharmacy
+    ['perm-ph-verify',     'pharmacy.verify',           'Vérifier ordonnance QR',           'pharmacy'],
+    ['perm-ph-dispense',   'pharmacy.dispense',         'Délivrer ordonnance',              'pharmacy'],
+    ['perm-ph-history',    'pharmacy.history',          'Voir historique délivrances',      'pharmacy'],
+    // Admin
+    ['perm-a-users',       'admin.users',               'Gérer utilisateurs',               'admin'],
+    ['perm-a-doctors',     'admin.doctors.validate',    'Valider médecins',                 'admin'],
+    ['perm-a-pharmacies',  'admin.pharmacies',          'Gérer pharmacies',                 'admin'],
+    ['perm-a-roles',       'admin.roles',               'Gérer rôles/permissions',          'admin'],
+    ['perm-a-audit',       'admin.audit_logs',          'Voir audit logs',                  'admin'],
+    ['perm-a-stats',       'admin.stats',               'Voir statistiques plateforme',     'admin'],
+  ];
+  for (const [id, code, desc, module] of permissions) {
+    await conn.query('INSERT IGNORE INTO nova_permissions (id, code, description, module) VALUES (?, ?, ?, ?)', [id, code, desc, module]);
+  }
+
+  // Associations rôle ↔ permissions
+  const rolePerms = {
+    'role-patient':    permissions.filter(p => p[3] === 'patient').map(p => p[0]),
+    'role-doctor':     permissions.filter(p => p[3] === 'doctor').map(p => p[0]),
+    'role-pharmacist': permissions.filter(p => p[3] === 'pharmacy').map(p => p[0]),
+    'role-admin':      permissions.map(p => p[0]), // Admin a TOUTES les permissions
+  };
+  for (const [roleId, permIds] of Object.entries(rolePerms)) {
+    for (const permId of permIds) {
+      await conn.query(
+        'INSERT IGNORE INTO nova_role_permissions (role_id, permission_id) VALUES (?, ?)',
+        [roleId, permId]
+      );
+    }
   }
 }
