@@ -25,6 +25,7 @@ import {
   getDoctorFullReputation,
   getDoctorSignatureData,
   saveDoctorSignatureData,
+  createPatientByDoctor,
 } from '../services/doctor.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
@@ -41,6 +42,28 @@ router.get('/dashboard', wrap(async (req, res) => {
 /* ─── Patients ─────────────────────────────────────────────── */
 router.get('/patients', wrap(async (req, res) => {
   res.json(await getDoctorPatients(req.user.doctorId, req.query));
+}));
+
+router.post('/patients', validateBody(z.object({
+  firstName:             z.string().min(1),
+  lastName:              z.string().min(1),
+  phone:                 z.string().min(8),
+  cmuNumber:             z.string().optional(),
+  birthDate:             z.string().optional(),
+  sex:                   z.enum(['M', 'F']).optional(),
+  bloodType:             z.string().optional(),
+  email:                 z.string().email().optional(),
+  address:               z.string().optional(),
+  city:                  z.string().optional(),
+  weightKg:              z.number().positive().optional(),
+  heightCm:              z.number().positive().optional(),
+  emergencyName:         z.string().optional(),
+  emergencyRelationship: z.string().optional(),
+  emergencyPhone:        z.string().optional(),
+  allergies:             z.array(z.string()).optional(),
+  chronicDiseases:       z.array(z.string()).optional(),
+})), auditLog('patient.create', 'patient'), wrap(async (req, res) => {
+  res.status(201).json(await createPatientByDoctor(req.user.doctorId, req.body));
 }));
 
 router.get('/patients/:id', accessLog('patient_record'), wrap(async (req, res) => {

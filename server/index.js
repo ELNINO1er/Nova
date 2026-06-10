@@ -9,11 +9,12 @@ import { initDb } from './db/database.js';
 import { pool } from './db/database.js';
 import patientRoutes from './routes/patient.routes.js';
 import doctorRoutes  from './routes/doctor.routes.js';
-import authRoutes    from './routes/auth.routes.js';
+import authRoutes     from './routes/auth.routes.js';
+import pharmacyRoutes from './routes/pharmacy.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 import { uploadDir } from './middleware/upload.js';
-import { requirePatient } from './middleware/auth.js';
+import { requirePatient, requireAuth } from './middleware/auth.js';
 
 const app = express();
 const port = Number(process.env.API_PORT || 4001);
@@ -44,9 +45,10 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 }));
 
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/patient/me', patientRoutes);
-app.use('/api/doctor/me',  doctorRoutes);
-app.use('/uploads', requirePatient, express.static(uploadDir));
+app.use('/api/patient/me',  patientRoutes);
+app.use('/api/doctor/me',   doctorRoutes);
+app.use('/api/pharmacy/me', pharmacyRoutes);
+app.use('/uploads', requireAuth, express.static(uploadDir));
 
 app.use(notFoundHandler);
 app.use(errorHandler);

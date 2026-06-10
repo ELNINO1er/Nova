@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
+import { sendOtp } from './auth.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
@@ -168,6 +170,95 @@ export async function getDoctorConsultations(doctorId) {
     startedAt:          r.started_at,
     completedAt:        r.completed_at,
   }));
+}
+
+/* ─── Créer un patient depuis l'espace médecin ───────────────── */
+
+export async function createPatientByDoctor(doctorId, payload) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Vérifier que le téléphone n'existe pas déjà
+    const phone = payload.phone.replace(/\s/g, '');
+    const [[existingUser]] = await conn.execute('SELECT id FROM nova_users WHERE phone = ?', [phone]);
+    if (existingUser) {
+      const err = new Error('Un compte avec ce numéro existe déjà.');
+      err.status = 409;
+      throw err;
+    }
+
+    // 2. Créer le patient
+    const patientId = randomUUID();
+    const now = new Date().toISOString();
+    const cmuNumber = payload.cmuNumber || `CI-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
+
+    await conn.execute(
+      `INSERT INTO nova_patients (id, cmu_number, first_name, last_name, birth_date, sex, blood_type, phone, email, address, city, weight_kg, height_cm, emergency_name, emergency_relationship, emergency_phone, updated_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [patientId, cmuNumber, payload.firstName, payload.lastName,
+       payload.birthDate || null, payload.sex || null, payload.bloodType || null,
+       phone, payload.email || null, payload.address || null, payload.city || 'Abidjan',
+       payload.weightKg || null, payload.heightCm || null,
+       payload.emergencyName || null, payload.emergencyRelationship || null, payload.emergencyPhone || null,
+       now, now]
+    );
+
+    // 3. Créer le profil médical initial
+    await conn.execute(
+      `INSERT INTO nova_medical_profile (patient_id, allergies, chronic_diseases, family_history, surgical_history, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [patientId,
+       JSON.stringify(payload.allergies || []),
+       JSON.stringify(payload.chronicDiseases || []),
+       JSON.stringify([]),
+       JSON.stringify([]),
+       now]
+    );
+
+    // 4. Créer le user avec un code temporaire (sera remplacé par OTP)
+    const userId = randomUUID();
+    const tempCode = String(Math.floor(1000 + Math.random() * 9000));
+    const codeHash = await bcrypt.hash(tempCode, 10);
+    const avatar = `${(payload.firstName?.[0] || '').toUpperCase()}${(payload.lastName?.[0] || '').toUpperCase()}`;
+
+    await conn.execute(
+      `INSERT INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at)
+       VALUES (?, ?, ?, 'patient', ?, ?, ?, ?)`,
+      [userId, phone, codeHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
+    );
+
+    // 5. Créer un RDV initial pour lier docteur ↔ patient
+    const apptId = randomUUID();
+    const [[doctor]] = await conn.execute('SELECT first_name, last_name, specialty, city FROM nova_doctors WHERE id = ?', [doctorId]);
+    const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Dr.';
+
+    await conn.execute(
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?)`,
+      [apptId, patientId, now, doctorName, doctor?.specialty || '', doctor?.city || '', doctorId, now]
+    );
+
+    await conn.commit();
+
+    // 6. Envoyer OTP pour activation (hors transaction)
+    const otpResult = await sendOtp(phone).catch(() => null);
+
+    return {
+      patientId,
+      userId,
+      cmuNumber,
+      name: `${payload.firstName} ${payload.lastName}`,
+      phone,
+      otpSent: !!otpResult,
+      ...(otpResult?.devCode ? { devCode: otpResult.devCode } : {}),
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 async function verifyDoctorPatientRelation(doctorId, patientId) {
