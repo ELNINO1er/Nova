@@ -26,6 +26,16 @@ import {
   getDoctorSignatureData,
   saveDoctorSignatureData,
   createPatientByDoctor,
+  getConsultationTemplates,
+  createConsultationTemplate,
+  deleteConsultationTemplate,
+  getPrescriptionTemplates,
+  createPrescriptionTemplate,
+  deletePrescriptionTemplate,
+  createReferral,
+  getReferrals,
+  respondReferral,
+  addVitalByDoctor,
 } from '../services/doctor.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
@@ -277,6 +287,94 @@ router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
       dispensedAt: d.dispensed_at, notes: d.notes,
     })),
   });
+}));
+
+/* ─── Templates consultation ─────────────────────────────────── */
+router.get('/consultation-templates', wrap(async (req, res) => {
+  res.json(await getConsultationTemplates(req.user.doctorId));
+}));
+
+router.post('/consultation-templates', validateBody(z.object({
+  name:            z.string().min(1),
+  specialty:       z.string().optional(),
+  motif:           z.string().optional(),
+  diagnosisMain:   z.string().optional(),
+  notes:           z.string().optional(),
+  recommendations: z.string().optional(),
+  isDefault:       z.boolean().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createConsultationTemplate(req.user.doctorId, req.body));
+}));
+
+router.delete('/consultation-templates/:id', wrap(async (req, res) => {
+  await deleteConsultationTemplate(req.user.doctorId, req.params.id);
+  res.status(204).send();
+}));
+
+/* ─── Templates ordonnance ───────────────────────────────────── */
+router.get('/prescription-templates', wrap(async (req, res) => {
+  res.json(await getPrescriptionTemplates(req.user.doctorId));
+}));
+
+router.post('/prescription-templates', validateBody(z.object({
+  name:  z.string().min(1),
+  items: z.array(z.object({
+    name:         z.string().min(1),
+    dosage:       z.string().optional(),
+    frequency:    z.string().optional(),
+    duration:     z.string().optional(),
+    instructions: z.string().optional(),
+  })).min(1),
+  notes: z.string().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createPrescriptionTemplate(req.user.doctorId, req.body));
+}));
+
+router.delete('/prescription-templates/:id', wrap(async (req, res) => {
+  await deletePrescriptionTemplate(req.user.doctorId, req.params.id);
+  res.status(204).send();
+}));
+
+/* ─── Transfert patient vers spécialiste ─────────────────────── */
+router.get('/referrals', wrap(async (req, res) => {
+  res.json(await getReferrals(req.user.doctorId));
+}));
+
+router.post('/referrals', validateBody(z.object({
+  patientId:  z.string().min(1),
+  toDoctorId: z.string().min(1),
+  reason:     z.string().min(1),
+  urgency:    z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+  notes:      z.string().optional(),
+  sharedData: z.array(z.string()).optional(),
+})), auditLog('referral.create', 'referral'), wrap(async (req, res) => {
+  res.status(201).json(await createReferral(req.user.doctorId, req.body));
+}));
+
+router.post('/referrals/:id/accept', wrap(async (req, res) => {
+  res.json(await respondReferral(req.user.doctorId, req.params.id, true));
+}));
+
+router.post('/referrals/:id/decline', wrap(async (req, res) => {
+  res.json(await respondReferral(req.user.doctorId, req.params.id, false));
+}));
+
+/* ─── Constantes vitales par médecin ─────────────────────────── */
+router.post('/patients/:id/vitals', validateBody(z.object({
+  type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature', 'weight', 'spo2']),
+  value:      z.string().min(1),
+  label:      z.string().optional(),
+  unit:       z.string().optional(),
+  measuredAt: z.string().optional(),
+})), auditLog('vital.create', 'vital'), wrap(async (req, res) => {
+  const labels = { blood_pressure: 'Tension', blood_glucose: 'Glycémie', heart_rate: 'Fréquence', temperature: 'Température', weight: 'Poids', spo2: 'SpO2' };
+  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C', weight: 'kg', spo2: '%' };
+  const payload = {
+    ...req.body,
+    label: req.body.label || labels[req.body.type],
+    unit:  req.body.unit  || units[req.body.type],
+  };
+  res.status(201).json(await addVitalByDoctor(req.user.doctorId, req.params.id, payload));
 }));
 
 export default router;

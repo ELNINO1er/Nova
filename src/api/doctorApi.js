@@ -30,4 +30,19 @@ export const doctorApi = {
   requestConsent:      (patientId, scope) => request(`/doctor/me/consents/${patientId}/request`, { method: 'POST', body: JSON.stringify({ scope }) }),
   // Statut délivrance
   prescriptionDispenseStatus: (id) => request(`/doctor/me/prescriptions/${id}/dispense-status`),
+  // Templates consultation
+  consultationTemplates: () => request('/doctor/me/consultation-templates'),
+  createConsultationTemplate: (payload) => request('/doctor/me/consultation-templates', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteConsultationTemplate: (id) => request(`/doctor/me/consultation-templates/${id}`, { method: 'DELETE' }),
+  // Templates ordonnance
+  prescriptionTemplates: () => request('/doctor/me/prescription-templates'),
+  createPrescriptionTemplate: (payload) => request('/doctor/me/prescription-templates', { method: 'POST', body: JSON.stringify(payload) }),
+  deletePrescriptionTemplate: (id) => request(`/doctor/me/prescription-templates/${id}`, { method: 'DELETE' }),
+  // Transferts
+  referrals: () => request('/doctor/me/referrals'),
+  createReferral: (payload) => request('/doctor/me/referrals', { method: 'POST', body: JSON.stringify(payload) }),
+  acceptReferral: (id) => request(`/doctor/me/referrals/${id}/accept`, { method: 'POST' }),
+  declineReferral: (id) => request(`/doctor/me/referrals/${id}/decline`, { method: 'POST' }),
+  // Vitals par médecin
+  addPatientVital: (patientId, payload) => request(`/doctor/me/patients/${patientId}/vitals`, { method: 'POST', body: JSON.stringify(payload) }),
 };

@@ -700,6 +700,61 @@ async function createTables(conn) {
     await conn.query(sql).catch(() => {});
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     ÉTAPE 5 — Module médecin avancé
+     ═══════════════════════════════════════════════════════════ */
+
+  /* ── Templates consultation ───────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_consultation_templates (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      specialty VARCHAR(100),
+      motif TEXT,
+      diagnosis_main VARCHAR(255),
+      notes TEXT,
+      recommendations TEXT,
+      is_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ct_doctor (doctor_id)
+    )
+  `);
+
+  /* ── Templates ordonnance ─────────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_prescription_templates (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      items JSON NOT NULL,
+      notes TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_pt_doctor (doctor_id)
+    )
+  `);
+
+  /* ── Transferts patient vers spécialiste ───────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_referrals (
+      id VARCHAR(36) PRIMARY KEY,
+      from_doctor_id VARCHAR(36) NOT NULL,
+      to_doctor_id VARCHAR(36) NOT NULL,
+      patient_id VARCHAR(36) NOT NULL,
+      reason TEXT NOT NULL,
+      urgency ENUM('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
+      notes TEXT,
+      shared_data JSON,
+      status ENUM('pending','accepted','declined','completed') NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      responded_at DATETIME,
+      INDEX idx_ref_from (from_doctor_id),
+      INDEX idx_ref_to (to_doctor_id),
+      INDEX idx_ref_patient (patient_id),
+      INDEX idx_ref_status (status)
+    )
+  `);
+
   // Add missing indexes (idempotent via IF NOT EXISTS / IGNORE)
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_nms_medication ON nova_medication_schedules (medication_id)',

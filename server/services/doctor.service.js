@@ -773,3 +773,182 @@ export async function createDoctorLabRequest(doctorId, payload) {
   );
   return { id, patientName: `${row.first_name} ${row.last_name}`, type: row.type, title: row.title, status: row.status };
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   TEMPLATES CONSULTATION
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getConsultationTemplates(doctorId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_consultation_templates WHERE doctor_id = ? ORDER BY is_default DESC, name ASC',
+    [doctorId]
+  );
+  return rows.map(r => ({
+    id: r.id, name: r.name, specialty: r.specialty,
+    motif: r.motif, diagnosisMain: r.diagnosis_main,
+    notes: r.notes, recommendations: r.recommendations,
+    isDefault: Boolean(r.is_default), createdAt: r.created_at,
+  }));
+}
+
+export async function createConsultationTemplate(doctorId, payload) {
+  const id = randomUUID();
+  await pool.execute(
+    `INSERT INTO nova_consultation_templates (id, doctor_id, name, specialty, motif, diagnosis_main, notes, recommendations, is_default)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, doctorId, payload.name, payload.specialty || null,
+     payload.motif || null, payload.diagnosisMain || null,
+     payload.notes || null, payload.recommendations || null,
+     payload.isDefault ? 1 : 0]
+  );
+  return { id, ...payload };
+}
+
+export async function deleteConsultationTemplate(doctorId, templateId) {
+  const [[t]] = await pool.execute(
+    'SELECT id FROM nova_consultation_templates WHERE id = ? AND doctor_id = ?', [templateId, doctorId]
+  );
+  if (!t) { const e = new Error('Template introuvable.'); e.status = 404; throw e; }
+  await pool.execute('DELETE FROM nova_consultation_templates WHERE id = ?', [templateId]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TEMPLATES ORDONNANCE
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getPrescriptionTemplates(doctorId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_prescription_templates WHERE doctor_id = ? ORDER BY name ASC',
+    [doctorId]
+  );
+  return rows.map(r => ({
+    id: r.id, name: r.name,
+    items: typeof r.items === 'string' ? JSON.parse(r.items) : r.items,
+    notes: r.notes, createdAt: r.created_at,
+  }));
+}
+
+export async function createPrescriptionTemplate(doctorId, payload) {
+  const id = randomUUID();
+  await pool.execute(
+    `INSERT INTO nova_prescription_templates (id, doctor_id, name, items, notes) VALUES (?, ?, ?, ?, ?)`,
+    [id, doctorId, payload.name, JSON.stringify(payload.items), payload.notes || null]
+  );
+  return { id, ...payload };
+}
+
+export async function deletePrescriptionTemplate(doctorId, templateId) {
+  const [[t]] = await pool.execute(
+    'SELECT id FROM nova_prescription_templates WHERE id = ? AND doctor_id = ?', [templateId, doctorId]
+  );
+  if (!t) { const e = new Error('Template introuvable.'); e.status = 404; throw e; }
+  await pool.execute('DELETE FROM nova_prescription_templates WHERE id = ?', [templateId]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRANSFERT PATIENT VERS SPÉCIALISTE
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function createReferral(doctorId, payload) {
+  await verifyDoctorPatientRelation(doctorId, payload.patientId);
+
+  const id = randomUUID();
+  const sharedData = payload.sharedData || ['profile', 'vitals', 'consultations'];
+  await pool.execute(
+    `INSERT INTO nova_referrals (id, from_doctor_id, to_doctor_id, patient_id, reason, urgency, notes, shared_data)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, doctorId, payload.toDoctorId, payload.patientId,
+     payload.reason, payload.urgency || 'medium', payload.notes || null,
+     JSON.stringify(sharedData)]
+  );
+
+  // Notification au médecin destinataire
+  const [[fromDoc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+  const [[toDocUser]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [payload.toDoctorId]);
+  if (toDocUser) {
+    await pool.execute(
+      `INSERT INTO nova_notifications (id, patient_id, type, title, body, link_page, created_at)
+       VALUES (?, ?, 'referral', ?, ?, 'patients', NOW())`,
+      [randomUUID(), payload.patientId,
+       'Transfert de patient',
+       `Dr. ${fromDoc?.first_name || ''} ${fromDoc?.last_name || ''} vous transfère un patient. Motif : ${payload.reason}`]
+    );
+  }
+
+  return { id, status: 'pending' };
+}
+
+export async function getReferrals(doctorId) {
+  const [sent] = await pool.execute(
+    `SELECT r.*, p.first_name AS p_fn, p.last_name AS p_ln,
+            d.first_name AS d_fn, d.last_name AS d_ln, d.specialty AS d_spec
+     FROM nova_referrals r
+     JOIN nova_patients p ON p.id = r.patient_id
+     JOIN nova_doctors d ON d.id = r.to_doctor_id
+     WHERE r.from_doctor_id = ? ORDER BY r.created_at DESC LIMIT 30`,
+    [doctorId]
+  );
+  const [received] = await pool.execute(
+    `SELECT r.*, p.first_name AS p_fn, p.last_name AS p_ln,
+            d.first_name AS d_fn, d.last_name AS d_ln, d.specialty AS d_spec
+     FROM nova_referrals r
+     JOIN nova_patients p ON p.id = r.patient_id
+     JOIN nova_doctors d ON d.id = r.from_doctor_id
+     WHERE r.to_doctor_id = ? ORDER BY r.created_at DESC LIMIT 30`,
+    [doctorId]
+  );
+
+  const map = r => ({
+    id: r.id, patientName: `${r.p_fn} ${r.p_ln}`, patientId: r.patient_id,
+    doctorName: `Dr. ${r.d_fn} ${r.d_ln}`, doctorSpecialty: r.d_spec,
+    reason: r.reason, urgency: r.urgency, notes: r.notes,
+    sharedData: typeof r.shared_data === 'string' ? JSON.parse(r.shared_data) : r.shared_data,
+    status: r.status, createdAt: r.created_at, respondedAt: r.responded_at,
+  });
+
+  return { sent: sent.map(map), received: received.map(map) };
+}
+
+export async function respondReferral(doctorId, referralId, accept) {
+  const [[ref]] = await pool.execute(
+    'SELECT * FROM nova_referrals WHERE id = ? AND to_doctor_id = ? AND status = ?',
+    [referralId, doctorId, 'pending']
+  );
+  if (!ref) { const e = new Error('Transfert introuvable.'); e.status = 404; throw e; }
+
+  const status = accept ? 'accepted' : 'declined';
+  await pool.execute(
+    'UPDATE nova_referrals SET status = ?, responded_at = NOW() WHERE id = ?',
+    [status, referralId]
+  );
+
+  // Si accepté, créer un RDV initial pour lier le nouveau médecin au patient
+  if (accept) {
+    const [[doc]] = await pool.execute('SELECT first_name, last_name, specialty, city FROM nova_doctors WHERE id = ?', [doctorId]);
+    await pool.execute(
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, created_at)
+       VALUES (?, ?, NOW(), ?, ?, ?, 'onsite', 'confirmed', ?, NOW())`,
+      [randomUUID(), ref.patient_id, `Dr. ${doc.first_name} ${doc.last_name}`,
+       doc.specialty, doc.city || '', doctorId]
+    );
+  }
+
+  return { id: referralId, status };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTES VITALES — ajoutées par le médecin
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function addVitalByDoctor(doctorId, patientId, payload) {
+  await verifyDoctorPatientRelation(doctorId, patientId);
+
+  const id = randomUUID();
+  const now = payload.measuredAt || new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, payload.label || payload.type, String(payload.value), payload.unit || '', now]
+  );
+  return { id, patientId, type: payload.type, value: payload.value, unit: payload.unit, measuredAt: now };
+}
