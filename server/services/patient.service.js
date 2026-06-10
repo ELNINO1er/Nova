@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
@@ -1218,5 +1219,179 @@ export async function createPharmacyOrder(patientId, payload) {
     status: row.status,
     notes: row.notes,
     createdAt: row.created_at,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSENTEMENTS — accès dossier médical
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getConsents(patientId) {
+  const [rows] = await pool.execute(
+    `SELECT c.*, d.first_name, d.last_name, d.specialty
+     FROM nova_consents c
+     JOIN nova_doctors d ON d.id = c.doctor_id
+     WHERE c.patient_id = ?
+     ORDER BY c.requested_at DESC`,
+    [patientId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    doctorId: r.doctor_id,
+    doctorName: `Dr. ${r.first_name} ${r.last_name}`,
+    specialty: r.specialty,
+    status: r.status,
+    scope: typeof r.scope === 'string' ? JSON.parse(r.scope) : r.scope,
+    requestedAt: r.requested_at,
+    respondedAt: r.responded_at,
+    expiresAt: r.expires_at,
+  }));
+}
+
+export async function grantConsent(patientId, consentId) {
+  const [[consent]] = await pool.execute(
+    'SELECT id, status FROM nova_consents WHERE id = ? AND patient_id = ?',
+    [consentId, patientId]
+  );
+  if (!consent) { const e = new Error('Consentement introuvable.'); e.status = 404; throw e; }
+  if (consent.status === 'granted') return { id: consentId, status: 'granted', message: 'Déjà accordé.' };
+
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  await pool.execute(
+    'UPDATE nova_consents SET status = ?, responded_at = NOW(), expires_at = ? WHERE id = ?',
+    ['granted', expiresAt, consentId]
+  );
+  return { id: consentId, status: 'granted' };
+}
+
+export async function revokeConsent(patientId, consentId) {
+  const [[consent]] = await pool.execute(
+    'SELECT id FROM nova_consents WHERE id = ? AND patient_id = ?',
+    [consentId, patientId]
+  );
+  if (!consent) { const e = new Error('Consentement introuvable.'); e.status = 404; throw e; }
+
+  await pool.execute(
+    'UPDATE nova_consents SET status = ?, responded_at = NOW() WHERE id = ?',
+    ['revoked', consentId]
+  );
+  return { id: consentId, status: 'revoked' };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACCESS LOGS — qui a consulté mon dossier
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getAccessLogs(patientId) {
+  const [rows] = await pool.execute(
+    `SELECT al.*, u.name AS accessor_name
+     FROM nova_access_logs al
+     LEFT JOIN nova_users u ON u.id = al.accessor_id
+     WHERE al.patient_id = ?
+     ORDER BY al.accessed_at DESC
+     LIMIT 50`,
+    [patientId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    accessorName: r.accessor_name || 'Inconnu',
+    accessorRole: r.accessor_role,
+    dataAccessed: r.data_accessed,
+    accessedAt: r.accessed_at,
+  }));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DOSSIER FAMILIAL
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getFamilyMembers(patientId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_family_members WHERE owner_patient_id = ? ORDER BY created_at DESC',
+    [patientId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    relationship: r.relationship,
+    firstName: r.first_name,
+    lastName: r.last_name,
+    birthDate: r.birth_date,
+    memberPatientId: r.member_patient_id,
+    notes: r.notes,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function createFamilyMember(patientId, payload) {
+  const id = randomUUID();
+  await pool.execute(
+    `INSERT INTO nova_family_members (id, owner_patient_id, member_patient_id, relationship, first_name, last_name, birth_date, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.memberPatientId || null, payload.relationship,
+     payload.firstName, payload.lastName, payload.birthDate || null, payload.notes || null]
+  );
+  return { id, ...payload };
+}
+
+export async function updateFamilyMember(patientId, memberId, payload) {
+  const [[existing]] = await pool.execute(
+    'SELECT id FROM nova_family_members WHERE id = ? AND owner_patient_id = ?',
+    [memberId, patientId]
+  );
+  if (!existing) { const e = new Error('Membre introuvable.'); e.status = 404; throw e; }
+
+  const sets = []; const vals = [];
+  const fields = { firstName: 'first_name', lastName: 'last_name', relationship: 'relationship', birthDate: 'birth_date', notes: 'notes' };
+  for (const [k, col] of Object.entries(fields)) {
+    if (payload[k] !== undefined) { sets.push(`${col} = ?`); vals.push(payload[k]); }
+  }
+  if (!sets.length) return { id: memberId };
+  vals.push(memberId);
+  await pool.execute(`UPDATE nova_family_members SET ${sets.join(', ')} WHERE id = ?`, vals);
+  return { id: memberId, ...payload };
+}
+
+export async function deleteFamilyMember(patientId, memberId) {
+  const [[existing]] = await pool.execute(
+    'SELECT id FROM nova_family_members WHERE id = ? AND owner_patient_id = ?',
+    [memberId, patientId]
+  );
+  if (!existing) { const e = new Error('Membre introuvable.'); e.status = 404; throw e; }
+  await pool.execute('DELETE FROM nova_family_members WHERE id = ?', [memberId]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   QR ORDONNANCE SÉCURISÉ (JWT signé)
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function getPrescriptionQR(patientId, prescriptionId) {
+  const [[rx]] = await pool.execute(
+    'SELECT * FROM nova_prescriptions WHERE id = ? AND patient_id = ?',
+    [prescriptionId, patientId]
+  );
+  if (!rx) return null;
+
+  const JWT_SECRET = process.env.JWT_SECRET;
+  // Sign a minimal payload — NO medical data in QR
+  const qrToken = jwt.sign(
+    { type: 'prescription', prescriptionId: rx.id, patientId, issuedAt: rx.issued_at, validUntil: rx.valid_until },
+    JWT_SECRET,
+    { expiresIn: '90d' }
+  );
+
+  const QRCode = (await import('qrcode')).default;
+  const qrDataUrl = await QRCode.toDataURL(qrToken, {
+    errorCorrectionLevel: 'M', margin: 2, width: 300,
+    color: { dark: '#0f172a', light: '#ffffff' },
+  });
+
+  return {
+    prescriptionId: rx.id,
+    qr: qrDataUrl,
+    token: qrToken,
+    doctorName: rx.doctor_name,
+    issuedAt: rx.issued_at,
+    validUntil: rx.valid_until,
+    status: rx.status,
   };
 }

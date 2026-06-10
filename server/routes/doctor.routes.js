@@ -216,4 +216,67 @@ router.post('/lab-requests', validateBody(z.object({
   res.status(201).json(await createDoctorLabRequest(req.user.doctorId, req.body));
 }));
 
+/* ─── Consentement : demander accès dossier patient ──────────── */
+router.post('/consents/:patientId/request', validateBody(z.object({
+  scope: z.array(z.string()).min(1),
+})), auditLog('consent.request', 'consent'), wrap(async (req, res) => {
+  const { randomUUID } = await import('node:crypto');
+  const { pool } = await import('../db/database.js');
+
+  // Vérifier que le patient existe
+  const [[patient]] = await pool.execute('SELECT id FROM nova_patients WHERE id = ?', [req.params.patientId]);
+  if (!patient) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
+
+  // Vérifier s'il y a déjà un consentement pending
+  const [[existing]] = await pool.execute(
+    'SELECT id FROM nova_consents WHERE patient_id = ? AND doctor_id = ? AND status = ?',
+    [req.params.patientId, req.user.doctorId, 'pending']
+  );
+  if (existing) return res.status(409).json({ error: 'already_pending', message: 'Une demande est déjà en attente.' });
+
+  const id = randomUUID();
+  await pool.execute(
+    `INSERT INTO nova_consents (id, patient_id, doctor_id, status, scope) VALUES (?, ?, ?, 'pending', ?)`,
+    [id, req.params.patientId, req.user.doctorId, JSON.stringify(req.body.scope)]
+  );
+
+  // Notification au patient
+  const [[doctor]] = await pool.execute('SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?', [req.user.doctorId]);
+  const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Un médecin';
+  await pool.execute(
+    `INSERT INTO nova_notifications (id, patient_id, type, title, body, link_page, created_at)
+     VALUES (?, ?, 'consent', ?, ?, 'consents', NOW())`,
+    [randomUUID(), req.params.patientId, 'Demande d\'accès à votre dossier',
+     `${doctorName} (${doctor?.specialty || ''}) demande l'accès à votre dossier médical.`]
+  );
+
+  res.status(201).json({ id, status: 'pending', patientId: req.params.patientId });
+}));
+
+/* ─── Voir statut délivrance d'une ordonnance ────────────────── */
+router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
+  const { pool } = await import('../db/database.js');
+  const [[rx]] = await pool.execute(
+    'SELECT id, status, doctor_id FROM nova_prescriptions WHERE id = ? AND doctor_id = ?',
+    [req.params.id, req.user.doctorId]
+  );
+  if (!rx) return res.status(404).json({ error: 'not_found' });
+
+  const [dispenses] = await pool.execute(
+    `SELECT d.id, d.status, d.dispensed_at, d.notes, ph.name AS pharmacy_name
+     FROM nova_dispenses d JOIN nova_pharmacies ph ON ph.id = d.pharmacy_id
+     WHERE d.prescription_id = ? ORDER BY d.dispensed_at DESC`,
+    [req.params.id]
+  );
+
+  res.json({
+    prescriptionId: rx.id,
+    prescriptionStatus: rx.status,
+    dispenses: dispenses.map(d => ({
+      id: d.id, status: d.status, pharmacyName: d.pharmacy_name,
+      dispensedAt: d.dispensed_at, notes: d.notes,
+    })),
+  });
+}));
+
 export default router;

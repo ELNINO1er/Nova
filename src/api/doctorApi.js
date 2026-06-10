@@ -24,4 +24,10 @@ export const doctorApi = {
   reputation:          ()        => request('/doctor/me/reputation'),
   signature:           ()        => request('/doctor/me/signature'),
   saveSignature:       (payload) => request('/doctor/me/signature', { method: 'POST', body: JSON.stringify(payload) }),
+  // Création patient
+  createPatient:       (payload) => request('/doctor/me/patients', { method: 'POST', body: JSON.stringify(payload) }),
+  // Consentement
+  requestConsent:      (patientId, scope) => request(`/doctor/me/consents/${patientId}/request`, { method: 'POST', body: JSON.stringify({ scope }) }),
+  // Statut délivrance
+  prescriptionDispenseStatus: (id) => request(`/doctor/me/prescriptions/${id}/dispense-status`),
 };

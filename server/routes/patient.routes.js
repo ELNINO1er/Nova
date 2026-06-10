@@ -54,6 +54,15 @@ import {
   updateProfile,
   updateSettings,
   deleteNote,
+  getConsents,
+  grantConsent,
+  revokeConsent,
+  getAccessLogs,
+  getFamilyMembers,
+  createFamilyMember,
+  updateFamilyMember,
+  deleteFamilyMember,
+  getPrescriptionQR,
 } from '../services/patient.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
@@ -434,6 +443,66 @@ router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
   { message: 'Payload trop volumineux' }
 )), wrap(async (req, res) => {
   res.json(await updateSettings(req.user.patientId, req.body));
+}));
+
+/* ─── Consentements ──────────────────────────────────────────── */
+
+router.get('/consents', wrap(async (req, res) => {
+  res.json(await getConsents(req.user.patientId));
+}));
+
+router.post('/consents/:id/grant', wrap(async (req, res) => {
+  res.json(await grantConsent(req.user.patientId, req.params.id));
+}));
+
+router.post('/consents/:id/revoke', wrap(async (req, res) => {
+  res.json(await revokeConsent(req.user.patientId, req.params.id));
+}));
+
+/* ─── Access Logs ────────────────────────────────────────────── */
+
+router.get('/access-logs', wrap(async (req, res) => {
+  res.json(await getAccessLogs(req.user.patientId));
+}));
+
+/* ─── Dossier familial ───────────────────────────────────────── */
+
+router.get('/family', wrap(async (req, res) => {
+  res.json(await getFamilyMembers(req.user.patientId));
+}));
+
+router.post('/family', validateBody(z.object({
+  firstName:       z.string().min(1),
+  lastName:        z.string().min(1),
+  relationship:    z.enum(['child', 'spouse', 'parent', 'sibling', 'other']),
+  birthDate:       z.string().optional(),
+  memberPatientId: z.string().optional(),
+  notes:           z.string().max(500).optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createFamilyMember(req.user.patientId, req.body));
+}));
+
+router.patch('/family/:id', validateBody(z.object({
+  firstName:    z.string().min(1).optional(),
+  lastName:     z.string().min(1).optional(),
+  relationship: z.enum(['child', 'spouse', 'parent', 'sibling', 'other']).optional(),
+  birthDate:    z.string().optional(),
+  notes:        z.string().max(500).optional(),
+})), wrap(async (req, res) => {
+  res.json(await updateFamilyMember(req.user.patientId, req.params.id, req.body));
+}));
+
+router.delete('/family/:id', wrap(async (req, res) => {
+  await deleteFamilyMember(req.user.patientId, req.params.id);
+  res.status(204).send();
+}));
+
+/* ─── QR Ordonnance sécurisé ─────────────────────────────────── */
+
+router.get('/prescriptions/:id/qr', wrap(async (req, res) => {
+  const data = await getPrescriptionQR(req.user.patientId, req.params.id);
+  if (!data) return res.status(404).json({ error: 'not_found', message: 'Ordonnance introuvable.' });
+  res.json(data);
 }));
 
 export default router;

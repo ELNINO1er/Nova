@@ -96,4 +96,17 @@ export const patientApi = {
     method: 'PATCH',
     body: JSON.stringify(payload),
   }),
+  // Consentements
+  consents: () => request('/patient/me/consents'),
+  grantConsent: (id) => request(`/patient/me/consents/${id}/grant`, { method: 'POST' }),
+  revokeConsent: (id) => request(`/patient/me/consents/${id}/revoke`, { method: 'POST' }),
+  // Access logs
+  accessLogs: () => request('/patient/me/access-logs'),
+  // Famille
+  familyMembers: () => request('/patient/me/family'),
+  createFamilyMember: (payload) => request('/patient/me/family', { method: 'POST', body: JSON.stringify(payload) }),
+  updateFamilyMember: (id, payload) => request(`/patient/me/family/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteFamilyMember: (id) => request(`/patient/me/family/${id}`, { method: 'DELETE' }),
+  // QR ordonnance sécurisé
+  prescriptionQR: (id) => request(`/patient/me/prescriptions/${id}/qr`),
 };
