@@ -377,4 +377,26 @@ router.post('/patients/:id/vitals', validateBody(z.object({
   res.status(201).json(await addVitalByDoctor(req.user.doctorId, req.params.id, payload));
 }));
 
+/* ─── Notifications médecin ──────────────────────────────────── */
+router.get('/notifications', wrap(async (req, res) => {
+  const { getNotificationsForUser } = await import('../services/notification.service.js');
+  const rows = await getNotificationsForUser(req.user.id, 'doctor');
+  res.json(rows.map(r => ({
+    id: r.id, type: r.type, title: r.title, body: r.body,
+    linkPage: r.link_page, isRead: Boolean(r.is_read), createdAt: r.created_at,
+  })));
+}));
+
+router.patch('/notifications/:id/read', wrap(async (req, res) => {
+  const { markNotificationReadById } = await import('../services/notification.service.js');
+  await markNotificationReadById(req.user.id, req.params.id);
+  res.json({ ok: true });
+}));
+
+router.patch('/notifications/read-all', wrap(async (req, res) => {
+  const { markAllNotificationsReadForUser } = await import('../services/notification.service.js');
+  await markAllNotificationsReadForUser(req.user.id);
+  res.json({ ok: true });
+}));
+
 export default router;

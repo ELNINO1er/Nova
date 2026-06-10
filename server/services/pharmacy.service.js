@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/database.js';
+import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 
 /* ─── Dashboard pharmacie ─────────────────────────────────────── */
 
@@ -195,17 +196,19 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
       await conn.execute('UPDATE nova_prescriptions SET status = ? WHERE id = ?', ['partial', payload.prescriptionId]);
     }
 
-    // Créer une notification pour le patient
-    const [[pharmacy]] = await conn.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
-    const notifTitle = payload.status === 'full' ? 'Ordonnance délivrée' : 'Ordonnance partiellement délivrée';
-    await conn.execute(
-      `INSERT INTO nova_notifications (id, patient_id, type, title, body, link_page, created_at)
-       VALUES (?, ?, 'pharmacy', ?, ?, 'prescriptions', NOW())`,
-      [randomUUID(), rx.patient_id, notifTitle,
-       `${pharmacy?.name || 'Pharmacie'} a ${payload.status === 'full' ? 'délivré votre ordonnance' : 'partiellement délivré votre ordonnance'}.`]
-    );
-
     await conn.commit();
+
+    // Notifications (hors transaction — non bloquant)
+    const [[pharmacy]] = await pool.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
+    const phName = pharmacy?.name || 'Pharmacie';
+    notifyPatientDispense(rx.patient_id, phName, payload.status).catch(() => {});
+
+    // Notifier le médecin prescripteur
+    const [[rxFull]] = await pool.execute('SELECT doctor_id FROM nova_prescriptions WHERE id = ?', [payload.prescriptionId]);
+    if (rxFull?.doctor_id) {
+      const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [rx.patient_id]);
+      notifyDoctorDispense(rxFull.doctor_id, `${pat?.first_name || ''} ${pat?.last_name || ''}`, phName, payload.status).catch(() => {});
+    }
 
     return { id: dispenseId, status: payload.status, prescriptionId: payload.prescriptionId };
   } catch (err) {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
+import { notifyDoctorConsent, notifyDoctorAppointment } from './notification.service.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
 
@@ -564,6 +565,12 @@ export async function bookSlot(patientId, slotId, doctorId) {
     );
 
     await conn.commit();
+
+    // Notifier le médecin
+    const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [patientId]);
+    const dateStr = new Date(startsAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
+    notifyDoctorAppointment(slot.doctor_id, `${pat?.first_name || ''} ${pat?.last_name || ''}`, dateStr).catch(() => {});
+
     return { slotId, appointmentId: apptId, doctorName: `Dr. ${doctor.first_name} ${doctor.last_name}`, startsAt };
   } catch (err) {
     await conn.rollback();
@@ -1261,6 +1268,11 @@ export async function grantConsent(patientId, consentId) {
     'UPDATE nova_consents SET status = ?, responded_at = NOW(), expires_at = ? WHERE id = ?',
     ['granted', expiresAt, consentId]
   );
+  // Notifier le médecin
+  const [[c]] = await pool.execute('SELECT doctor_id FROM nova_consents WHERE id = ?', [consentId]);
+  const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [patientId]);
+  if (c?.doctor_id && pat) notifyDoctorConsent(c.doctor_id, `${pat.first_name} ${pat.last_name}`, true).catch(() => {});
+
   return { id: consentId, status: 'granted' };
 }
 
@@ -1275,6 +1287,11 @@ export async function revokeConsent(patientId, consentId) {
     'UPDATE nova_consents SET status = ?, responded_at = NOW() WHERE id = ?',
     ['revoked', consentId]
   );
+  // Notifier le médecin
+  const [[c]] = await pool.execute('SELECT doctor_id FROM nova_consents WHERE id = ?', [consentId]);
+  const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [patientId]);
+  if (c?.doctor_id && pat) notifyDoctorConsent(c.doctor_id, `${pat.first_name} ${pat.last_name}`, false).catch(() => {});
+
   return { id: consentId, status: 'revoked' };
 }
 

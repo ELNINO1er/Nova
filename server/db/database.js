@@ -755,6 +755,22 @@ async function createTables(conn) {
     )
   `);
 
+  /* ═══════════════════════════════════════════════════════════
+     ÉTAPE 7 — Notifications cross-rôle
+     ═══════════════════════════════════════════════════════════ */
+
+  // Ajouter user_id + target_role sur notifications pour supporter tous les rôles
+  const notifMigrations = [
+    'ALTER TABLE nova_notifications ADD COLUMN user_id VARCHAR(36) DEFAULT NULL',
+    'ALTER TABLE nova_notifications ADD COLUMN target_role VARCHAR(20) DEFAULT NULL',
+    'ALTER TABLE nova_notifications ADD COLUMN source_user_id VARCHAR(36) DEFAULT NULL',
+    'ALTER TABLE nova_notifications ADD COLUMN source_role VARCHAR(20) DEFAULT NULL',
+    'ALTER TABLE nova_notifications ADD INDEX idx_nnot_user (user_id)',
+  ];
+  for (const sql of notifMigrations) {
+    await conn.query(sql).catch(() => {});
+  }
+
   // Add missing indexes (idempotent via IF NOT EXISTS / IGNORE)
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_nms_medication ON nova_medication_schedules (medication_id)',

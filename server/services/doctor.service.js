@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
 import { sendOtp } from './auth.service.js';
+import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral } from './notification.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
@@ -290,12 +291,18 @@ export async function createConsultation(doctorId, payload) {
     `SELECT c.*, p.first_name, p.last_name FROM nova_consultations c
      JOIN nova_patients p ON p.id = c.patient_id WHERE c.id = ?`, [id]
   );
-  return {
+  const result = {
     id: row.id, patientId: row.patient_id,
     patientName: `${row.first_name} ${row.last_name}`,
     motif: row.motif, diagnosisMain: row.diagnosis_main,
     status: row.status, startedAt: row.started_at,
   };
+
+  // Notifier le patient
+  const [[doc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+  notifyPatientConsultation(payload.patientId, `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`, id).catch(() => {});
+
+  return result;
 }
 
 export async function updateConsultation(doctorId, id, changes) {
@@ -533,6 +540,9 @@ export async function createDoctorPrescription(doctorId, payload) {
       `SELECT p.*, pat.first_name, pat.last_name FROM nova_prescriptions p
        JOIN nova_patients pat ON pat.id = p.patient_id WHERE p.id = ?`, [id]
     );
+    // Notifier le patient
+    notifyPatientPrescription(row.patient_id, doctorName).catch(() => {});
+
     return { id, patientId: row.patient_id, patientName: `${row.first_name} ${row.last_name}`, issuedAt: row.issued_at, status: row.status };
   } catch (err) {
     await conn.rollback();
@@ -932,6 +942,11 @@ export async function respondReferral(doctorId, referralId, accept) {
        doc.specialty, doc.city || '', doctorId]
     );
   }
+
+  // Notifier le médecin d'origine
+  const [[toDoc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+  const [[patRow]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [ref.patient_id]);
+  notifyDoctorReferral(ref.from_doctor_id, `${toDoc?.first_name || ''} ${toDoc?.last_name || ''}`, `${patRow?.first_name || ''} ${patRow?.last_name || ''}`, accept).catch(() => {});
 
   return { id: referralId, status };
 }
