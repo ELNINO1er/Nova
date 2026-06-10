@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from 'react';
-import { Bell, Bot, HeartPulse, Menu, Moon, Shield, Stethoscope, Sun, User } from 'lucide-react';
+import { Bell, Bot, HeartPulse, Menu, Moon, Pill, Shield, Stethoscope, Sun, User } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import { AyaChat, ConsModal, CreateDoctorModal, CreatePatientModal, QRModal, RxModal, VideoModal } from './modals/index.jsx';
@@ -7,11 +7,13 @@ import { AyaChat, ConsModal, CreateDoctorModal, CreatePatientModal, QRModal, RxM
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
 const AdminPages = lazy(() => import('./admin/AdminPages.jsx'));
+const PharmacyPages = lazy(() => import('./pharmacy/PharmacyPages.jsx'));
 
 const ROLE_META = {
-  patient: { label: 'Espace patient', Icon: User, color: 'text-blue-700 bg-blue-50 border-blue-200' },
-  doctor: { label: 'Espace docteur', Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-  admin: { label: 'Espace admin', Icon: Shield, color: 'text-purple-700 bg-purple-50 border-purple-200' },
+  patient:    { label: 'Espace patient',    Icon: User,        color: 'text-blue-700 bg-blue-50 border-blue-200' },
+  doctor:     { label: 'Espace docteur',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
+  admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
 };
 
 function PageFallback({ darkMode }) {
@@ -111,6 +113,7 @@ export default function App() {
                   avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
                 }))} {...props} />}
               {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
+              {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
               {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
             </Suspense>
           </div>
