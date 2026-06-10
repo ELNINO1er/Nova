@@ -506,6 +506,69 @@ async function createTables(conn) {
       INDEX idx_nda_status (status)
     )
   `);
+
+  /* ── Sécurité : OTP ──────────────────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_otp (
+      id VARCHAR(36) PRIMARY KEY,
+      phone VARCHAR(20) NOT NULL,
+      code_hash VARCHAR(255) NOT NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      max_attempts INT NOT NULL DEFAULT 3,
+      expires_at DATETIME NOT NULL,
+      verified TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_otp_phone (phone),
+      INDEX idx_otp_expires (expires_at)
+    )
+  `);
+
+  /* ── Sécurité : Audit Logs ─────────────────────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_audit_logs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      user_role VARCHAR(20) NOT NULL,
+      action VARCHAR(100) NOT NULL,
+      resource_type VARCHAR(50),
+      resource_id VARCHAR(36),
+      details JSON,
+      ip_address VARCHAR(45),
+      user_agent VARCHAR(500),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_user (user_id),
+      INDEX idx_audit_action (action),
+      INDEX idx_audit_resource (resource_type, resource_id),
+      INDEX idx_audit_created (created_at)
+    )
+  `);
+
+  /* ── Sécurité : Access Logs (qui a consulté quel dossier) ─── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_access_logs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      accessor_id VARCHAR(36) NOT NULL,
+      accessor_role VARCHAR(20) NOT NULL,
+      data_accessed VARCHAR(100) NOT NULL,
+      accessed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_al_patient (patient_id),
+      INDEX idx_al_accessor (accessor_id)
+    )
+  `);
+
+  // Add missing indexes (idempotent via IF NOT EXISTS / IGNORE)
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_nms_medication ON nova_medication_schedules (medication_id)',
+    'CREATE INDEX IF NOT EXISTS idx_npo_pharmacy ON nova_pharmacy_orders (pharmacy_id)',
+    'CREATE INDEX IF NOT EXISTS idx_npo_prescription ON nova_pharmacy_orders (prescription_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ndr_patient ON nova_doctor_reputation (patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_npi_prescription ON nova_prescription_items (prescription_id)',
+    'CREATE INDEX IF NOT EXISTS idx_nlri_labresult ON nova_lab_result_items (lab_result_id)',
+  ];
+  for (const sql of indexes) {
+    await conn.query(sql).catch(() => {});
+  }
 }
 
 async function seedDemo(conn) {

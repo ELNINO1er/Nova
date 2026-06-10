@@ -12,7 +12,7 @@ import {
   Mail, UserPlus, PhoneCall, Paperclip, MoreVertical, ArrowRight,
   HelpCircle, BookOpen, Pencil, HardDrive, Wifi
 } from 'lucide-react';
-import { SettingsPage } from '../patient/PatientPages.jsx';
+import SettingsPage from '../patient/pages/SettingsPage.jsx';
 
 /* ============== ADMIN PAGES ============== */
 export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMode }) {

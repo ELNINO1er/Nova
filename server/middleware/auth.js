@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'nova-secret-dev-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET env variable is required. Set it in .env');
 
 function verifyToken(req, res) {
   const header = req.headers.authorization;

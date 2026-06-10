@@ -1,17 +1,31 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Bell, Bot, HeartPulse, Menu, Moon, Shield, Stethoscope, Sun, User } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
-import PatientPages from './patient/PatientPages.jsx';
-import DoctorPages from './doctor/DoctorPages.jsx';
-import AdminPages from './admin/AdminPages.jsx';
 import { AyaChat, ConsModal, CreateDoctorModal, CreatePatientModal, QRModal, RxModal, VideoModal } from './modals/index.jsx';
+
+const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
+const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
+const AdminPages = lazy(() => import('./admin/AdminPages.jsx'));
 
 const ROLE_META = {
   patient: { label: 'Espace patient', Icon: User, color: 'text-blue-700 bg-blue-50 border-blue-200' },
   doctor: { label: 'Espace docteur', Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   admin: { label: 'Espace admin', Icon: Shield, color: 'text-purple-700 bg-purple-50 border-purple-200' },
 };
+
+function PageFallback({ darkMode }) {
+  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
+  return (
+    <div className="space-y-4 animate-pulse">
+      <div className={`h-36 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-100'}`}></div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className={`h-32 rounded-xl ${block}`}></div>
+        <div className={`h-32 rounded-xl ${block}`}></div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [auth, setAuth] = useState('login');
@@ -44,11 +58,11 @@ export default function App() {
   const props = { card, sub, border, darkMode };
 
   return (
-    <div className={`min-h-screen ${bg} ${text} flex flex-col`} style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className={`min-h-screen ${bg} ${text} flex flex-col`}>
       <header className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-950/90' : 'bg-white/90'} backdrop-blur-xl border-b ${border}`}>
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSbOpen(true)} className={`lg:hidden p-2 rounded-lg ${hover}`}><Menu className="w-5 h-5" /></button>
+            <button onClick={() => setSbOpen(true)} className={`lg:hidden p-2 rounded-lg ${hover}`} aria-label="Ouvrir le menu"><Menu className="w-5 h-5" /></button>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center shadow-lg shadow-red-600/20">
                 <HeartPulse className="w-6 h-6 text-white" strokeWidth={2.5} />
@@ -64,14 +78,14 @@ export default function App() {
             <span>{roleLabel}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${hover}`}>
+            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            <button className={`relative p-2 rounded-lg ${hover}`}>
+            <button className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
               <Bell className="w-4 h-4" />
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
             </button>
-            <button onClick={() => setAuth('login')} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
+            <button onClick={() => { localStorage.removeItem('nova_token'); setUser(null); setAuth('login'); }} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</div>
               <div className="hidden lg:block text-left">
                 <p className="text-xs font-semibold leading-tight">{user?.name || 'Utilisateur'}</p>
@@ -89,14 +103,16 @@ export default function App() {
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-            {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
-              onProfileSaved={(profile) => setUser((current) => ({
-                ...current,
-                name: `${profile.firstName} ${profile.lastName}`,
-                avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
-              }))} {...props} />}
-            {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
-            {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
+            <Suspense fallback={<PageFallback darkMode={darkMode} />}>
+              {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
+                onProfileSaved={(profile) => setUser((current) => ({
+                  ...current,
+                  name: `${profile.firstName} ${profile.lastName}`,
+                  avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
+                }))} {...props} />}
+              {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
+              {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
+            </Suspense>
           </div>
         </main>
       </div>

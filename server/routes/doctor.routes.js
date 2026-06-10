@@ -27,19 +27,11 @@ import {
   saveDoctorSignatureData,
 } from '../services/doctor.service.js';
 
+import { wrap, validateBody } from '../middleware/helpers.js';
+import { auditLog, accessLog } from '../middleware/audit.js';
+
 const router = Router();
 router.use(requireDoctor);
-
-const wrap = (fn) => (req, res, next) => fn(req, res).catch(next);
-
-function validateBody(schema) {
-  return (req, res, next) => {
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(422).json({ error: 'validation_error', details: parsed.error.flatten() });
-    req.body = parsed.data;
-    next();
-  };
-}
 
 /* ─── Dashboard ────────────────────────────────────────────── */
 router.get('/dashboard', wrap(async (req, res) => {
@@ -51,7 +43,7 @@ router.get('/patients', wrap(async (req, res) => {
   res.json(await getDoctorPatients(req.user.doctorId, req.query));
 }));
 
-router.get('/patients/:id', wrap(async (req, res) => {
+router.get('/patients/:id', accessLog('patient_record'), wrap(async (req, res) => {
   const data = await getDoctorPatient(req.user.doctorId, req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable ou non autorisé.' });
   res.json(data);
@@ -84,7 +76,7 @@ router.post('/consultations', validateBody(z.object({
   diagnosisSecondary: z.string().optional(),
   notes:              z.string().optional(),
   recommendations:    z.string().optional(),
-})), wrap(async (req, res) => {
+})), auditLog('consultation.create', 'consultation'), wrap(async (req, res) => {
   res.status(201).json(await createConsultation(req.user.doctorId, req.body));
 }));
 
@@ -135,7 +127,7 @@ router.post('/prescriptions', validateBody(z.object({
   })).min(1),
   notes:     z.string().optional(),
   validDays: z.number().int().positive().optional(),
-})), wrap(async (req, res) => {
+})), auditLog('prescription.create', 'prescription'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
 }));
 
@@ -155,7 +147,7 @@ router.post('/alerts', validateBody(z.object({
   level:     z.enum(['info', 'warning', 'critical']).optional(),
   title:     z.string().min(1),
   body:      z.string().optional(),
-})), wrap(async (req, res) => {
+})), auditLog('alert.create', 'alert'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorAlert(req.user.doctorId, req.body));
 }));
 
@@ -181,7 +173,7 @@ router.get('/signature', wrap(async (req, res) => {
 }));
 
 router.post('/signature', validateBody(z.object({
-  signatureData: z.string().min(1),
+  signatureData: z.string().min(1).max(500000),
 })), wrap(async (req, res) => {
   res.json(await saveDoctorSignatureData(req.user.doctorId, req.body.signatureData));
 }));

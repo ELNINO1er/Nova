@@ -46,7 +46,7 @@ export default function Login({ auth, setAuth, onLogin }) {
     if (!/^\d?$/.test(v)) return;
     const n = [...otp]; n[i] = v; setOtp(n);
     if (v && i < 3) refs[i+1].current?.focus();
-    if (n.every(d => d !== '')) setTimeout(() => verify(n.join('')), 200);
+    if (n.every(d => d !== '')) verify(n.join(''));
   };
 
   const verify = async (code) => {
@@ -67,7 +67,7 @@ export default function Login({ auth, setAuth, onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="min-h-screen flex">
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-red-600 via-red-700 to-red-900 text-white">
         <div className="absolute top-0 right-0 w-96 h-96 bg-amber-400/20 rounded-full -translate-y-48 translate-x-48 blur-3xl animate-pulse"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-pink-500/20 rounded-full translate-y-48 -translate-x-48 blur-3xl"></div>
@@ -190,7 +190,6 @@ export default function Login({ auth, setAuth, onLogin }) {
           )}
         </div>
       </div>
-      <style>{`@keyframes float{0%,100%{transform:translateY(0px) rotate(0deg);}50%{transform:translateY(-20px) rotate(5deg);}}.animate-float{animation:float 6s ease-in-out infinite;}`}</style>
     </div>
   );
 }

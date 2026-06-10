@@ -110,21 +110,28 @@ export async function getTreatments(patientId) {
     'SELECT * FROM nova_treatments WHERE patient_id = ? ORDER BY started_at DESC',
     [patientId]
   );
-  return Promise.all(treatments.map(async (t) => {
-    const [meds] = await pool.execute(
-      'SELECT * FROM nova_medications WHERE treatment_id = ?', [t.id]
-    );
-    return {
-      id: t.id,
-      diagnosis: t.diagnosis,
-      status: t.status,
-      stage: t.stage,
-      progress: t.progress,
-      startedAt: t.started_at,
-      doctorName: t.doctor_name,
-      nextCheckupAt: t.next_checkup_at,
-      medications: meds.map(mapMedication),
-    };
+  if (!treatments.length) return [];
+  const tIds = treatments.map(t => t.id);
+  const [allMeds] = await pool.execute(
+    `SELECT * FROM nova_medications WHERE treatment_id IN (${tIds.map(() => '?').join(',')})`,
+    tIds
+  );
+  const medsByTreatment = new Map();
+  for (const m of allMeds) {
+    const list = medsByTreatment.get(m.treatment_id) || [];
+    list.push(mapMedication(m));
+    medsByTreatment.set(m.treatment_id, list);
+  }
+  return treatments.map(t => ({
+    id: t.id,
+    diagnosis: t.diagnosis,
+    status: t.status,
+    stage: t.stage,
+    progress: t.progress,
+    startedAt: t.started_at,
+    doctorName: t.doctor_name,
+    nextCheckupAt: t.next_checkup_at,
+    medications: medsByTreatment.get(t.id) || [],
   }));
 }
 
@@ -157,6 +164,16 @@ export async function getMedicationToday(patientId) {
 }
 
 export async function createMedicationIntake(patientId, scheduleId, payload) {
+  const [[schedule]] = await pool.execute(
+    'SELECT id FROM nova_medication_schedules WHERE id = ? AND patient_id = ?',
+    [scheduleId, patientId]
+  );
+  if (!schedule) {
+    const err = new Error('Ce médicament ne vous appartient pas.');
+    err.status = 403;
+    throw err;
+  }
+
   const now = new Date().toISOString();
   const takenAt = payload.takenAt || now;
 
@@ -284,16 +301,26 @@ export async function createDocument(patientId, payload) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, patientId, payload.title, payload.category,
      payload.mimeType || 'application/pdf', payload.sizeBytes || 0,
-     payload.filePath || null, new Date().toISOString()]
+     payload.filePath ? payload.filePath.replace(/\\/g, '/').replace(/^.*\/data\/uploads\//, '') : null, new Date().toISOString()]
   );
   const [[row]] = await pool.execute('SELECT * FROM nova_documents WHERE id = ?', [id]);
   return mapDocument(row);
 }
 
 export async function deleteDocument(patientId, id) {
+  const [[doc]] = await pool.execute(
+    'SELECT file_path FROM nova_documents WHERE patient_id = ? AND id = ?', [patientId, id]
+  );
+  if (!doc) { const err = new Error('Document introuvable'); err.status = 404; throw err; }
   await pool.execute(
     'DELETE FROM nova_documents WHERE patient_id = ? AND id = ?', [patientId, id]
   );
+  if (doc.file_path) {
+    const { unlink } = await import('node:fs/promises');
+    const { uploadDir: ud } = await import('../middleware/upload.js');
+    const { join } = await import('node:path');
+    await unlink(join(ud, doc.file_path)).catch(() => {});
+  }
 }
 
 /* ─── Conversations & Messages ───────────────────────────────── */
@@ -383,28 +410,27 @@ export async function getPrescriptions(patientId, query = {}) {
         [patientId]
       );
 
-  return Promise.all(rows.map(async (row) => {
-    const [items] = await pool.execute(
-      'SELECT * FROM nova_prescription_items WHERE prescription_id = ?',
-      [row.id]
-    );
-    return {
-      id: row.id,
-      doctorName: row.doctor_name,
-      doctorSpecialty: row.doctor_specialty,
-      issuedAt: row.issued_at,
-      validUntil: row.valid_until,
-      status: row.status,
-      notes: row.notes,
-      items: items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        dosage: i.dosage,
-        frequency: i.frequency,
-        duration: i.duration,
-        instructions: i.instructions,
-      })),
-    };
+  if (!rows.length) return [];
+  const pIds = rows.map(r => r.id);
+  const [allItems] = await pool.execute(
+    `SELECT * FROM nova_prescription_items WHERE prescription_id IN (${pIds.map(() => '?').join(',')})`,
+    pIds
+  );
+  const itemsByPrescription = new Map();
+  for (const i of allItems) {
+    const list = itemsByPrescription.get(i.prescription_id) || [];
+    list.push({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions });
+    itemsByPrescription.set(i.prescription_id, list);
+  }
+  return rows.map(row => ({
+    id: row.id,
+    doctorName: row.doctor_name,
+    doctorSpecialty: row.doctor_specialty,
+    issuedAt: row.issued_at,
+    validUntil: row.valid_until,
+    status: row.status,
+    notes: row.notes,
+    items: itemsByPrescription.get(row.id) || [],
   }));
 }
 
@@ -508,31 +534,42 @@ export async function getDoctorSlots(doctorId, query = {}) {
   }));
 }
 
-export async function bookSlot(patientId, slotId) {
-  const [[slot]] = await pool.execute(
-    'SELECT * FROM nova_doctor_slots WHERE id = ? AND status = "available"',
-    [slotId]
-  );
-  if (!slot) return null;
+export async function bookSlot(patientId, slotId, doctorId) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  await pool.execute(
-    'UPDATE nova_doctor_slots SET status = "booked", patient_id = ? WHERE id = ?',
-    [patientId, slotId]
-  );
+    const [[slot]] = await conn.execute(
+      'SELECT * FROM nova_doctor_slots WHERE id = ? AND doctor_id = ? AND status = "available" FOR UPDATE',
+      [slotId, doctorId]
+    );
+    if (!slot) { await conn.rollback(); return null; }
 
-  const [[doctor]] = await pool.execute('SELECT * FROM nova_doctors WHERE id = ?', [slot.doctor_id]);
-  const apptId = randomUUID();
-  const startsAt = `${slot.slot_date}T${slot.slot_time}:00.000Z`;
+    await conn.execute(
+      'UPDATE nova_doctor_slots SET status = "booked", patient_id = ? WHERE id = ?',
+      [patientId, slotId]
+    );
 
-  await pool.execute(
-    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed')`,
-    [apptId, patientId, startsAt,
-     `Dr. ${doctor.first_name} ${doctor.last_name}`,
-     doctor.specialty, doctor.city]
-  );
+    const [[doctor]] = await conn.execute('SELECT * FROM nova_doctors WHERE id = ?', [slot.doctor_id]);
+    const apptId = randomUUID();
+    const startsAt = `${slot.slot_date}T${slot.slot_time}:00.000Z`;
 
-  return { slotId, appointmentId: apptId, doctorName: `Dr. ${doctor.first_name} ${doctor.last_name}`, startsAt };
+    await conn.execute(
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?)`,
+      [apptId, patientId, startsAt,
+       `Dr. ${doctor.first_name} ${doctor.last_name}`,
+       doctor.specialty, doctor.city, doctorId]
+    );
+
+    await conn.commit();
+    return { slotId, appointmentId: apptId, doctorName: `Dr. ${doctor.first_name} ${doctor.last_name}`, startsAt };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 /* ─── Notifications ──────────────────────────────────────────── */
@@ -580,20 +617,26 @@ export async function getLabResults(patientId, query = {}) {
         [patientId]
       );
 
-  return Promise.all(rows.map(async (row) => {
-    const [items] = await pool.execute(
-      'SELECT * FROM nova_lab_result_items WHERE lab_result_id = ? ORDER BY id ASC',
-      [row.id]
-    );
-    return {
-      id: row.id,
-      title: row.title,
-      laboratoryName: row.laboratory_name,
-      performedAt: row.performed_at,
-      status: row.status,
-      doctorName: row.doctor_name,
-      items: items.map(mapLabResultItem),
-    };
+  if (!rows.length) return [];
+  const lIds = rows.map(r => r.id);
+  const [allItems] = await pool.execute(
+    `SELECT * FROM nova_lab_result_items WHERE lab_result_id IN (${lIds.map(() => '?').join(',')}) ORDER BY id ASC`,
+    lIds
+  );
+  const itemsByResult = new Map();
+  for (const i of allItems) {
+    const list = itemsByResult.get(i.lab_result_id) || [];
+    list.push(mapLabResultItem(i));
+    itemsByResult.set(i.lab_result_id, list);
+  }
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    laboratoryName: row.lab_name,
+    performedAt: row.performed_at,
+    status: row.status,
+    doctorName: row.ordered_by,
+    items: itemsByResult.get(row.id) || [],
   }));
 }
 
@@ -830,9 +873,10 @@ async function getAppointment(patientId, id) {
 
 async function getDashboardVitals(patientId) {
   const [rows] = await pool.execute(
-    'SELECT * FROM nova_vitals WHERE patient_id = ? ORDER BY measured_at ASC',
+    'SELECT * FROM nova_vitals WHERE patient_id = ? ORDER BY measured_at DESC LIMIT 100',
     [patientId]
   );
+  rows.reverse();
   const byType = new Map();
 
   for (const row of rows) {
@@ -1025,7 +1069,7 @@ function mapLabResultItem(row) {
     name: row.name,
     value: row.value,
     unit: row.unit,
-    referenceRange: row.reference_range,
+    referenceRange: row.ref_min != null && row.ref_max != null ? `${row.ref_min}-${row.ref_max}` : null,
     status: row.status,
   };
 }

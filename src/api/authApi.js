@@ -1,3 +1,5 @@
+import { request } from './client.js';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
 
 async function authRequest(path, options = {}) {

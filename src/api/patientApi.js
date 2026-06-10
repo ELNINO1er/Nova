@@ -1,26 +1,6 @@
+import { request, getToken, toQuery } from './client.js';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
-
-const getToken = () => localStorage.getItem('nova_token') || '';
-
-async function request(path, options = {}) {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `API request failed: ${response.status}`);
-  }
-
-  if (response.status === 204) return null;
-  return response.json();
-}
 
 export const patientApi = {
   dashboard: () => request('/patient/me/dashboard'),
@@ -73,7 +53,6 @@ export const patientApi = {
   deleteNote: (id) => request(`/patient/me/notes/${id}`, { method: 'DELETE' }),
   prescriptions: (params = {}) => request(`/patient/me/prescriptions${toQuery(params)}`),
   prescription: (id) => request(`/patient/me/prescriptions/${id}`),
-  vitals: (params = {}) => request(`/patient/me/vitals${toQuery(params)}`),
   addVital: (payload) => request('/patient/me/vitals', { method: 'POST', body: JSON.stringify(payload) }),
   emergencyCard: () => request('/patient/me/emergency-card'),
   emergencyCardQr: () => request('/patient/me/emergency-card/qr'),
@@ -118,12 +97,3 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
 };
-
-function toQuery(params) {
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') query.set(key, value);
-  });
-  const text = query.toString();
-  return text ? `?${text}` : '';
-}

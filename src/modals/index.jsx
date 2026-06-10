@@ -23,11 +23,11 @@ export function QRModal({ onClose }) {
     if ((isC && !cI) || cC || (!isC && Math.random() > 0.55)) cells.push(<rect key={`${i}-${j}`} x={i*4} y={j*4} width="4" height="4" fill="#000" />);
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'Urgence">
       <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2"><Siren className="w-5 h-5 text-red-600" /><h3 className="font-bold text-slate-900">Pass Santé d'Urgence</h3></div>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white">
           <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
@@ -69,7 +69,7 @@ export function AyaChat({ onClose }) {
           <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><Bot className="w-5 h-5" /></div>
           <div><h4 className="font-bold">Aya</h4><p className="text-[10px] text-red-100">Assistante IA Santé</p></div>
         </div>
-        <button onClick={onClose}><X className="w-5 h-5" /></button>
+        <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
       </div>
       <div className="flex-1 p-4 space-y-3 overflow-y-auto bg-slate-50">
         {ms.map((m, i) => (
@@ -131,11 +131,11 @@ export function VideoModal({ onClose }) {
 export function RxModal({ onClose, darkMode, sub, border }) {
   const [ms, setMs] = useState([{ id: 1, n: 'Amlodipine', d: '5mg', f: '1x/j', du: '30j' }]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Nouvelle prescription">
       <div className={`${darkMode ? 'bg-slate-900' : 'bg-white'} rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <div className={`p-6 border-b ${border} flex items-center justify-between`}>
           <div className="flex items-center gap-2"><Pill className="w-5 h-5 text-red-600" /><h3 className="font-bold">Nouvelle prescription</h3></div>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="p-3 rounded-lg bg-red-50 border-red-200 border flex items-center gap-2">
@@ -169,11 +169,11 @@ export function RxModal({ onClose, darkMode, sub, border }) {
 
 export function ConsModal({ onClose, darkMode, sub, border }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Module de consultation">
       <div className={`${darkMode ? 'bg-slate-900' : 'bg-white'} rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <div className={`p-6 border-b ${border} flex items-center justify-between`}>
           <div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-red-600" /><h3 className="font-bold">Module de consultation</h3></div>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-4">
           <div>
@@ -201,14 +201,14 @@ export function CreatePatientModal({ onClose, darkMode, sub, border }) {
   const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
   const next = () => step < 3 ? setStep(step + 1) : onClose();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Nouveau patient">
       <div className={`${darkMode ? 'bg-slate-900' : 'bg-white'} rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <div className={`p-6 border-b ${border} flex items-center justify-between`}>
           <div>
             <div className="flex items-center gap-2"><UserPlus className="w-5 h-5 text-red-600" /><h3 className="font-bold">Nouveau patient</h3></div>
             <p className={`text-xs ${sub} mt-1`}>Étape {step}/3</p>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="px-6 pt-4">
           <div className={`h-1 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} overflow-hidden`}>

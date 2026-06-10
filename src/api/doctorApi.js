@@ -1,33 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
-
-const getToken = () => localStorage.getItem('nova_token') || '';
-
-async function request(path, options = {}) {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `API error: ${response.status}`);
-  }
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-function toQuery(params) {
-  const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, v);
-  });
-  const s = q.toString();
-  return s ? `?${s}` : '';
-}
+import { request, toQuery } from './client.js';
 
 export const doctorApi = {
   dashboard:    ()        => request('/doctor/me/dashboard'),

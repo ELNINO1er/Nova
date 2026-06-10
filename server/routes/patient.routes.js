@@ -3,7 +3,7 @@ import { z } from 'zod';
 import path from 'path';
 import QRCode from 'qrcode';
 import { requirePatient } from '../middleware/auth.js';
-import { upload, uploadDir } from '../middleware/upload.js';
+import { upload, uploadDir, verifyUploadedFile } from '../middleware/upload.js';
 import {
   getInsurance,
   getPharmacies,
@@ -56,11 +56,10 @@ import {
   deleteNote,
 } from '../services/patient.service.js';
 
+import { wrap, validateBody } from '../middleware/helpers.js';
+
 const router = Router();
 router.use(requirePatient);
-
-/* helper : wrap async route handlers */
-const wrap = (fn) => (req, res, next) => fn(req, res).catch(next);
 
 /* ─── Dashboard & Profil ─────────────────────────────────────── */
 
@@ -184,7 +183,7 @@ router.get('/documents', wrap(async (req, res) => {
   res.json(await getDocuments(req.user.patientId, req.query));
 }));
 
-router.post('/documents', upload.single('file'), wrap(async (req, res) => {
+router.post('/documents', upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
   const title    = req.body.title    || (req.file ? req.file.originalname : 'Document');
   const category = req.body.category || 'other';
   const doc = await createDocument(req.user.patientId, {
@@ -258,7 +257,7 @@ router.get('/doctors/:id/slots', wrap(async (req, res) => {
 }));
 
 router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
-  const result = await bookSlot(req.user.patientId, req.params.slotId);
+  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id);
   if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
   res.status(201).json(result);
 }));
@@ -269,13 +268,13 @@ router.get('/notifications', wrap(async (req, res) => {
   res.json(await getNotifications(req.user.patientId));
 }));
 
-router.patch('/notifications/:id/read', wrap(async (req, res) => {
-  await markNotificationRead(req.user.patientId, req.params.id);
+router.patch('/notifications/read-all', wrap(async (req, res) => {
+  await markAllNotificationsRead(req.user.patientId);
   res.json({ ok: true });
 }));
 
-router.patch('/notifications/read-all', wrap(async (req, res) => {
-  await markAllNotificationsRead(req.user.patientId);
+router.patch('/notifications/:id/read', wrap(async (req, res) => {
+  await markNotificationRead(req.user.patientId, req.params.id);
   res.json({ ok: true });
 }));
 
@@ -430,24 +429,11 @@ router.get('/settings', wrap(async (req, res) => {
   res.json(await getSettings(req.user.patientId));
 }));
 
-router.patch('/settings', validateBody(z.record(z.unknown())), wrap(async (req, res) => {
+router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
+  (val) => JSON.stringify(val).length < 50000,
+  { message: 'Payload trop volumineux' }
+)), wrap(async (req, res) => {
   res.json(await updateSettings(req.user.patientId, req.body));
 }));
-
-/* ─── Middleware de validation ───────────────────────────────── */
-
-function validateBody(schema) {
-  return (req, res, next) => {
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(422).json({
-        error: 'validation_error',
-        details: parsed.error.flatten(),
-      });
-    }
-    req.body = parsed.data;
-    next();
-  };
-}
 
 export default router;

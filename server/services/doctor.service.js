@@ -170,7 +170,20 @@ export async function getDoctorConsultations(doctorId) {
   }));
 }
 
+async function verifyDoctorPatientRelation(doctorId, patientId) {
+  const [[access]] = await pool.execute(
+    'SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? LIMIT 1',
+    [doctorId, patientId]
+  );
+  if (!access) {
+    const err = new Error('Aucune relation avec ce patient.');
+    err.status = 403;
+    throw err;
+  }
+}
+
 export async function createConsultation(doctorId, payload) {
+  await verifyDoctorPatientRelation(doctorId, payload.patientId);
   const id  = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
@@ -180,7 +193,7 @@ export async function createConsultation(doctorId, payload) {
     [id, payload.patientId, doctorId,
      payload.motif || null, payload.diagnosisMain || null, payload.diagnosisSecondary || null,
      payload.notes || null, payload.recommendations || null,
-     'completed', now, now]
+     payload.status || 'completed', now, payload.status === 'draft' ? null : now]
   );
   const [[row]] = await pool.execute(
     `SELECT c.*, p.first_name, p.last_name FROM nova_consultations c
@@ -283,7 +296,8 @@ function mapDoctorProfile(r) {
 
 function mapApptWithPatient(r) {
   const birth = r.birth_date ? new Date(r.birth_date) : null;
-  const age   = birth ? new Date().getFullYear() - birth.getFullYear() : null;
+  const today = new Date();
+  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
   return {
     id:          r.id,
     startsAt:    r.starts_at,
@@ -302,7 +316,8 @@ function mapApptWithPatient(r) {
 
 function mapPatientSummary(r) {
   const birth = r.birth_date ? new Date(r.birth_date) : null;
-  const age   = birth ? new Date().getFullYear() - birth.getFullYear() : null;
+  const today = new Date();
+  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
   return {
     id:        r.id,
     firstName: r.first_name,
@@ -316,7 +331,8 @@ function mapPatientSummary(r) {
 
 function mapPatientFull(r) {
   const birth = r.birth_date ? new Date(r.birth_date) : null;
-  const age   = birth ? new Date().getFullYear() - birth.getFullYear() : null;
+  const today = new Date();
+  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
   return {
     id:          r.id,
     firstName:   r.first_name,
@@ -394,31 +410,45 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
 }
 
 export async function createDoctorPrescription(doctorId, payload) {
-  const [[doc]] = await pool.execute(`SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?`, [doctorId]);
-  const doctorName = doc ? `Dr. ${doc.first_name} ${doc.last_name}` : 'Dr. —';
-  const specialty  = doc?.specialty || '';
-  const id  = randomUUID();
-  const now = new Date().toISOString();
-  const validUntil = payload.validDays
-    ? new Date(Date.now() + Number(payload.validDays) * 86400000).toISOString().slice(0, 10)
-    : null;
-  await pool.execute(
-    `INSERT INTO nova_prescriptions (id, patient_id, doctor_name, doctor_specialty, issued_at, valid_until, status, notes, doctor_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-    [id, payload.patientId, doctorName, specialty, now, validUntil, payload.notes || null, doctorId]
-  );
-  for (const item of (payload.items || [])) {
-    await pool.execute(
-      `INSERT INTO nova_prescription_items (id, prescription_id, name, dosage, frequency, duration, instructions)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), id, item.name, item.dosage || null, item.frequency || null, item.duration || null, item.instructions || null]
+  await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[doc]] = await conn.execute(`SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?`, [doctorId]);
+    const doctorName = doc ? `Dr. ${doc.first_name} ${doc.last_name}` : 'Dr. —';
+    const specialty  = doc?.specialty || '';
+    const id  = randomUUID();
+    const now = new Date().toISOString();
+    const validUntil = payload.validDays
+      ? new Date(Date.now() + Number(payload.validDays) * 86400000).toISOString().slice(0, 10)
+      : null;
+    await conn.execute(
+      `INSERT INTO nova_prescriptions (id, patient_id, doctor_name, doctor_specialty, issued_at, valid_until, status, notes, doctor_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      [id, payload.patientId, doctorName, specialty, now, validUntil, payload.notes || null, doctorId]
     );
+    if (payload.items?.length) {
+      const values = payload.items.map(item =>
+        [randomUUID(), id, item.name, item.dosage || null, item.frequency || null, item.duration || null, item.instructions || null]
+      );
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      await conn.execute(
+        `INSERT INTO nova_prescription_items (id, prescription_id, name, dosage, frequency, duration, instructions) VALUES ${placeholders}`,
+        values.flat()
+      );
+    }
+    await conn.commit();
+    const [[row]] = await pool.execute(
+      `SELECT p.*, pat.first_name, pat.last_name FROM nova_prescriptions p
+       JOIN nova_patients pat ON pat.id = p.patient_id WHERE p.id = ?`, [id]
+    );
+    return { id, patientId: row.patient_id, patientName: `${row.first_name} ${row.last_name}`, issuedAt: row.issued_at, status: row.status };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-  const [[row]] = await pool.execute(
-    `SELECT p.*, pat.first_name, pat.last_name FROM nova_prescriptions p
-     JOIN nova_patients pat ON pat.id = p.patient_id WHERE p.id = ?`, [id]
-  );
-  return { id, patientId: row.patient_id, patientName: `${row.first_name} ${row.last_name}`, issuedAt: row.issued_at, status: row.status };
 }
 
 /* ─── Demandes d'analyses ────────────────────────────────────── */
@@ -461,7 +491,8 @@ export async function getChronicPatients(doctorId) {
   );
   return rows.map(r => {
     const birth = r.birth_date ? new Date(r.birth_date) : null;
-    const age   = birth ? new Date().getFullYear() - birth.getFullYear() : null;
+    const today = new Date();
+  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
     const chronic = safeJson(r.chronic_diseases);
     const daysSince = r.last_consult
       ? Math.floor((Date.now() - new Date(r.last_consult).getTime()) / 86400000)
@@ -514,6 +545,7 @@ export async function getDoctorAlerts(doctorId) {
 }
 
 export async function createDoctorAlert(doctorId, payload) {
+  await verifyDoctorPatientRelation(doctorId, payload.patientId);
   const id  = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
@@ -636,6 +668,7 @@ export async function saveDoctorSignatureData(doctorId, signatureData) {
 }
 
 export async function createDoctorLabRequest(doctorId, payload) {
+  await verifyDoctorPatientRelation(doctorId, payload.patientId);
   const id  = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
