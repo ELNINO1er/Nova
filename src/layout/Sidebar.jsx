@@ -46,6 +46,8 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],
       a: { l: 'Nouveau patient', I: UserPlus, on: onCP }},
     { t: 'ACTIVITÉ', i: [{id:'agenda',l:'Agenda RDV',I:CalendarClock},{id:'consultations',l:'Consultations',I:ClipboardList},{id:'prescriptions',l:'Ordonnances',I:FileDown},{id:'lab-requests',l:'Demandes labo',I:Microscope},{id:'stats',l:'Statistiques',I:TrendingUp}]},
+    { t: 'CLINIQUE', i: [{id:'chronic-patients',l:'Suivi chroniques',I:HeartPulse},{id:'urgences',l:'Urgences & Alertes',I:ShieldAlert},{id:'assistant-ia',l:'Assistant IA Nova',I:Brain}]},
+    { t: 'GESTION', i: [{id:'finances',l:'Finances',I:TrendingUp},{id:'reputation',l:'Réputation & Avis',I:Award},{id:'signature',l:'Signature électronique',I:Edit3}]},
     { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:5},{id:'documents',l:'Documents',I:FileText}]},
     { t: 'COMPTE', i: [{id:'profile',l:'Mon profil',I:User},{id:'settings',l:'Paramètres',I:Settings}]}
   ] : [

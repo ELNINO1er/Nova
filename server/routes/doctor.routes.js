@@ -17,6 +17,14 @@ import {
   createDoctorPrescription,
   getDoctorLabRequests,
   createDoctorLabRequest,
+  getChronicPatients,
+  getDoctorAlerts,
+  createDoctorAlert,
+  resolveDoctorAlert,
+  getDoctorFinances,
+  getDoctorFullReputation,
+  getDoctorSignatureData,
+  saveDoctorSignatureData,
 } from '../services/doctor.service.js';
 
 const router = Router();
@@ -129,6 +137,53 @@ router.post('/prescriptions', validateBody(z.object({
   validDays: z.number().int().positive().optional(),
 })), wrap(async (req, res) => {
   res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
+}));
+
+/* ─── Suivi chroniques ──────────────────────────────────────── */
+router.get('/chronic-patients', wrap(async (req, res) => {
+  res.json(await getChronicPatients(req.user.doctorId));
+}));
+
+/* ─── Alertes médecin ───────────────────────────────────────── */
+router.get('/alerts', wrap(async (req, res) => {
+  res.json(await getDoctorAlerts(req.user.doctorId));
+}));
+
+router.post('/alerts', validateBody(z.object({
+  patientId: z.string().min(1),
+  type:      z.enum(['chronic', 'urgent', 'followup', 'lab', 'other']),
+  level:     z.enum(['info', 'warning', 'critical']).optional(),
+  title:     z.string().min(1),
+  body:      z.string().optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createDoctorAlert(req.user.doctorId, req.body));
+}));
+
+router.patch('/alerts/:id/resolve', wrap(async (req, res) => {
+  const result = await resolveDoctorAlert(req.user.doctorId, req.params.id);
+  if (!result) return res.status(404).json({ error: 'not_found' });
+  res.json(result);
+}));
+
+/* ─── Finances ──────────────────────────────────────────────── */
+router.get('/finances', wrap(async (req, res) => {
+  res.json(await getDoctorFinances(req.user.doctorId));
+}));
+
+/* ─── Réputation complète ───────────────────────────────────── */
+router.get('/reputation', wrap(async (req, res) => {
+  res.json(await getDoctorFullReputation(req.user.doctorId));
+}));
+
+/* ─── Signature électronique ────────────────────────────────── */
+router.get('/signature', wrap(async (req, res) => {
+  res.json(await getDoctorSignatureData(req.user.doctorId));
+}));
+
+router.post('/signature', validateBody(z.object({
+  signatureData: z.string().min(1),
+})), wrap(async (req, res) => {
+  res.json(await saveDoctorSignatureData(req.user.doctorId, req.body.signatureData));
 }));
 
 /* ─── Demandes d'analyses ───────────────────────────────────── */

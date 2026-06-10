@@ -376,7 +376,7 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
   );
   if (!row) return null;
   const [items] = await pool.execute(
-    `SELECT * FROM nova_prescription_items WHERE prescription_id = ? ORDER BY rowid`, [prescriptionId]
+    `SELECT * FROM nova_prescription_items WHERE prescription_id = ?`, [prescriptionId]
   );
   return {
     id:              row.id,
@@ -442,6 +442,197 @@ export async function getDoctorLabRequests(doctorId) {
     consultationId: r.consultation_id,
     requestedAt:    r.requested_at,
   }));
+}
+
+/* ─── Suivi chroniques ───────────────────────────────────────── */
+
+export async function getChronicPatients(doctorId) {
+  // Patients avec maladies chroniques dans leur profil médical
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies,
+            (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
+            (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
+     FROM nova_patients p
+     JOIN nova_appointments a ON a.patient_id = p.id AND a.doctor_id = ?
+     LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
+     WHERE mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
+     ORDER BY last_consult ASC`,
+    [doctorId, doctorId, doctorId]
+  );
+  return rows.map(r => {
+    const birth = r.birth_date ? new Date(r.birth_date) : null;
+    const age   = birth ? new Date().getFullYear() - birth.getFullYear() : null;
+    const chronic = safeJson(r.chronic_diseases);
+    const daysSince = r.last_consult
+      ? Math.floor((Date.now() - new Date(r.last_consult).getTime()) / 86400000)
+      : null;
+    const risk = !r.last_consult ? 'high'
+      : daysSince > 180 ? 'high'
+      : daysSince > 90  ? 'medium'
+      : 'low';
+    return {
+      id:           r.id,
+      firstName:    r.first_name,
+      lastName:     r.last_name,
+      cmuNumber:    r.cmu_number,
+      phone:        r.phone,
+      age,
+      bloodType:    r.blood_type,
+      chronicDiseases: chronic,
+      allergies:    safeJson(r.allergies),
+      lastConsult:  r.last_consult || null,
+      lastDiagnosis:r.last_diagnosis || null,
+      daysSince,
+      risk,
+    };
+  });
+}
+
+/* ─── Alertes docteur ────────────────────────────────────────── */
+
+export async function getDoctorAlerts(doctorId) {
+  const [rows] = await pool.execute(
+    `SELECT a.*, p.first_name, p.last_name, p.cmu_number
+     FROM nova_doctor_alerts a
+     JOIN nova_patients p ON p.id = a.patient_id
+     WHERE a.doctor_id = ? ORDER BY a.created_at DESC LIMIT 50`,
+    [doctorId]
+  );
+  return rows.map(r => ({
+    id:          r.id,
+    patientId:   r.patient_id,
+    patientName: `${r.first_name} ${r.last_name}`,
+    cmuNumber:   r.cmu_number,
+    type:        r.type,
+    level:       r.level,
+    title:       r.title,
+    body:        r.body,
+    status:      r.status,
+    createdAt:   r.created_at,
+    resolvedAt:  r.resolved_at,
+  }));
+}
+
+export async function createDoctorAlert(doctorId, payload) {
+  const id  = randomUUID();
+  const now = new Date().toISOString();
+  await pool.execute(
+    `INSERT INTO nova_doctor_alerts (id, doctor_id, patient_id, type, level, title, body, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+    [id, doctorId, payload.patientId, payload.type, payload.level || 'warning', payload.title, payload.body || null, now]
+  );
+  return { id, ...payload, status: 'open', createdAt: now };
+}
+
+export async function resolveDoctorAlert(doctorId, alertId) {
+  const [[existing]] = await pool.execute(
+    `SELECT id FROM nova_doctor_alerts WHERE id = ? AND doctor_id = ?`, [alertId, doctorId]
+  );
+  if (!existing) return null;
+  const now = new Date().toISOString();
+  await pool.execute(
+    `UPDATE nova_doctor_alerts SET status = 'resolved', resolved_at = ? WHERE id = ?`, [now, alertId]
+  );
+  return { id: alertId, status: 'resolved', resolvedAt: now };
+}
+
+/* ─── Finances (estimations) ─────────────────────────────────── */
+
+export async function getDoctorFinances(doctorId) {
+  const [[doc]] = await pool.execute(
+    `SELECT consultation_fee, accepts_cmu FROM nova_doctors WHERE id = ?`, [doctorId]
+  );
+  const fee = doc?.consultation_fee || 15000;
+
+  const [monthly] = await pool.execute(
+    `SELECT SUBSTR(started_at,1,7) AS month, COUNT(*) AS count
+     FROM nova_consultations WHERE doctor_id = ? AND status = 'completed'
+     GROUP BY month ORDER BY month DESC LIMIT 12`,
+    [doctorId]
+  );
+
+  const [[{ total }]] = await pool.execute(
+    `SELECT COUNT(*) AS total FROM nova_consultations WHERE doctor_id = ? AND status = 'completed'`,
+    [doctorId]
+  );
+
+  const month = new Date().toISOString().slice(0, 7);
+  const [[{ monthCount }]] = await pool.execute(
+    `SELECT COUNT(*) AS monthCount FROM nova_consultations
+     WHERE doctor_id = ? AND started_at LIKE ? AND status = 'completed'`,
+    [doctorId, `${month}%`]
+  );
+
+  const [[{ activePrescriptions }]] = await pool.execute(
+    `SELECT COUNT(*) AS activePrescriptions FROM nova_prescriptions WHERE doctor_id = ? AND status = 'active'`,
+    [doctorId]
+  );
+
+  return {
+    consultationFee:       fee,
+    totalConsultations:    total,
+    monthConsultations:    monthCount,
+    estimatedMonthRevenue: monthCount * fee,
+    estimatedTotalRevenue: total * fee,
+    activePrescriptions,
+    monthlyData: monthly.reverse().map(r => ({
+      month:   r.month,
+      count:   r.count,
+      revenue: r.count * fee,
+    })),
+  };
+}
+
+/* ─── Réputation complète ────────────────────────────────────── */
+
+export async function getDoctorFullReputation(doctorId) {
+  const [[agg]] = await pool.execute(
+    `SELECT AVG(rating) AS avgRating, COUNT(*) AS total FROM nova_doctor_reputation WHERE doctor_id = ?`,
+    [doctorId]
+  );
+  const [dist] = await pool.execute(
+    `SELECT ROUND(rating) AS star, COUNT(*) AS count
+     FROM nova_doctor_reputation WHERE doctor_id = ?
+     GROUP BY star ORDER BY star DESC`,
+    [doctorId]
+  );
+  const [ratings] = await pool.execute(
+    `SELECT r.rating, r.comment, r.created_at, p.first_name, p.last_name
+     FROM nova_doctor_reputation r
+     JOIN nova_patients p ON p.id = r.patient_id
+     WHERE r.doctor_id = ? ORDER BY r.created_at DESC`,
+    [doctorId]
+  );
+  return {
+    avgRating:    agg.avgRating ? Number(agg.avgRating).toFixed(1) : '—',
+    total:        agg.total || 0,
+    distribution: [5, 4, 3, 2, 1].map(s => ({
+      star:  s,
+      count: Number(dist.find(d => Number(d.star) === s)?.count || 0),
+    })),
+    ratings: ratings.map(r => ({
+      rating:      r.rating,
+      comment:     r.comment,
+      createdAt:   r.created_at,
+      patientName: `${r.first_name?.[0] || 'A'}. ${r.last_name || 'Patient'}`,
+    })),
+  };
+}
+
+/* ─── Signature électronique ─────────────────────────────────── */
+
+export async function getDoctorSignatureData(doctorId) {
+  const [[doc]] = await pool.execute(
+    `SELECT signature_data FROM nova_doctors WHERE id = ?`, [doctorId]
+  );
+  return { signatureData: doc?.signature_data || null };
+}
+
+export async function saveDoctorSignatureData(doctorId, signatureData) {
+  await pool.execute(
+    `UPDATE nova_doctors SET signature_data = ? WHERE id = ?`, [signatureData, doctorId]
+  );
+  return { ok: true };
 }
 
 export async function createDoctorLabRequest(doctorId, payload) {

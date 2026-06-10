@@ -481,9 +481,31 @@ async function createTables(conn) {
     )
   `);
 
+  /* ── Phase 5D : Signature + Finances ────────────────────────── */
+  await conn.query(`ALTER TABLE nova_doctors ADD COLUMN signature_data TEXT DEFAULT NULL`).catch(() => {});
+
   /* ── Phase 5B : Ordonnances médecin ─────────────────────────── */
   await conn.query(`ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
   await conn.query(`ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`).catch(() => {});
+
+  /* ── Phase 5C : Suivi chroniques + Urgences ──────────────────── */
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctor_alerts (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      patient_id VARCHAR(36) NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      level VARCHAR(20) NOT NULL DEFAULT 'warning',
+      title VARCHAR(255) NOT NULL,
+      body TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at VARCHAR(30) NOT NULL,
+      resolved_at VARCHAR(30),
+      INDEX idx_nda_doctor (doctor_id),
+      INDEX idx_nda_patient (patient_id),
+      INDEX idx_nda_status (status)
+    )
+  `);
 }
 
 async function seedDemo(conn) {

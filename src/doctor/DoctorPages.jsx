@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Activity, AlertCircle, AlertTriangle, ArrowRight, Award, BarChart3, Bell,
   Bot, Brain, Calendar, CalendarClock, Check, CheckCircle2, ChevronLeft,
@@ -33,8 +33,13 @@ export default function DoctorPages({ page, setPage, onRx, onCP, setShowVid, car
       consultations:  doctorApi.consultations,
       stats:          doctorApi.stats,
       profile:        doctorApi.profile,
-      prescriptions:  doctorApi.prescriptions,
-      'lab-requests': doctorApi.labRequests,
+      prescriptions:      doctorApi.prescriptions,
+      'lab-requests':     doctorApi.labRequests,
+      'chronic-patients': doctorApi.chronicPatients,
+      alerts:             doctorApi.alerts,
+      finances:           doctorApi.finances,
+      reputation:         doctorApi.reputation,
+      signature:          doctorApi.signature,
     };
     const load = loaders[pageKey];
     if (!load || (!force && apiData[pageKey])) return;
@@ -91,8 +96,14 @@ export default function DoctorPages({ page, setPage, onRx, onCP, setShowVid, car
       {page === 'documents'     && <PDocs {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
-      {page === 'lab-requests'  && <DLabRequests  data={apiData['lab-requests']}   loading={apiLoading['lab-requests']}  onReload={() => loadPage('lab-requests', true)}  patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
-      {page === 'settings'      && <SettingsPage {...p} />}
+      {page === 'lab-requests'       && <DLabRequests     data={apiData['lab-requests']}       loading={apiLoading['lab-requests']}      onReload={() => loadPage('lab-requests', true)}      patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
+      {page === 'chronic-patients'   && <DSuiviChroniques data={apiData['chronic-patients']}    loading={apiLoading['chronic-patients']}  onReload={() => loadPage('chronic-patients', true)} {...p} />}
+      {page === 'urgences'           && <DUrgences        data={apiData.alerts}                 loading={apiLoading.alerts}               onReload={() => loadPage('alerts', true)}           patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
+      {page === 'assistant-ia'       && <DAssistantIA     chronicData={apiData['chronic-patients']} consultData={apiData.consultations} statsData={apiData.stats} loadChronic={() => loadPage('chronic-patients')} loadConsult={() => loadPage('consultations')} loadStats={() => loadPage('stats')} {...p} />}
+      {page === 'finances'    && <DFinances   data={apiData.finances}   loading={apiLoading.finances}   {...p} />}
+      {page === 'reputation'  && <DReputation data={apiData.reputation} loading={apiLoading.reputation} {...p} />}
+      {page === 'signature'   && <DSignature  data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
+      {page === 'settings'    && <SettingsPage {...p} />}
     </div>
   );
 }
@@ -1377,6 +1388,844 @@ function DLabRequests({ data, loading, onReload, patientsData, loadPatients, not
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SUIVI CHRONIQUES
+   ════════════════════════════════════════════════════════════════ */
+function DSuiviChroniques({ data, loading, onReload, notify, setPage, card, sub, border, darkMode }) {
+  const [filter, setFilter] = useState('all'); // high | medium | low | all
+  const patients = data || [];
+
+  const filtered = filter === 'all' ? patients : patients.filter(p => p.risk === filter);
+
+  const riskCfg = {
+    high:   { label: 'Critique',     cls: 'bg-red-100 text-red-700',     dot: 'bg-red-500',     bar: 'bg-red-500' },
+    medium: { label: 'À surveiller', cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500',   bar: 'bg-amber-500' },
+    low:    { label: 'Stable',       cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
+  };
+
+  const counts = { high: patients.filter(p => p.risk === 'high').length, medium: patients.filter(p => p.risk === 'medium').length, low: patients.filter(p => p.risk === 'low').length };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">Suivi des maladies chroniques</h2>
+          <p className={`text-sm ${sub}`}>{patients.length} patients suivis</p>
+        </div>
+        <button onClick={onReload} className={`px-4 py-2 rounded-xl border text-sm font-semibold flex items-center gap-2 ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
+          <Activity className="w-4 h-4" /> Actualiser
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-3 gap-3">
+        {[{ k: 'high', l: 'Critique', I: AlertCircle }, { k: 'medium', l: 'À surveiller', I: Clock }, { k: 'low', l: 'Stable', I: CheckCircle2 }].map(({ k, l, I }) => (
+          <button key={k} onClick={() => setFilter(filter === k ? 'all' : k)}
+            className={`${card} border rounded-2xl p-4 text-left transition-all ${filter === k ? 'ring-2 ring-red-500' : ''}`}>
+            <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+              <I className={`w-4 h-4 ${k === 'high' ? 'text-red-600' : k === 'medium' ? 'text-amber-600' : 'text-emerald-600'}`} />
+            </div>
+            <p className="text-2xl font-black">{counts[k]}</p>
+            <p className={`text-xs ${sub}`}>{l}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Liste */}
+      {loading ? (
+        <div className="space-y-3">{[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-24 rounded-2xl`} />)}</div>
+      ) : filtered.length === 0 ? (
+        <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2`}>
+          <HeartPulse className={`w-10 h-10 ${sub}`} />
+          <p className={`text-sm ${sub}`}>Aucun patient dans cette catégorie</p>
+        </div>
+      ) : filtered.map(pat => {
+        const rc = riskCfg[pat.risk] || riskCfg.low;
+        return (
+          <div key={pat.id} className={`${card} border rounded-2xl p-4`}>
+            <div className="flex items-start gap-4">
+              {/* Avatar + risque */}
+              <div className="relative flex-shrink-0">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-400 to-red-700 text-white flex items-center justify-center font-bold text-sm">
+                  {pat.firstName[0]}{pat.lastName[0]}
+                </div>
+                <span className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${rc.dot}`} />
+              </div>
+              {/* Infos */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+                  <div>
+                    <p className="font-bold">{pat.firstName} {pat.lastName}</p>
+                    <p className={`text-xs ${sub}`}>{pat.cmuNumber} • {pat.age} ans</p>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rc.cls}`}>{rc.label}</span>
+                </div>
+                {/* Maladies chroniques */}
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {pat.chronicDiseases.map((d, i) => (
+                    <span key={i} className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>{d}</span>
+                  ))}
+                </div>
+                {/* Dernière consultation */}
+                <div className={`flex items-center gap-4 text-xs ${sub}`}>
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {pat.lastConsult
+                      ? `Dernière visite il y a ${pat.daysSince} jour${pat.daysSince > 1 ? 's' : ''}`
+                      : 'Jamais consulté'}
+                  </span>
+                  {pat.phone && <a href={`tel:${pat.phone}`} className="flex items-center gap-1 text-blue-600 font-semibold hover:underline"><Phone className="w-3 h-3" />{pat.phone}</a>}
+                </div>
+                {pat.lastDiagnosis && <p className={`text-xs mt-1 text-red-600 font-medium`}>→ {pat.lastDiagnosis}</p>}
+              </div>
+              {/* Action rapide */}
+              <button onClick={() => setPage('consultations')}
+                className="flex-shrink-0 p-2 rounded-xl bg-red-600 text-white hover:bg-red-700">
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Barre de risque */}
+            {pat.daysSince !== null && (
+              <div className="mt-3">
+                <div className={`h-1.5 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} overflow-hidden`}>
+                  <div className={`h-full rounded-full ${rc.bar} transition-all`}
+                    style={{ width: `${Math.min((pat.daysSince / 180) * 100, 100)}%` }} />
+                </div>
+                <p className={`text-[10px] ${sub} mt-0.5`}>Délai depuis dernière visite ({pat.daysSince}j / 180j recommandés)</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   URGENCES MÉDECIN
+   ════════════════════════════════════════════════════════════════ */
+function DUrgences({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
+  const [showForm, setShowForm]   = useState(false);
+  const [form,     setForm]       = useState({ patientId: '', type: 'urgent', level: 'critical', title: '', body: '' });
+  const [saving,   setSaving]     = useState(false);
+  const [resolving, setResolving] = useState(null);
+
+  const alerts  = data || [];
+  const patients = patientsData || [];
+  const open    = alerts.filter(a => a.status === 'open');
+  const resolved = alerts.filter(a => a.status === 'resolved');
+
+  const handleShowForm = () => { setShowForm(true); if (!patientsData) loadPatients(); };
+
+  const handleSubmit = async () => {
+    if (!form.patientId) return notify('Sélectionnez un patient', 'error');
+    if (!form.title)     return notify('Titre requis', 'error');
+    setSaving(true);
+    try {
+      await doctorApi.createAlert(form);
+      notify('Alerte créée');
+      setShowForm(false);
+      setForm({ patientId: '', type: 'urgent', level: 'critical', title: '', body: '' });
+      onReload();
+    } catch (e) { notify(e.message, 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleResolve = async (id) => {
+    setResolving(id);
+    try {
+      await doctorApi.resolveAlert(id);
+      notify('Alerte résolue');
+      onReload();
+    } catch (e) { notify(e.message, 'error'); }
+    finally { setResolving(null); }
+  };
+
+  const levelCfg = {
+    critical: { label: 'Critique',  cls: 'bg-red-100 text-red-700',     border: 'border-red-200' },
+    warning:  { label: 'Attention', cls: 'bg-amber-100 text-amber-700', border: 'border-amber-200' },
+    info:     { label: 'Info',      cls: 'bg-blue-100 text-blue-700',   border: 'border-blue-200' },
+  };
+
+  const typeLabels = { urgent: 'Urgence', chronic: 'Suivi chronique', followup: 'Relance', lab: 'Résultat labo', other: 'Autre' };
+
+  const inp = `mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">Urgences & Alertes</h2>
+          <p className={`text-sm ${sub}`}>{open.length} alerte{open.length > 1 ? 's' : ''} ouverte{open.length > 1 ? 's' : ''}</p>
+        </div>
+        <button onClick={handleShowForm}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-600/20">
+          <Plus className="w-4 h-4" /> Nouvelle alerte
+        </button>
+      </div>
+
+      {/* Contacts urgence rapides */}
+      <div className={`${card} border rounded-2xl p-4`}>
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Phone className="w-4 h-4 text-red-600" /> Contacts urgence rapides</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[{ l: 'SAMU', n: '15', c: 'red' }, { l: 'Pompiers', n: '18', c: 'orange' }, { l: 'Police', n: '17', c: 'blue' }, { l: 'Urgences CHU', n: '05 20 33 34 00', c: 'emerald' }].map(({ l, n, c }) => (
+            <a key={l} href={`tel:${n}`}
+              className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all bg-${c}-50 border-${c}-200 hover:bg-${c}-100`}>
+              <Phone className={`w-4 h-4 text-${c}-600`} />
+              <p className={`text-xs font-bold text-${c}-700`}>{l}</p>
+              <p className={`text-sm font-black text-${c}-600`}>{n}</p>
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {/* Formulaire */}
+      {showForm && (
+        <div className={`${card} border-2 border-red-200 rounded-2xl p-5 space-y-4`}>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold flex items-center gap-2"><AlertCircle className="w-4 h-4 text-red-600" /> Créer une alerte patient</h3>
+            <button onClick={() => setShowForm(false)}><X className={`w-4 h-4 ${sub}`} /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
+              <select value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))} className={inp}>
+                <option value="">Sélectionner...</option>
+                {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Niveau *</label>
+              <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className={inp}>
+                <option value="critical">🔴 Critique</option>
+                <option value="warning">🟡 Attention</option>
+                <option value="info">🔵 Information</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Type</label>
+              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className={inp}>
+                <option value="urgent">Urgence</option>
+                <option value="chronic">Suivi chronique</option>
+                <option value="followup">Relance</option>
+                <option value="lab">Résultat labo</option>
+                <option value="other">Autre</option>
+              </select>
+            </div>
+            <div>
+              <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Titre *</label>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Résumé de l'alerte..." className={inp} />
+            </div>
+          </div>
+          <div>
+            <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Détails</label>
+            <textarea value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))} rows={3}
+              placeholder="Informations supplémentaires, actions à prendre..."
+              className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none resize-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setShowForm(false)} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>Annuler</button>
+            <button onClick={handleSubmit} disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              {saving ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />...</> : <><AlertCircle className="w-4 h-4" />Créer l'alerte</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Alertes ouvertes */}
+      {loading ? (
+        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-2xl`} />)}</div>
+      ) : open.length === 0 && !showForm ? (
+        <div className={`${card} border rounded-2xl p-8 flex flex-col items-center gap-2`}>
+          <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+          <p className="font-semibold text-emerald-600">Aucune alerte ouverte</p>
+          <p className={`text-xs ${sub}`}>Tous vos patients sont à jour</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {open.map(a => {
+            const lc = levelCfg[a.level] || levelCfg.warning;
+            return (
+              <div key={a.id} className={`${card} border-l-4 ${lc.border} rounded-2xl p-4 flex items-start gap-4`}>
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${a.level === 'critical' ? 'bg-red-500 animate-pulse' : a.level === 'warning' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-0.5">
+                    <p className="font-bold text-sm">{a.title}</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${lc.cls}`}>{lc.label}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>{typeLabels[a.type]}</span>
+                    </div>
+                  </div>
+                  <p className={`text-xs ${sub}`}>{a.patientName} • {a.cmuNumber}</p>
+                  {a.body && <p className={`text-xs ${sub} mt-1`}>{a.body}</p>}
+                  <p className={`text-[10px] ${sub} mt-1`}>{new Date(a.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
+                </div>
+                <button onClick={() => handleResolve(a.id)} disabled={resolving === a.id}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Résoudre
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Alertes résolues (collapsible) */}
+      {resolved.length > 0 && (
+        <div className={`${card} border rounded-2xl p-4`}>
+          <p className={`text-xs font-bold uppercase tracking-wide ${sub} mb-3`}>Résolues ({resolved.length})</p>
+          <div className="space-y-2">
+            {resolved.slice(0, 5).map(a => (
+              <div key={a.id} className={`flex items-center gap-3 p-2 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'} opacity-60`}>
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold truncate">{a.title}</p>
+                  <p className={`text-[10px] ${sub}`}>{a.patientName}</p>
+                </div>
+                <p className={`text-[10px] ${sub} flex-shrink-0`}>{new Date(a.resolvedAt).toLocaleDateString('fr-FR')}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ASSISTANT IA MÉDECIN
+   ════════════════════════════════════════════════════════════════ */
+function DAssistantIA({ chronicData, consultData, statsData, loadChronic, loadConsult, loadStats, notify, card, sub, border, darkMode }) {
+  const [query,    setQuery]    = useState('');
+  const [messages, setMessages] = useState([
+    { role: 'ai', text: 'Bonjour Docteur 👋 Je suis votre assistant médical Nova. Je peux vous aider à analyser vos dossiers patients, suggérer des suivis prioritaires et alerter sur des cas à risque. Comment puis-je vous aider ?' }
+  ]);
+
+  useEffect(() => {
+    if (!chronicData) loadChronic();
+    if (!consultData) loadConsult();
+    if (!statsData)   loadStats();
+  }, []);
+
+  const chronic  = chronicData || [];
+  const consults = consultData || [];
+  const stats    = statsData || {};
+
+  // Alertes prédictives générées côté client
+  const aiAlerts = [
+    ...chronic.filter(p => p.risk === 'high').map(p => ({
+      level: 'critical', icon: '🚨',
+      text: `${p.firstName} ${p.lastName} — ${p.chronicDiseases[0] || 'Maladie chronique'} — Pas de visite depuis ${p.daysSince ?? '?'} jours`,
+    })),
+    ...chronic.filter(p => p.risk === 'medium').slice(0, 3).map(p => ({
+      level: 'warning', icon: '⚠️',
+      text: `${p.firstName} ${p.lastName} — Suivi ${p.chronicDiseases[0] || ''} recommandé (${p.daysSince}j)`,
+    })),
+    ...(stats.diagnoses || []).slice(0, 2).map(d => ({
+      level: 'info', icon: '📊',
+      text: `Pathologie fréquente : ${d.name} (${d.count} cas). Envisagez un protocole de suivi systématique.`,
+    })),
+  ].slice(0, 6);
+
+  // Réponse IA simulée
+  const handleSend = () => {
+    if (!query.trim()) return;
+    const q = query.trim();
+    setMessages(m => [...m, { role: 'user', text: q }]);
+    setQuery('');
+    setTimeout(() => {
+      let reply = '';
+      const ql = q.toLowerCase();
+      if (ql.includes('hypertension') || ql.includes('tension'))
+        reply = '📋 Pour l\'hypertension artérielle : contrôlez la tension à chaque visite, prescrivez un bilan rénal annuel (créatinine, protéinurie), surveillez les facteurs de risque cardiovasculaires. Recommandez une réduction du sel < 5g/j et 30min d\'activité physique quotidienne.';
+      else if (ql.includes('diabète') || ql.includes('glucose') || ql.includes('glycémie'))
+        reply = '🩸 Pour le diabète de type 2 : HbA1c toutes les 3 mois jusqu\'à équilibre puis tous les 6 mois. Bilan lipidique annuel. Fond d\'œil + bilan rénal annuel. Surveillance des pieds à chaque consultation. Éducation thérapeutique systématique.';
+      else if (ql.includes('patient') && ql.includes('risque'))
+        reply = `⚠️ J\'ai identifié ${chronic.filter(p => p.risk === 'high').length} patient(s) à risque critique parmi vos patients chroniques. Je vous recommande de les contacter en priorité pour un bilan de suivi.`;
+      else if (ql.includes('consultat') || ql.includes('stats'))
+        reply = `📈 Ce mois, vous avez réalisé ${stats.monthConsultations || '—'} consultations. Vos 3 pathologies les plus fréquentes : ${(stats.diagnoses || []).slice(0, 3).map(d => d.name).join(', ') || '—'}.`;
+      else if (ql.includes('ordonnance') || ql.includes('prescription'))
+        reply = '💊 Rappel légal : toute ordonnance doit comporter votre nom, n° RPPS, la date, le nom du patient et les médicaments avec posologie complète. La durée de validité est limitée selon les classes de médicaments (3 mois pour les stupéfiants).';
+      else
+        reply = `Je n\'ai pas de réponse précise pour "${q}" dans ma base de connaissances actuelle. Je vous suggère de consulter les recommandations HAS ou de créer une alerte de suivi pour ce patient.`;
+      setMessages(m => [...m, { role: 'ai', text: reply }]);
+    }, 800);
+  };
+
+  const levelCls = { critical: 'border-red-200 bg-red-50', warning: 'border-amber-200 bg-amber-50', info: 'border-blue-200 bg-blue-50' };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Brain className="w-6 h-6 text-purple-600" /> Assistant IA Nova</h2>
+        <p className={`text-sm ${sub}`}>Analyse clinique intelligente • Alertes prédictives</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Chat IA */}
+        <div className={`${card} border rounded-2xl flex flex-col`} style={{ height: '520px' }}>
+          <div className={`p-4 border-b ${border} flex items-center gap-2`}>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center">
+              <Brain className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="font-bold text-sm">Nova Medical AI</p>
+              <div className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><span className={`text-[10px] ${sub}`}>En ligne</span></div>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed
+                  ${m.role === 'user'
+                    ? 'bg-purple-600 text-white rounded-br-sm'
+                    : (darkMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800') + ' rounded-bl-sm'}`}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className={`p-3 border-t ${border} flex gap-2`}>
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSend()}
+              placeholder="Posez votre question médicale..."
+              className={`flex-1 px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
+            <button onClick={handleSend} disabled={!query.trim()}
+              className="px-3 py-2 rounded-xl bg-purple-600 text-white disabled:opacity-40 hover:bg-purple-700">
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Alertes prédictives */}
+        <div className="space-y-3">
+          <div className={`${card} border rounded-2xl p-4`}>
+            <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" /> Alertes prédictives
+              <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-bold ${aiAlerts.filter(a => a.level === 'critical').length > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {aiAlerts.filter(a => a.level === 'critical').length} critique{aiAlerts.filter(a => a.level === 'critical').length > 1 ? 's' : ''}
+              </span>
+            </h3>
+            {aiAlerts.length === 0 ? (
+              <p className={`text-xs ${sub} text-center py-4`}>Chargement des données...</p>
+            ) : (
+              <div className="space-y-2">
+                {aiAlerts.map((a, i) => (
+                  <div key={i} className={`border rounded-xl p-3 text-xs ${levelCls[a.level] || levelCls.info}`}>
+                    <span className="mr-2">{a.icon}</span>{a.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Suggestions rapides */}
+          <div className={`${card} border rounded-2xl p-4`}>
+            <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-500" /> Questions fréquentes
+            </h3>
+            <div className="space-y-2">
+              {['Patients à risque critique ?', 'Protocole hypertension', 'Suivi diabète type 2', 'Stats du mois'].map(q => (
+                <button key={q} onClick={() => { setQuery(q); }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all
+                    ${darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
+                  {q} →
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FINANCES
+   ════════════════════════════════════════════════════════════════ */
+function DFinances({ data, loading, card, sub, border, darkMode }) {
+  if (loading || !data) return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-28 rounded-2xl`} />)}
+      </div>
+      <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />
+    </div>
+  );
+
+  const { consultationFee, totalConsultations, monthConsultations, estimatedMonthRevenue, estimatedTotalRevenue, activePrescriptions, monthlyData = [] } = data;
+
+  const fmt = (n) => new Intl.NumberFormat('fr-FR').format(n);
+  const maxRev = Math.max(...monthlyData.map(m => m.revenue), 1);
+
+  const kpis = [
+    { l: 'Revenus estimés ce mois', v: `${fmt(estimatedMonthRevenue)} FCFA`, s: `${monthConsultations} consultations`, c: 'emerald', I: TrendingUp },
+    { l: 'Revenus totaux estimés',  v: `${fmt(estimatedTotalRevenue)} FCFA`, s: `${totalConsultations} consult. total`, c: 'blue',    I: BarChart3 },
+    { l: 'Tarif consultation',      v: `${fmt(consultationFee)} FCFA`,       s: 'Par consultation',           c: 'red',     I: Star },
+    { l: 'Ordonnances actives',     v: activePrescriptions,                   s: 'En cours de validité',       c: 'purple',  I: FileDown },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold">Gestion financière</h2>
+        <p className={`text-sm ${sub}`}>Estimations basées sur le tarif et les consultations enregistrées</p>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpis.map((k, i) => (
+          <div key={i} className={`${card} border rounded-2xl p-4`}>
+            <div className={`w-9 h-9 rounded-lg bg-${k.c}-100 flex items-center justify-center mb-2`}>
+              <k.I className={`w-4 h-4 text-${k.c}-600`} />
+            </div>
+            <p className={`text-xs ${sub}`}>{k.l}</p>
+            <p className="text-lg font-black mt-0.5 leading-tight">{k.v}</p>
+            <p className={`text-xs mt-0.5 text-${k.c}-600 font-semibold`}>{k.s}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Graphique revenus mensuels */}
+      <div className={`${card} border rounded-2xl p-5`}>
+        <h3 className="font-bold mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-600" /> Revenus estimés mensuels</h3>
+        {monthlyData.length === 0 ? (
+          <p className={`text-sm ${sub} text-center py-8`}>Pas encore de données</p>
+        ) : (
+          <div className="space-y-2">
+            {monthlyData.map((m, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <p className={`text-xs font-semibold w-16 flex-shrink-0 ${sub}`}>{m.month}</p>
+                <div className={`flex-1 h-7 rounded-lg overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-lg flex items-center px-2 transition-all"
+                    style={{ width: `${(m.revenue / maxRev) * 100}%`, minWidth: m.revenue > 0 ? '2rem' : '0' }}>
+                    {m.revenue > 0 && <span className="text-[10px] font-bold text-white truncate">{m.count} cons.</span>}
+                  </div>
+                </div>
+                <p className={`text-xs font-bold w-28 text-right flex-shrink-0 ${m.revenue > 0 ? 'text-emerald-600' : sub}`}>
+                  {fmt(m.revenue)} FCFA
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Note estimation */}
+      <div className={`${card} border rounded-2xl p-4 flex items-start gap-3`}>
+        <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${sub}`} />
+        <p className={`text-xs ${sub}`}>
+          Les montants affichés sont des <strong>estimations</strong> basées sur le tarif de consultation configuré ({fmt(consultationFee)} FCFA) multiplié par le nombre de consultations terminées. La gestion des paiements réels sera disponible en Phase 6.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RÉPUTATION & AVIS
+   ════════════════════════════════════════════════════════════════ */
+function DReputation({ data, loading, card, sub, border, darkMode }) {
+  if (loading || !data) return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {[0,1].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />)}
+    </div>
+  );
+
+  const { avgRating, total, distribution, ratings = [] } = data;
+  const maxDist = Math.max(...distribution.map(d => d.count), 1);
+  const recommend = total > 0
+    ? Math.round((distribution.filter(d => d.star >= 4).reduce((s, d) => s + d.count, 0) / total) * 100)
+    : 0;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold">Réputation & Avis patients</h2>
+        <p className={`text-sm ${sub}`}>{total} avis reçus</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Score global */}
+        <div className={`${card} border rounded-2xl p-6 flex flex-col items-center justify-center gap-3`}>
+          <div className="text-6xl font-black text-amber-500">{avgRating}</div>
+          <div className="flex items-center gap-1">
+            {[1,2,3,4,5].map(s => (
+              <Star key={s} className={`w-5 h-5 ${s <= Math.round(Number(avgRating)) ? 'fill-amber-400 text-amber-400' : sub}`} />
+            ))}
+          </div>
+          <p className={`text-sm ${sub}`}>{total} avis • {recommend}% recommandent</p>
+          <div className="grid grid-cols-3 gap-3 w-full mt-2">
+            {[{ l: 'Avis 5★', v: distribution[0]?.count || 0, c: 'emerald' },
+              { l: 'Avis 4★', v: distribution[1]?.count || 0, c: 'blue' },
+              { l: '< 3★',   v: distribution.slice(2).reduce((s, d) => s + d.count, 0), c: 'amber' }].map((k, i) => (
+              <div key={i} className={`${darkMode ? 'bg-slate-800' : 'bg-slate-50'} rounded-xl p-3 text-center`}>
+                <p className={`text-xl font-black text-${k.c}-600`}>{k.v}</p>
+                <p className={`text-[10px] ${sub}`}>{k.l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Distribution étoiles */}
+        <div className={`${card} border rounded-2xl p-5`}>
+          <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Star className="w-4 h-4 text-amber-500" /> Distribution des notes</h3>
+          <div className="space-y-3">
+            {distribution.map(({ star, count }) => (
+              <div key={star} className="flex items-center gap-3">
+                <div className="flex items-center gap-0.5 w-20 flex-shrink-0">
+                  {[1,2,3,4,5].map(s => (
+                    <Star key={s} className={`w-3 h-3 ${s <= star ? 'fill-amber-400 text-amber-400' : sub}`} />
+                  ))}
+                </div>
+                <div className={`flex-1 h-5 rounded-full overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all"
+                    style={{ width: `${(count / maxDist) * 100}%` }} />
+                </div>
+                <p className={`text-xs font-bold w-8 text-right flex-shrink-0 ${sub}`}>{count}</p>
+              </div>
+            ))}
+          </div>
+          {total === 0 && <p className={`text-xs ${sub} text-center py-4`}>Aucun avis reçu pour l'instant</p>}
+        </div>
+      </div>
+
+      {/* Liste des avis */}
+      <div className={`${card} border rounded-2xl p-5`}>
+        <h3 className="font-bold text-sm mb-4">Tous les avis ({ratings.length})</h3>
+        {ratings.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-2">
+            <Award className={`w-10 h-10 ${sub}`} />
+            <p className={`text-sm ${sub}`}>Aucun avis patient pour le moment</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {ratings.map((r, i) => (
+              <div key={i} className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold">
+                      {r.patientName[0]}
+                    </div>
+                    <p className="font-semibold text-sm">{r.patientName}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-0.5">
+                      {[1,2,3,4,5].map(s => (
+                        <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'fill-amber-400 text-amber-400' : sub}`} />
+                      ))}
+                    </div>
+                    <p className={`text-xs ${sub}`}>{new Date(r.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
+                  </div>
+                </div>
+                {r.comment
+                  ? <p className={`text-sm ${sub} italic`}>"{r.comment}"</p>
+                  : <p className={`text-xs ${sub}`}>Aucun commentaire</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SIGNATURE ÉLECTRONIQUE
+   ════════════════════════════════════════════════════════════════ */
+function DSignature({ data, loading, onSave, notify, card, sub, border, darkMode }) {
+  const canvasRef = useRef(null);
+  const [drawing,      setDrawing]      = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [saved,        setSaved]        = useState(false);
+  const [signatureData, setSignatureData] = useState(null);
+
+  // Charger signature existante dans le canvas
+  useEffect(() => {
+    const sig = data?.signatureData;
+    if (!sig) return;
+    setSignatureData(sig);
+    if (!canvasRef.current) return;
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
+    };
+    img.src = sig;
+  }, [data]);
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current;
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const src    = e.touches ? e.touches[0] : e;
+    return { x: (src.clientX - rect.left) * scaleX, y: (src.clientY - rect.top) * scaleY };
+  };
+
+  const startDraw = (e) => {
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext('2d');
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    setDrawing(true);
+    setSaved(false);
+  };
+
+  const draw = (e) => {
+    if (!drawing) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.strokeStyle = darkMode ? '#e2e8f0' : '#1e293b';
+    const pos = getPos(e);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  };
+
+  const stopDraw = () => setDrawing(false);
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureData(null);
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    const dataUrl = canvasRef.current.toDataURL('image/png');
+    setSaving(true);
+    try {
+      await doctorApi.saveSignature({ signatureData: dataUrl });
+      setSignatureData(dataUrl);
+      setSaved(true);
+      notify('Signature enregistrée');
+      onSave();
+    } catch (e) {
+      notify(e.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Edit3 className="w-6 h-6 text-indigo-600" /> Signature électronique</h2>
+        <p className={`text-sm ${sub}`}>Votre signature sera apposée automatiquement sur les ordonnances imprimées</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Pad de signature */}
+        <div className={`${card} border rounded-2xl p-5 space-y-4`}>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm">Dessiner votre signature</h3>
+            <button onClick={clearCanvas}
+              className={`text-xs font-semibold flex items-center gap-1 px-3 py-1.5 rounded-lg border ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
+              <Trash2 className="w-3 h-3" /> Effacer
+            </button>
+          </div>
+          <div className={`rounded-xl border-2 border-dashed overflow-hidden ${darkMode ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-white'}`}>
+            <canvas
+              ref={canvasRef}
+              width={400} height={160}
+              className="w-full touch-none cursor-crosshair block"
+              onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+              onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw}
+            />
+          </div>
+          <p className={`text-xs ${sub} text-center`}>Signez avec votre souris ou votre doigt (écran tactile)</p>
+          <button onClick={handleSave} disabled={saving}
+            className={`w-full py-2.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-all
+              ${saved ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+            {saving
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Enregistrement...</>
+              : saved
+                ? <><CheckCircle2 className="w-4 h-4" />Signature enregistrée !</>
+                : <><Save className="w-4 h-4" />Enregistrer la signature</>}
+          </button>
+        </div>
+
+        {/* Prévisualisation */}
+        <div className={`${card} border rounded-2xl p-5 space-y-4`}>
+          <h3 className="font-bold text-sm">Prévisualisation sur ordonnance</h3>
+          <div className={`rounded-xl border p-4 space-y-3 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} text-sm`}>
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-bold">Dr. Aïcha Touré</p>
+                <p className={`text-xs ${sub}`}>Cardiologie • Abidjan</p>
+              </div>
+              <div className="text-right">
+                <p className="font-black text-red-600 tracking-widest text-base">ORDONNANCE</p>
+                <p className={`text-xs ${sub}`}>{new Date().toLocaleDateString('fr-FR')}</p>
+              </div>
+            </div>
+            <div className={`h-px ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
+            <div className={`text-xs ${sub} space-y-0.5`}>
+              <p><strong>Patient :</strong> Kouamé Bamba</p>
+              <p className="mt-2 font-semibold">Prescriptions :</p>
+              <p>1. Amlodipine 5mg — 1cp/j — 30 jours</p>
+              <p>2. Ramipril 5mg — 1cp matin — 30 jours</p>
+            </div>
+            <div className="flex justify-end pt-2">
+              <div className="w-36 text-right">
+                {signatureData ? (
+                  <img src={signatureData} alt="Signature" className="h-12 ml-auto mb-1"
+                    style={{ filter: darkMode ? 'invert(1)' : 'none' }} />
+                ) : (
+                  <div className={`h-12 flex items-end justify-center ${sub}`}>
+                    <p className="text-xs italic">Signature</p>
+                  </div>
+                )}
+                <div className={`border-t ${border} pt-1`}>
+                  <p className={`text-[10px] ${sub}`}>Signature & cachet</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          {!signatureData && (
+            <div className={`flex items-start gap-2 p-3 rounded-xl border text-xs ${darkMode ? 'bg-amber-900/20 border-amber-700/50 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>Aucune signature enregistrée. Dessinez et sauvegardez pour l'afficher sur vos ordonnances.</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Infos légales */}
+      <div className={`${card} border rounded-2xl p-4`}>
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-blue-600" /> Valeur légale & Sécurité</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { icon: '🔒', t: 'Sécurisée', d: 'Stockée chiffrée côté serveur, liée à votre compte uniquement' },
+            { icon: '📋', t: 'Ordonnances', d: 'Apposée automatiquement sur toutes les ordonnances imprimées' },
+            { icon: '✅', t: 'Conforme ANAM', d: 'Conforme aux exigences de l\'Autorité Nationale d\'Accréditation et de Médecine' },
+          ].map((item, i) => (
+            <div key={i} className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+              <p className="text-2xl mb-1">{item.icon}</p>
+              <p className="font-bold text-sm">{item.t}</p>
+              <p className={`text-xs ${sub} mt-0.5`}>{item.d}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

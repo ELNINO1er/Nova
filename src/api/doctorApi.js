@@ -45,4 +45,12 @@ export const doctorApi = {
   createPrescription:  (payload) => request('/doctor/me/prescriptions', { method: 'POST', body: JSON.stringify(payload) }),
   labRequests:         ()        => request('/doctor/me/lab-requests'),
   createLabRequest:    (payload) => request('/doctor/me/lab-requests', { method: 'POST', body: JSON.stringify(payload) }),
+  chronicPatients:     ()        => request('/doctor/me/chronic-patients'),
+  alerts:              ()        => request('/doctor/me/alerts'),
+  createAlert:         (payload) => request('/doctor/me/alerts', { method: 'POST', body: JSON.stringify(payload) }),
+  resolveAlert:        (id)      => request(`/doctor/me/alerts/${id}/resolve`, { method: 'PATCH' }),
+  finances:            ()        => request('/doctor/me/finances'),
+  reputation:          ()        => request('/doctor/me/reputation'),
+  signature:           ()        => request('/doctor/me/signature'),
+  saveSignature:       (payload) => request('/doctor/me/signature', { method: 'POST', body: JSON.stringify(payload) }),
 };
