@@ -62,17 +62,50 @@ const settingsExample = {
 export const openApiSpec = {
   openapi: '3.0.3',
   info: {
-    title: 'NOVA API',
-    version: '0.1.0',
-    description: 'Documentation interactive des premières routes Patient.',
+    title: 'NOVA API — Carnet Santé Ivoirien',
+    version: '1.0.0',
+    description: 'API complète de la plateforme NOVA. Espaces : Patient, Médecin, Pharmacie, Admin.',
   },
   servers: [
     { url: 'http://localhost:4001/api', description: 'Local development' },
   ],
   tags: [
-    { name: 'Health' },
-    { name: 'Patient' },
+    { name: 'Health', description: 'Vérification état API' },
+    { name: 'Auth', description: 'Authentification, OTP, tokens' },
+    { name: 'Patient', description: 'Espace patient — dossier médical, RDV, ordonnances' },
+    { name: 'Doctor', description: 'Espace médecin — consultations, prescriptions, patients' },
+    { name: 'Pharmacy', description: 'Espace pharmacie — vérification et délivrance ordonnances' },
+    { name: 'Admin', description: 'Administration — utilisateurs, rôles, audit' },
   ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+    },
+    schemas: {
+      Pagination: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer' },
+          limit: { type: 'integer' },
+          total: { type: 'integer' },
+          totalPages: { type: 'integer' },
+          hasMore: { type: 'boolean' },
+        },
+      },
+      Error: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' },
+          message: { type: 'string' },
+        },
+      },
+    },
+  },
+  security: [{ bearerAuth: [] }],
   paths: {
     '/health': {
       get: {
@@ -328,6 +361,87 @@ export const openApiSpec = {
         },
       },
     },
+
+    // ═══ Auth ═══════════════════════════════════════════════
+    '/auth/otp/send': {
+      post: {
+        tags: ['Auth'], summary: 'Envoyer OTP', security: [],
+        requestBody: { required: true, content: { 'application/json': { example: { phone: '0789452311' } } } },
+        responses: { 200: { description: 'OTP envoyé', content: { 'application/json': { example: { otpId: 'uuid', expiresIn: 300 } } } } },
+      },
+    },
+    '/auth/otp/verify': {
+      post: {
+        tags: ['Auth'], summary: 'Vérifier OTP → tokens', security: [],
+        requestBody: { required: true, content: { 'application/json': { example: { phone: '0789452311', code: '1234' } } } },
+        responses: { 200: { description: 'Tokens JWT', content: { 'application/json': { example: { token: 'jwt...', refreshToken: 'jwt...', user: { id: 'uuid', role: 'patient', name: 'Kouamé Bamba' } } } } } },
+      },
+    },
+    '/auth/refresh': {
+      post: {
+        tags: ['Auth'], summary: 'Renouveler access token',
+        requestBody: { required: true, content: { 'application/json': { example: { refreshToken: 'jwt...' } } } },
+        responses: { 200: { description: 'Nouveaux tokens', content: { 'application/json': { example: { token: 'jwt...', refreshToken: 'jwt...' } } } } },
+      },
+    },
+    '/auth/logout': {
+      post: { tags: ['Auth'], summary: 'Déconnexion (blacklist token)', responses: { 200: { description: 'OK' } } },
+    },
+    '/auth/me': {
+      get: {
+        tags: ['Auth'], summary: 'Profil + permissions',
+        responses: { 200: { description: 'User info', content: { 'application/json': { example: { id: 'uuid', role: 'patient', permissions: ['patient.dashboard', 'patient.profile'] } } } } },
+      },
+    },
+
+    // ═══ Doctor ═════════════════════════════════════════════
+    '/doctor/me/dashboard': { get: { tags: ['Doctor'], summary: 'Tableau de bord médecin', responses: { 200: { description: 'Dashboard data' } } } },
+    '/doctor/me/patients': {
+      get: { tags: ['Doctor'], summary: 'Liste patients autorisés', responses: { 200: { description: 'Patients' } } },
+      post: { tags: ['Doctor'], summary: 'Créer un patient + envoi OTP', requestBody: { required: true, content: { 'application/json': { example: { firstName: 'Aya', lastName: 'Koné', phone: '0701020304' } } } }, responses: { 201: { description: 'Patient créé' } } },
+    },
+    '/doctor/me/consultations': {
+      get: { tags: ['Doctor'], summary: 'Liste consultations', responses: { 200: { description: 'Consultations' } } },
+      post: { tags: ['Doctor'], summary: 'Créer consultation', responses: { 201: { description: 'Consultation créée' } } },
+    },
+    '/doctor/me/prescriptions': {
+      get: { tags: ['Doctor'], summary: 'Liste ordonnances', responses: { 200: { description: 'Ordonnances' } } },
+      post: { tags: ['Doctor'], summary: 'Créer ordonnance', responses: { 201: { description: 'Ordonnance créée' } } },
+    },
+    '/doctor/me/referrals': {
+      get: { tags: ['Doctor'], summary: 'Transferts envoyés/reçus', responses: { 200: { description: 'Referrals' } } },
+      post: { tags: ['Doctor'], summary: 'Transférer patient vers spécialiste', responses: { 201: { description: 'Transfert créé' } } },
+    },
+    '/doctor/me/consultation-templates': {
+      get: { tags: ['Doctor'], summary: 'Templates consultation', responses: { 200: { description: 'Templates' } } },
+      post: { tags: ['Doctor'], summary: 'Créer template', responses: { 201: { description: 'Template créé' } } },
+    },
+    '/doctor/me/notifications': { get: { tags: ['Doctor'], summary: 'Notifications médecin', responses: { 200: { description: 'Notifications' } } } },
+
+    // ═══ Pharmacy ═══════════════════════════════════════════
+    '/pharmacy/me/dashboard': { get: { tags: ['Pharmacy'], summary: 'Dashboard pharmacie', responses: { 200: { description: 'KPIs + récent' } } } },
+    '/pharmacy/me/verify-prescription': {
+      post: { tags: ['Pharmacy'], summary: 'Vérifier ordonnance (scan QR)',
+        requestBody: { required: true, content: { 'application/json': { example: { prescriptionId: 'uuid' } } } },
+        responses: { 200: { description: 'Vérification : authenticité, expiration, statut délivrance' } },
+      },
+    },
+    '/pharmacy/me/dispense': {
+      post: { tags: ['Pharmacy'], summary: 'Délivrer ordonnance (full/partial/refused)',
+        requestBody: { required: true, content: { 'application/json': { example: { prescriptionId: 'uuid', status: 'full', items: [{ prescriptionItemId: 'uuid', quantityDispensed: 1 }] } } } },
+        responses: { 201: { description: 'Délivrance enregistrée' } },
+      },
+    },
+    '/pharmacy/me/dispenses': { get: { tags: ['Pharmacy'], summary: 'Historique délivrances', responses: { 200: { description: 'Liste paginée' } } } },
+
+    // ═══ Patient new endpoints ══════════════════════════════
+    '/patient/me/consents': { get: { tags: ['Patient'], summary: 'Consentements accès dossier', responses: { 200: { description: 'Liste consentements' } } } },
+    '/patient/me/access-logs': { get: { tags: ['Patient'], summary: 'Qui a consulté mon dossier', responses: { 200: { description: 'Access logs' } } } },
+    '/patient/me/family': {
+      get: { tags: ['Patient'], summary: 'Dossier familial', responses: { 200: { description: 'Membres famille' } } },
+      post: { tags: ['Patient'], summary: 'Ajouter membre famille', responses: { 201: { description: 'Membre créé' } } },
+    },
+    '/patient/me/prescriptions/{id}/qr': { get: { tags: ['Patient'], summary: 'QR code ordonnance (JWT signé)', responses: { 200: { description: 'QR data URL + token' } } } },
   },
 };
 
