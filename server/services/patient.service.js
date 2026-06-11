@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyDoctorConsent, notifyDoctorAppointment } from './notification.service.js';
+import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
 
@@ -267,33 +268,37 @@ export async function getVaccinations(patientId) {
 
 /* ─── Historique médical ─────────────────────────────────────── */
 
-export async function getHistory(patientId) {
-  const [rows] = await pool.execute(
-    'SELECT * FROM nova_medical_history WHERE patient_id = ? ORDER BY occurred_at DESC',
-    [patientId]
+export async function getHistory(patientId, query = {}) {
+  const pg = parsePagination(query);
+  const [[{ total }]] = await pool.execute(
+    'SELECT COUNT(*) AS total FROM nova_medical_history WHERE patient_id = ?', [patientId]
   );
-  return rows.map((row) => ({
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    occurredAt: row.occurred_at,
-    doctorName: row.doctor_name,
-  }));
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_medical_history WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ? OFFSET ?',
+    [patientId, pg.limit, pg.offset]
+  );
+  return paginatedResponse(rows.map((row) => ({
+    id: row.id, type: row.type, title: row.title,
+    occurredAt: row.occurred_at, doctorName: row.doctor_name,
+  })), total, pg);
 }
 
 /* ─── Documents ──────────────────────────────────────────────── */
 
-export async function getDocuments(patientId, query) {
-  const [rows] = query.category
-    ? await pool.execute(
-        'SELECT * FROM nova_documents WHERE patient_id = ? AND category = ? ORDER BY created_at DESC',
-        [patientId, query.category]
-      )
-    : await pool.execute(
-        'SELECT * FROM nova_documents WHERE patient_id = ? ORDER BY created_at DESC',
-        [patientId]
-      );
-  return rows.map(mapDocument);
+export async function getDocuments(patientId, query = {}) {
+  const pg = parsePagination(query);
+  const catFilter = query.category ? ' AND category = ?' : '';
+  const catArgs = query.category ? [query.category] : [];
+
+  const [[{ total }]] = await pool.execute(
+    `SELECT COUNT(*) AS total FROM nova_documents WHERE patient_id = ?${catFilter}`,
+    [patientId, ...catArgs]
+  );
+  const [rows] = await pool.execute(
+    `SELECT * FROM nova_documents WHERE patient_id = ?${catFilter} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [patientId, ...catArgs, pg.limit, pg.offset]
+  );
+  return paginatedResponse(rows.map(mapDocument), total, pg);
 }
 
 export async function createDocument(patientId, payload) {
@@ -582,20 +587,19 @@ export async function bookSlot(patientId, slotId, doctorId) {
 
 /* ─── Notifications ──────────────────────────────────────────── */
 
-export async function getNotifications(patientId) {
-  const [rows] = await pool.execute(
-    'SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC',
-    [patientId]
+export async function getNotifications(patientId, query = {}) {
+  const pg = parsePagination(query);
+  const [[{ total }]] = await pool.execute(
+    'SELECT COUNT(*) AS total FROM nova_notifications WHERE patient_id = ?', [patientId]
   );
-  return rows.map((r) => ({
-    id: r.id,
-    type: r.type,
-    title: r.title,
-    body: r.body,
-    linkPage: r.link_page,
-    isRead: Boolean(r.is_read),
-    createdAt: r.created_at,
-  }));
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [patientId, pg.limit, pg.offset]
+  );
+  return paginatedResponse(rows.map((r) => ({
+    id: r.id, type: r.type, title: r.title, body: r.body,
+    linkPage: r.link_page, isRead: Boolean(r.is_read), createdAt: r.created_at,
+  })), total, pg);
 }
 
 export async function markNotificationRead(patientId, id) {

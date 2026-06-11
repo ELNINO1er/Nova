@@ -66,17 +66,18 @@ import {
 } from '../services/patient.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
+import { cacheFor } from '../middleware/cache.js';
 
 const router = Router();
 router.use(requirePatient);
 
 /* ─── Dashboard & Profil ─────────────────────────────────────── */
 
-router.get('/dashboard', wrap(async (req, res) => {
+router.get('/dashboard', cacheFor(30), wrap(async (req, res) => {
   res.json(await getDashboard(req.user.patientId));
 }));
 
-router.get('/profile', wrap(async (req, res) => {
+router.get('/profile', cacheFor(60), wrap(async (req, res) => {
   res.json(await getProfile(req.user.patientId));
 }));
 
@@ -96,6 +97,8 @@ router.patch('/profile', validateBody(z.object({
   emergencyRelationship: z.string().optional(),
   emergencyPhone:        z.string().optional(),
 })), wrap(async (req, res) => {
+  const { invalidateCache } = await import('../middleware/cache.js');
+  invalidateCache(req.user.id);
   res.json(await updateProfile(req.user.patientId, req.body));
 }));
 
@@ -183,7 +186,7 @@ router.get('/vaccinations', wrap(async (req, res) => {
 /* ─── Historique ─────────────────────────────────────────────── */
 
 router.get('/history', wrap(async (req, res) => {
-  res.json(await getHistory(req.user.patientId));
+  res.json(await getHistory(req.user.patientId, req.query));
 }));
 
 /* ─── Documents ──────────────────────────────────────────────── */
@@ -274,7 +277,7 @@ router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
 /* ─── Notifications ──────────────────────────────────────────── */
 
 router.get('/notifications', wrap(async (req, res) => {
-  res.json(await getNotifications(req.user.patientId));
+  res.json(await getNotifications(req.user.patientId, req.query));
 }));
 
 router.patch('/notifications/read-all', wrap(async (req, res) => {

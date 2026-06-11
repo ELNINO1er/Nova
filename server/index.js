@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import { initDb } from './db/database.js';
@@ -19,10 +20,11 @@ import { requirePatient, requireAuth } from './middleware/auth.js';
 const app = express();
 const port = Number(process.env.API_PORT || 4001);
 
+app.use(compression());
 app.use(helmet());
 app.use(cors({ origin: process.env.WEB_ORIGIN || 'http://localhost:5174' }));
 app.use(express.json({ limit: '1mb' }));
-app.use(morgan('dev'));
+if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
