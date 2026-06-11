@@ -33,7 +33,7 @@ export default function App() {
   const [auth, setAuth] = useState('login');
   const [user, setUser] = useState(null);
   const [page, setPage] = useState('dashboard');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('nova_darkMode') === 'true');
   const [showQR, setShowQR] = useState(false);
   const [showAya, setShowAya] = useState(false);
   const [showRx, setShowRx] = useState(false);
@@ -80,7 +80,7 @@ export default function App() {
             <span>{roleLabel}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
+            <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem('nova_darkMode', next); }} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             <button className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
