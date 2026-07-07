@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Target, Plus, Check, Trash2, Activity, Droplet, Moon as MoonIcon, Brain, Heart, Zap } from 'lucide-react';
+import { Target, Plus, Check, Trash2, Activity, Droplet, Moon as MoonIcon, Brain, Heart, HeartPulse, Zap, CheckCircle2, Sparkles, Sun } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PWell({ data, profile, onReload, notify, card, sub, border, darkMode }) {

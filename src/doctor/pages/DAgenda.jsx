@@ -7,10 +7,11 @@ export default function DAgenda({ data, loading, onReload, notify, setShowVid, c
   const [filter, setFilter] = useState('all'); // today | upcoming | all
   const [updating, setUpdating] = useState(null);
 
-  const appts = data || [];
+  const appts = Array.isArray(data) ? data : [];
   const today = new Date().toISOString().slice(0, 10);
 
   const filtered = appts.filter(a => {
+    if (!a.startsAt) return filter === 'all';
     if (filter === 'today')    return a.startsAt.startsWith(today);
     if (filter === 'upcoming') return a.startsAt >= today;
     return true;
@@ -60,14 +61,15 @@ export default function DAgenda({ data, loading, onReload, notify, setShowVid, c
         <div className="space-y-2">
           {filtered.map(a => {
             const st = statusCfg[a.status] || statusCfg.requested;
-            const dt = new Date(a.startsAt);
+            const dt = a.startsAt ? new Date(a.startsAt) : null;
+            const hasValidDate = dt && !Number.isNaN(dt.getTime());
             return (
               <div key={a.id} className={`${card} border rounded-2xl p-4 flex items-center gap-4`}>
                 {/* Date bloc */}
                 <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                  <p className="text-[10px] font-bold uppercase text-red-600">{dt.toLocaleDateString('fr-FR',{month:'short'})}</p>
-                  <p className="text-xl font-black leading-none">{dt.getDate()}</p>
-                  <p className={`text-[10px] ${sub}`}>{dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p>
+                  <p className="text-[10px] font-bold uppercase text-red-600">{hasValidDate ? dt.toLocaleDateString('fr-FR',{month:'short'}) : 'Date'}</p>
+                  <p className="text-xl font-black leading-none">{hasValidDate ? dt.getDate() : '--'}</p>
+                  <p className={`text-[10px] ${sub}`}>{hasValidDate ? dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '--:--'}</p>
                 </div>
                 {/* Infos */}
                 <div className="flex-1 min-w-0">

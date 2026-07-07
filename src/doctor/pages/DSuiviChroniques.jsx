@@ -1,9 +1,9 @@
-import React from 'react';
-import { Heart, AlertTriangle, Clock, Phone, ChevronRight, Users } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, AlertCircle, CheckCircle2, Clock, Heart, HeartPulse, Phone, Plus } from 'lucide-react';
 
 export default function DSuiviChroniques({ data, loading, onReload, notify, setPage, card, sub, border, darkMode }) {
   const [filter, setFilter] = useState('all'); // high | medium | low | all
-  const patients = data || [];
+  const patients = Array.isArray(data) ? data : [];
 
   const filtered = filter === 'all' ? patients : patients.filter(p => p.risk === filter);
 
@@ -58,7 +58,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
               {/* Avatar + risque */}
               <div className="relative flex-shrink-0">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-400 to-red-700 text-white flex items-center justify-center font-bold text-sm">
-                  {pat.firstName[0]}{pat.lastName[0]}
+                  {(pat.firstName || '?')[0]}{(pat.lastName || '?')[0]}
                 </div>
                 <span className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${rc.dot}`} />
               </div>
@@ -66,14 +66,14 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
                   <div>
-                    <p className="font-bold">{pat.firstName} {pat.lastName}</p>
+                    <p className="font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</p>
                     <p className={`text-xs ${sub}`}>{pat.cmuNumber} • {pat.age} ans</p>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rc.cls}`}>{rc.label}</span>
                 </div>
                 {/* Maladies chroniques */}
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {pat.chronicDiseases.map((d, i) => (
+                  {(Array.isArray(pat.chronicDiseases) ? pat.chronicDiseases : []).map((d, i) => (
                     <span key={i} className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>{d}</span>
                   ))}
                 </div>

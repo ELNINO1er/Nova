@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, BarChart3, Pill, Calendar, Users } from 'lucide-react';
+import { AlertCircle, BarChart3, FileDown, Star, TrendingUp } from 'lucide-react';
 
 export default function DFinances({ data, loading, card, sub, border, darkMode }) {
   if (loading || !data) return (

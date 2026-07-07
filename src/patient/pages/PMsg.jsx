@@ -3,7 +3,7 @@ import { MessageCircle, Send, Phone, Video, Search, ChevronLeft, Paperclip, More
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate, initials } from '../../utils/format.js';
 
-export default function PMsg({ data, card, sub, border, darkMode, setShowVid }) {
+export default function PMsg({ data, onConversationsChange, card, sub, border, darkMode, setShowVid }) {
   const [convList, setConvList]     = useState(data || []);
   const [selId, setSelId]           = useState(null);
   const [convData, setConvData]     = useState(null);
@@ -36,7 +36,11 @@ export default function PMsg({ data, card, sub, border, darkMode, setShowVid }) 
       const full = await patientApi.conversation(id);
       setConvData(full);
       await patientApi.markConversationRead(id);
-      setConvList(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c));
+      setConvList(prev => {
+        const next = prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c);
+        onConversationsChange?.(next);
+        return next;
+      });
     } catch { /* ignore */ }
     finally { setConvLoading(false); }
   };
@@ -49,9 +53,13 @@ export default function PMsg({ data, card, sub, border, darkMode, setShowVid }) 
     try {
       const msg = await patientApi.sendMessage(selId, { body });
       setConvData(prev => ({ ...prev, messages: [...(prev.messages || []), msg] }));
-      setConvList(prev => prev.map(c =>
-        c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
-      ));
+      setConvList(prev => {
+        const next = prev.map(c =>
+          c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
+        );
+        onConversationsChange?.(next);
+        return next;
+      });
     } catch { setMsgText(body); }
     finally { setSending(false); }
   };
@@ -266,4 +274,3 @@ export default function PMsg({ data, card, sub, border, darkMode, setShowVid }) 
     </div>
   );
 }
-

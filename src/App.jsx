@@ -1,7 +1,9 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { Component, lazy, Suspense, useEffect, useState } from 'react';
 import { Bell, Bot, HeartPulse, Menu, Moon, Pill, Shield, Stethoscope, Sun, User } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
+import { authApi } from './api/authApi.js';
+import { patientApi } from './api/patientApi.js';
 import { AyaChat, ConsModal, CreateDoctorModal, CreatePatientModal, QRModal, RxModal, VideoModal } from './modals/index.jsx';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
@@ -15,6 +17,33 @@ const ROLE_META = {
   pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
 };
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center p-8">
+          <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center">
+            <HeartPulse className="w-8 h-8 text-red-600" />
+          </div>
+          <h2 className="text-lg font-bold">Une erreur est survenue</h2>
+          <p className="text-sm text-slate-500 max-w-sm">Rechargez la page pour continuer.</p>
+          <button onClick={() => this.setState({ hasError: false })} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+            Réessayer
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function PageFallback({ darkMode }) {
   const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
@@ -30,8 +59,19 @@ function PageFallback({ darkMode }) {
 }
 
 export default function App() {
-  const [auth, setAuth] = useState('login');
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem('nova_user');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return null;
+  });
+  const [auth, setAuth] = useState(() => {
+    try {
+      return localStorage.getItem('nova_user') ? 'ok' : 'login';
+    } catch {}
+    return 'login';
+  });
   const [page, setPage] = useState('dashboard');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('nova_darkMode') === 'true');
   const [showQR, setShowQR] = useState(false);
@@ -41,14 +81,58 @@ export default function App() {
   const [showCP, setShowCP] = useState(false);
   const [showCD, setShowCD] = useState(false);
   const [showVid, setShowVid] = useState(false);
+  const [patientCreatedTick, setPatientCreatedTick] = useState(0);
+  const [badges, setBadges] = useState({});
   const [pills, setPills] = useState({});
   const [sbOpen, setSbOpen] = useState(false);
+  const role = user?.role || 'patient';
 
-  const onLogin = (u) => { setUser(u); setPage('dashboard'); setAuth('ok'); };
+  // Auto-logout si le refresh token échoue
+  useEffect(() => {
+    const handleLogout = () => {
+      setUser(null);
+      setAuth('login');
+    };
+    window.addEventListener('nova:logout', handleLogout);
+    return () => window.removeEventListener('nova:logout', handleLogout);
+  }, []);
+
+  const onLogin = (u) => {
+    localStorage.setItem('nova_user', JSON.stringify(u));
+    setUser(u);
+    setBadges({});
+    setPage('dashboard');
+    setAuth('ok');
+  };
+
+  const onLogout = () => {
+    authApi.logout().catch?.(() => {});
+    localStorage.removeItem('nova_token');
+    localStorage.removeItem('nova_user');
+    setUser(null);
+    setBadges({});
+    setAuth('login');
+  };
+
+  useEffect(() => {
+    if (auth !== 'ok' || role !== 'patient') return;
+    let cancelled = false;
+    Promise.allSettled([patientApi.notifications(), patientApi.conversations()])
+      .then(([notificationsResult, conversationsResult]) => {
+        if (cancelled) return;
+        const notifications = notificationsResult.status === 'fulfilled' && Array.isArray(notificationsResult.value)
+          ? notificationsResult.value.filter((n) => !n.isRead).length
+          : 0;
+        const messages = conversationsResult.status === 'fulfilled' && Array.isArray(conversationsResult.value)
+          ? conversationsResult.value.reduce((sum, c) => sum + Number(c.unreadCount || 0), 0)
+          : 0;
+        setBadges({ notifications, messages });
+      });
+    return () => { cancelled = true; };
+  }, [auth, role]);
 
   if (auth !== 'ok') return <Login auth={auth} setAuth={setAuth} onLogin={onLogin} />;
 
-  const role = user?.role || 'patient';
   const RoleIcon = ROLE_META[role]?.Icon || User;
   const roleLabel = ROLE_META[role]?.label || 'Espace utilisateur';
   const bg = darkMode ? 'bg-slate-950' : 'bg-white';
@@ -87,7 +171,7 @@ export default function App() {
               <Bell className="w-4 h-4" />
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
             </button>
-            <button onClick={() => { localStorage.removeItem('nova_token'); setUser(null); setAuth('login'); }} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
+            <button onClick={onLogout} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</div>
               <div className="hidden lg:block text-left">
                 <p className="text-xs font-semibold leading-tight">{user?.name || 'Utilisateur'}</p>
@@ -101,21 +185,24 @@ export default function App() {
       <div className="flex-1 flex">
         {sbOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSbOpen(false)}></div>}
         <Sidebar role={role} page={page} setPage={(p) => { setPage(p); setSbOpen(false); }} sbOpen={sbOpen}
-          onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />
+          onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} badges={badges} {...props} />
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-            <Suspense fallback={<PageFallback darkMode={darkMode} />}>
-              {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
-                onProfileSaved={(profile) => setUser((current) => ({
-                  ...current,
-                  name: `${profile.firstName} ${profile.lastName}`,
-                  avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase(),
-                }))} {...props} />}
-              {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} setShowVid={setShowVid} {...props} />}
-              {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
-              {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
-            </Suspense>
+            <ErrorBoundary resetKey={page}>
+              <Suspense fallback={<PageFallback darkMode={darkMode} />}>
+                {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
+                  onBadgesChange={(nextBadges) => setBadges((current) => ({ ...current, ...nextBadges }))}
+                  onProfileSaved={(profile) => {
+                    const updated = { ...user, name: `${profile.firstName} ${profile.lastName}`, avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase() };
+                    setUser(updated);
+                    localStorage.setItem('nova_user', JSON.stringify(updated));
+                  }} {...props} />}
+                {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
+                {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
+                {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
+              </Suspense>
+            </ErrorBoundary>
           </div>
         </main>
       </div>
@@ -124,7 +211,7 @@ export default function App() {
       {showAya && <AyaChat onClose={() => setShowAya(false)} />}
       {showRx && <RxModal onClose={() => setShowRx(false)} {...props} />}
       {showCons && <ConsModal onClose={() => setShowCons(false)} {...props} />}
-      {showCP && <CreatePatientModal onClose={() => setShowCP(false)} {...props} />}
+      {showCP && <CreatePatientModal onClose={() => setShowCP(false)} onCreated={() => setPatientCreatedTick(t => t + 1)} role={role} {...props} />}
       {showCD && <CreateDoctorModal onClose={() => setShowCD(false)} {...props} />}
       {showVid && <VideoModal onClose={() => setShowVid(false)} />}
 

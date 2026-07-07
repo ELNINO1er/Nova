@@ -1,6 +1,6 @@
 import React from 'react';
-import { Pill, Clock, AlertTriangle, ChevronRight, CheckCircle2 } from 'lucide-react';
-import { formatDate } from '../../utils/format.js';
+import { Pill, Clock, AlertTriangle, ChevronRight, CheckCircle2, HeartPulse, Calendar, CalendarClock } from 'lucide-react';
+import { formatDate, capitalize } from '../../utils/format.js';
 
 export default function PTreatments({ data, card, sub, darkMode }) {
   const colorMap = { red: { bar: 'bg-red-500', barGrad: 'bg-red-500', badge: 'bg-red-100 text-red-700' }, blue: { bar: 'bg-blue-500', barGrad: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700' }, emerald: { bar: 'bg-emerald-500', barGrad: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700' }, amber: { bar: 'bg-amber-500', barGrad: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' } };

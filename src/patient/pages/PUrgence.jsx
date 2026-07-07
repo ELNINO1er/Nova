@@ -1,14 +1,6 @@
-import React from 'react';
-import { Phone, Heart, AlertTriangle, Shield, Siren, MapPin, Droplet, Users, ShieldCheck } from 'lucide-react';
-
-function QrCode({ className }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="5" height="5" /><rect x="16" y="3" width="5" height="5" /><rect x="3" y="16" width="5" height="5" />
-      <path d="M21 16h-3v3" /><path d="M18 21h3" /><path d="M21 21v-3" /><path d="M3 11V8" /><path d="M8 3v3" /><path d="M11 3h2" /><path d="M11 8v3" /><path d="M11 11h1" /><path d="M13 11h1" /><path d="M14 11v3" /><path d="M11 14h3" /><path d="M16 14v3" /><path d="M16 8v3" />
-    </svg>
-  );
-}
+import React, { useState } from 'react';
+import { Phone, Heart, HeartPulse, AlertTriangle, Shield, Siren, MapPin, Droplet, Users, ShieldCheck, Stethoscope, Download, PhoneCall, Pill, QrCode, ShieldAlert } from 'lucide-react';
+import { patientApi } from '../../api/patientApi.js';
 
 
 export default function PUrgence({ data, card, sub, border, darkMode }) {

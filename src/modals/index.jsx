@@ -12,6 +12,7 @@ import {
   Mail, UserPlus, PhoneCall, Paperclip, MoreVertical, ArrowRight,
   HelpCircle, BookOpen, Pencil, HardDrive, Wifi
 } from 'lucide-react';
+import { doctorApi } from '../api/doctorApi.js';
 
 /* ============== MODALS ============== */
 export function QRModal({ onClose }) {
@@ -196,10 +197,57 @@ export function ConsModal({ onClose, darkMode, sub, border }) {
   );
 }
 
-export function CreatePatientModal({ onClose, darkMode, sub, border }) {
+export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, border }) {
   const [step, setStep] = useState(1);
   const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
-  const next = () => step < 3 ? setStep(step + 1) : onClose();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [created, setCreated] = useState(null);
+
+  const payload = {
+    firstName: d.fn.trim(),
+    lastName: d.ln.trim(),
+    phone: d.p.trim(),
+    cmuNumber: d.cmu.trim() || undefined,
+    sex: d.sex,
+    birthDate: d.bd || undefined,
+    bloodType: d.bt || undefined,
+    address: d.addr.trim() || undefined,
+    city: d.city.trim() || undefined,
+  };
+
+  const validateStep = () => {
+    if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate)) return 'Renseignez le prénom, le nom et la date de naissance.';
+    if (step === 2 && payload.phone.replace(/\D/g, '').length < 8) return 'Renseignez un numéro de téléphone valide.';
+    return '';
+  };
+
+  const next = async () => {
+    setError('');
+    const validation = validateStep();
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    if (step < 3) {
+      setStep(step + 1);
+      return;
+    }
+    if (role !== 'doctor') {
+      setError('La création patient est disponible depuis un compte médecin.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await doctorApi.createPatient(payload);
+      setCreated(result);
+      onCreated?.(result);
+    } catch (e) {
+      setError(e.message || 'Création du patient impossible.');
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Nouveau patient">
       <div className={`${darkMode ? 'bg-slate-900' : 'bg-white'} rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl`} onClick={(e) => e.stopPropagation()}>
@@ -216,6 +264,18 @@ export function CreatePatientModal({ onClose, darkMode, sub, border }) {
           </div>
         </div>
         <div className="p-6 space-y-4">
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
+              {error}
+            </div>
+          )}
+          {created && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              <p className="font-bold">Patient créé : {created.name}</p>
+              <p>CMU : {created.cmuNumber}</p>
+              {created.devCode && <p>Code OTP dev : <strong>{created.devCode}</strong></p>}
+            </div>
+          )}
           {step === 1 && (
             <>
               <h4 className="font-bold">Identité</h4>
@@ -256,9 +316,9 @@ export function CreatePatientModal({ onClose, darkMode, sub, border }) {
           )}
         </div>
         <div className={`p-6 border-t ${border} flex gap-2`}>
-          {step > 1 && <button onClick={() => setStep(step - 1)} className={`flex-1 px-4 py-2 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-white border'} font-semibold text-sm`}>Précédent</button>}
-          <button onClick={next} className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm flex items-center justify-center gap-1 hover:bg-red-700">
-            {step === 3 ? <><Save className="w-4 h-4" /> Créer</> : <>Suivant <ArrowRight className="w-4 h-4" /></>}
+          {step > 1 && !created && <button onClick={() => setStep(step - 1)} disabled={saving} className={`flex-1 px-4 py-2 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-white border'} font-semibold text-sm disabled:opacity-50`}>Précédent</button>}
+          <button onClick={created ? onClose : next} disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm flex items-center justify-center gap-1 hover:bg-red-700 disabled:opacity-50">
+            {created ? <>Fermer</> : saving ? <><div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Création...</> : step === 3 ? <><Save className="w-4 h-4" /> Créer</> : <>Suivant <ArrowRight className="w-4 h-4" /></>}
           </button>
         </div>
       </div>

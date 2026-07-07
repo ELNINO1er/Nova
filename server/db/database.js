@@ -28,9 +28,48 @@ export async function initDb() {
     await seedDoctorUser(conn);
     await seedDoctorData(conn);
     await seedRbac(conn);
+    await createOperationalTables(conn);
+    await addForeignKeys(conn);
   } finally {
     conn.release();
   }
+}
+
+async function createOperationalTables(conn) {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_payments (
+      id VARCHAR(36) PRIMARY KEY,
+      patient_id VARCHAR(36) NOT NULL,
+      doctor_id VARCHAR(36),
+      appointment_id VARCHAR(36),
+      amount INT NOT NULL,
+      currency VARCHAR(10) NOT NULL DEFAULT 'XOF',
+      method ENUM('cash','mobile_money','insurance','offline') NOT NULL DEFAULT 'offline',
+      status ENUM('pending','paid','failed','refunded') NOT NULL DEFAULT 'pending',
+      reference VARCHAR(100),
+      metadata JSON,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pay_patient (patient_id),
+      INDEX idx_pay_doctor (doctor_id),
+      INDEX idx_pay_status (status)
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_offline_queue (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      user_role VARCHAR(20) NOT NULL,
+      operation VARCHAR(100) NOT NULL,
+      payload JSON NOT NULL,
+      status ENUM('queued','synced','failed') NOT NULL DEFAULT 'queued',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      synced_at DATETIME,
+      INDEX idx_offline_user (user_id),
+      INDEX idx_offline_status (status)
+    )
+  `);
 }
 
 async function createTables(conn) {
@@ -433,6 +472,7 @@ async function createTables(conn) {
   await conn.query(`ALTER TABLE nova_appointments ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
   await conn.query(`ALTER TABLE nova_appointments ADD INDEX idx_na_doctor (doctor_id)`).catch(() => {});
   await conn.query(`ALTER TABLE nova_users ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
+  await conn.query(`ALTER TABLE nova_users ADD COLUMN pharmacy_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS nova_consultations (
@@ -684,6 +724,7 @@ async function createTables(conn) {
     'ALTER TABLE nova_doctors ADD COLUMN updated_at VARCHAR(30)',
     'ALTER TABLE nova_users ADD COLUMN updated_at VARCHAR(30)',
     'ALTER TABLE nova_users ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
+    'ALTER TABLE nova_users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL',
     'ALTER TABLE nova_pharmacies ADD COLUMN created_at VARCHAR(30)',
   ];
   for (const sql of addColumns) {
@@ -1085,9 +1126,6 @@ async function seedWellnessGoals(conn) {
 }
 
 async function seedUsers(conn) {
-  const [[existing]] = await conn.query('SELECT id FROM nova_users LIMIT 1');
-  if (existing) return;
-
   const codeHash = await bcrypt.hash('0000', 10);
   const now = new Date().toISOString();
   const users = [
@@ -1096,7 +1134,8 @@ async function seedUsers(conn) {
   ];
   for (const [id, phone, role, patientId, name, avatar] of users) {
     await conn.query(
-      `INSERT IGNORE INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
       [id, phone, codeHash, role, patientId, name, avatar, now]
     );
   }
@@ -1141,14 +1180,25 @@ async function seedPharmacies(conn) {
 }
 
 async function seedDoctorUser(conn) {
-  const [[existing]] = await conn.query(`SELECT id FROM nova_users WHERE phone = '0601234567'`);
-  if (existing) return;
   const codeHash = await bcrypt.hash('0000', 10);
   const now = new Date().toISOString();
   await conn.query(
-    `INSERT IGNORE INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
     ['user-doc-001','0601234567',codeHash,'doctor',null,'doc-001','Dr. Aïcha Touré','AT',now]
   );
+  await conn.query(
+    `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), pharmacy_id = VALUES(pharmacy_id), name = VALUES(name), avatar = VALUES(avatar)`,
+    ['user-ph-001','0700000002',codeHash,'pharmacist',null,null,'ph-001','Pharmacie du Plateau','PH',now]
+  );
+  await conn.query(
+    `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
+    ['user-admin-001','0700000001',codeHash,'admin',null,null,null,'Admin Système','AS',now]
+  );
+  await conn.query(`UPDATE nova_users SET password_hash = ? WHERE id = 'user-doc-001'`, [codeHash]);
+  await conn.query(`UPDATE nova_doctors SET email = COALESCE(email, 'aicha.toure@nova.ci') WHERE id = 'doc-001'`);
 }
 
 async function seedDoctorData(conn) {
@@ -1289,5 +1339,33 @@ async function seedRbac(conn) {
         [roleId, permId]
       );
     }
+  }
+}
+
+async function addForeignKeys(conn) {
+  const foreignKeys = [
+    `ALTER TABLE nova_vitals ADD CONSTRAINT fk_nv_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_treatments ADD CONSTRAINT fk_nt_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_medication_schedules ADD CONSTRAINT fk_nms_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_appointments ADD CONSTRAINT fk_na_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_appointments ADD CONSTRAINT fk_na_doctor FOREIGN KEY (doctor_id) REFERENCES nova_doctors(id) ON DELETE SET NULL`,
+    `ALTER TABLE nova_users ADD CONSTRAINT fk_nu_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE SET NULL`,
+    `ALTER TABLE nova_users ADD CONSTRAINT fk_nu_doctor FOREIGN KEY (doctor_id) REFERENCES nova_doctors(id) ON DELETE SET NULL`,
+    `ALTER TABLE nova_users ADD CONSTRAINT fk_nu_pharmacy FOREIGN KEY (pharmacy_id) REFERENCES nova_pharmacies(id) ON DELETE SET NULL`,
+    `ALTER TABLE nova_consultations ADD CONSTRAINT fk_ncons_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_consultations ADD CONSTRAINT fk_ncons_doctor FOREIGN KEY (doctor_id) REFERENCES nova_doctors(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_prescriptions ADD CONSTRAINT fk_np_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_prescriptions ADD CONSTRAINT fk_np_doctor FOREIGN KEY (doctor_id) REFERENCES nova_doctors(id) ON DELETE SET NULL`,
+    `ALTER TABLE nova_lab_requests ADD CONSTRAINT fk_nlrq_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_lab_requests ADD CONSTRAINT fk_nlrq_doctor FOREIGN KEY (doctor_id) REFERENCES nova_doctors(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_pharmacy_orders ADD CONSTRAINT fk_npo_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_pharmacy_orders ADD CONSTRAINT fk_npo_pharmacy FOREIGN KEY (pharmacy_id) REFERENCES nova_pharmacies(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_dispenses ADD CONSTRAINT fk_ndisp_patient FOREIGN KEY (patient_id) REFERENCES nova_patients(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_dispenses ADD CONSTRAINT fk_ndisp_pharmacy FOREIGN KEY (pharmacy_id) REFERENCES nova_pharmacies(id) ON DELETE CASCADE`,
+    `ALTER TABLE nova_dispenses ADD CONSTRAINT fk_ndisp_prescription FOREIGN KEY (prescription_id) REFERENCES nova_prescriptions(id) ON DELETE CASCADE`,
+  ];
+
+  for (const sql of foreignKeys) {
+    await conn.query(sql).catch(() => {});
   }
 }

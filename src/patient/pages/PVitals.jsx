@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, Activity, Droplet, Thermometer, TrendingUp, Plus, Check } from 'lucide-react';
+import { Heart, HeartPulse, Activity, Droplet, Thermometer, TrendingUp, Plus, Check } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatShortDate } from '../../utils/format.js';
 import { PatientModal } from '../../components/PatientModal.jsx';

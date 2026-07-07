@@ -149,7 +149,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
       const v = await pharmacyApi.verifyPrescription(prescriptionId.trim());
       setVerification(v);
       if (v.verification.canDispense) {
-        const d = await pharmacyApi.prescription(prescriptionId.trim());
+        const d = await pharmacyApi.prescription(v.id);
         setDetail(d);
         setDispenseItems(d.items.map(i => ({ prescriptionItemId: i.id, quantityDispensed: 1, substituted: false, name: i.name })));
       }
@@ -164,7 +164,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
     setDispensing(true);
     try {
       await pharmacyApi.dispense({
-        prescriptionId: prescriptionId.trim(),
+        prescriptionId: verification?.id,
         status,
         items: dispenseItems.map(({ name, ...rest }) => rest),
       });
@@ -195,7 +195,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
         <div className="flex gap-3">
           <input ref={inputRef} type="text" value={prescriptionId} onChange={e => setPrescriptionId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && verify()}
-            placeholder="Scanner QR ou saisir l'ID ordonnance..."
+            placeholder="Scanner ou coller le token QR ordonnance..."
             className={`flex-1 px-4 py-3 rounded-xl border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-emerald-500`}
           />
           <button onClick={verify} disabled={loading}
@@ -212,7 +212,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="font-bold text-lg">{verification.patientName}</h3>
-              <p className={`text-sm ${sub}`}>CMU : {verification.cmuNumber} • {verification.bloodType}</p>
+              <p className={`text-sm ${sub}`}>CMU : {verification.cmuNumber || 'masque'}</p>
             </div>
             <div className={`px-3 py-1.5 rounded-full text-xs font-bold ${
               verification.verification.canDispense ? 'bg-emerald-100 text-emerald-700'
@@ -284,13 +284,6 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
               </div>
             ))}
           </div>
-
-          {detail.notes && (
-            <div className={`mb-4 p-3 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-              <p className={`text-xs font-semibold ${sub}`}>Notes du prescripteur :</p>
-              <p className="text-sm mt-1">{detail.notes}</p>
-            </div>
-          )}
 
           <div className="flex gap-3">
             <button onClick={() => doDispense('full')} disabled={dispensing}

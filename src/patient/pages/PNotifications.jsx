@@ -1,10 +1,10 @@
 import React from 'react';
-import { Bell, Check, Calendar, Pill, Microscope, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Bell, Check, Calendar, Pill, Microscope, MessageCircle, AlertTriangle, Syringe } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate } from '../../utils/format.js';
 
 export default function PNotifications({ data, onReload, notify, setPage, card, sub, border, darkMode }) {
-  const notifs = data ?? [];
+  const notifs = Array.isArray(data) ? data : (data?.data || []);
   const unread = notifs.filter(n => !n.isRead).length;
 
   const typeIcon = {

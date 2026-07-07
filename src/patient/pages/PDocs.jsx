@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { FileText, Plus, Trash2, Download, Search, Upload, X } from 'lucide-react';
+import { FileText, Plus, Trash2, Download, Search, Upload, X, AlertTriangle, CheckCircle2, ClipboardList, FileDown, HardDrive, Microscope } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatBytes, mapDocumentCategory } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
@@ -16,7 +16,8 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   const [pickedFile, setPickedFile] = useState(null);
   const fileInputRef = useRef(null);
 
-  const apiDocs = data?.length ? data.map((doc) => ({
+  const rows = Array.isArray(data) ? data : (data?.data || []);
+  const apiDocs = rows.length ? rows.map((doc) => ({
     n: doc.title,
     t: doc.mimeType?.includes('pdf') ? 'PDF' : doc.mimeType?.includes('image') ? 'IMG' : 'DOC',
     cat: mapDocumentCategory(doc.category),
@@ -198,7 +199,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-3">
               {d.filePath ? (
-                <a href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:4001'}/uploads/${d.filePath.split(/[\\/]/).slice(-2).join('/')}`}
+                <a href={`${API_BASE_URL}/patient/me/documents/${d.id}/download`}
                   target="_blank" rel="noreferrer"
                   className={`px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
                   <Download className="w-3 h-3" /> Ouvrir
@@ -216,4 +217,3 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
     </div>
   );
 }
-

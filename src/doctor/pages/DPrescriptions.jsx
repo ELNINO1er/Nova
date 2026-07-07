@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Pill, Plus, Search, Clock, Check, ChevronRight, X, Printer, Save } from 'lucide-react';
+import { FileDown, Pill, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -11,8 +11,8 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
   const [detail,      setDetail]      = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const prescriptions = data || [];
-  const patients      = patientsData || [];
+  const prescriptions = Array.isArray(data) ? data : [];
+  const patients      = Array.isArray(patientsData) ? patientsData : [];
 
   const handleShowForm = () => { setShowForm(true); if (!patientsData) loadPatients(); };
   const addItem    = () => setItems(prev => [...prev, { name: '', dosage: '', frequency: '', duration: '' }]);
@@ -159,6 +159,8 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
 }
 
 function PrescriptionDetail({ rx, onClose, card, sub, border, darkMode }) {
+  const rxItems = Array.isArray(rx.items) ? rx.items : [];
+
   const handlePrint = () => {
     const win = window.open('', '_blank');
     win.document.write(`<!DOCTYPE html><html><head><title>Ordonnance — ${rx.patientName}</title>
@@ -185,7 +187,7 @@ function PrescriptionDetail({ rx, onClose, card, sub, border, darkMode }) {
 <div class="patient"><strong>${rx.patientName}</strong><span style="color:#64748b;margin-left:10px;font-size:12px">CMU: ${rx.cmuNumber}</span></div>
 <table>
   <thead><tr><th>Médicament</th><th>Posologie</th><th>Fréquence</th><th>Durée</th></tr></thead>
-  <tbody>${rx.items.map(i => `<tr><td><strong>${i.name}</strong>${i.instructions ? `<br><span style="font-size:11px;color:#64748b">${i.instructions}</span>` : ''}</td><td>${i.dosage || '—'}</td><td>${i.frequency || '—'}</td><td>${i.duration || '—'}</td></tr>`).join('')}</tbody>
+  <tbody>${rxItems.map(i => `<tr><td><strong>${i.name}</strong>${i.instructions ? `<br><span style="font-size:11px;color:#64748b">${i.instructions}</span>` : ''}</td><td>${i.dosage || '—'}</td><td>${i.frequency || '—'}</td><td>${i.duration || '—'}</td></tr>`).join('')}</tbody>
 </table>
 ${rx.notes ? `<div class="notes">📝 ${rx.notes}</div>` : ''}
 ${rx.validUntil ? `<p style="margin-top:14px;font-size:11px;color:#64748b">Valable jusqu'au : <strong>${new Date(rx.validUntil).toLocaleDateString('fr-FR')}</strong></p>` : ''}
@@ -217,9 +219,9 @@ ${rx.validUntil ? `<p style="margin-top:14px;font-size:11px;color:#64748b">Valab
             <p className={`text-xs ${sub}`}>CMU: {rx.cmuNumber}</p>
           </div>
           <div>
-            <p className={`text-xs font-bold uppercase tracking-wide ${sub} mb-2`}>Médicaments ({rx.items.length})</p>
+            <p className={`text-xs font-bold uppercase tracking-wide ${sub} mb-2`}>Médicaments ({rxItems.length})</p>
             <div className="space-y-2">
-              {rx.items.map((item, i) => (
+              {rxItems.map((item, i) => (
                 <div key={i} className={`p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                   <p className="font-bold text-sm">{item.name}</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">

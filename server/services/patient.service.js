@@ -214,12 +214,21 @@ export async function getAppointments(patientId) {
 }
 
 export async function createAppointment(patientId, payload) {
+  const [[doctor]] = await pool.execute(
+    'SELECT id, first_name, last_name, specialty, city FROM nova_doctors WHERE id = ? AND is_available = 1',
+    [payload.doctorId]
+  );
+  if (!doctor) {
+    const err = new Error('Medecin indisponible ou introuvable.');
+    err.status = 404;
+    throw err;
+  }
   const id = randomUUID();
   await pool.execute(
-    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.startsAt, payload.doctorName,
-     payload.specialty || '', payload.location || '', payload.mode || 'onsite', payload.status || 'requested']
+    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.startsAt, `Dr. ${doctor.first_name} ${doctor.last_name}`,
+     doctor.specialty || '', doctor.city || '', payload.mode || 'onsite', payload.status || 'requested', doctor.id]
   );
   return getAppointment(patientId, id);
 }
@@ -229,13 +238,10 @@ export async function updateAppointment(patientId, id, changes) {
   if (!current) return null;
   await pool.execute(
     `UPDATE nova_appointments
-     SET starts_at = ?, doctor_name = ?, specialty = ?, location = ?, mode = ?, status = ?
+     SET starts_at = ?, mode = ?, status = ?
      WHERE patient_id = ? AND id = ?`,
     [
       changes.startsAt   ?? current.startsAt,
-      changes.doctorName ?? current.doctorName,
-      changes.specialty  ?? current.specialty,
-      changes.location   ?? current.location,
       changes.mode       ?? current.mode,
       changes.status     ?? current.status,
       patientId, id,
@@ -274,8 +280,8 @@ export async function getHistory(patientId, query = {}) {
     'SELECT COUNT(*) AS total FROM nova_medical_history WHERE patient_id = ?', [patientId]
   );
   const [rows] = await pool.execute(
-    'SELECT * FROM nova_medical_history WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ? OFFSET ?',
-    [patientId, pg.limit, pg.offset]
+    `SELECT * FROM nova_medical_history WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ${pg.limit} OFFSET ${pg.offset}`,
+    [patientId]
   );
   return paginatedResponse(rows.map((row) => ({
     id: row.id, type: row.type, title: row.title,
@@ -295,8 +301,8 @@ export async function getDocuments(patientId, query = {}) {
     [patientId, ...catArgs]
   );
   const [rows] = await pool.execute(
-    `SELECT * FROM nova_documents WHERE patient_id = ?${catFilter} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-    [patientId, ...catArgs, pg.limit, pg.offset]
+    `SELECT * FROM nova_documents WHERE patient_id = ?${catFilter} ORDER BY created_at DESC LIMIT ${pg.limit} OFFSET ${pg.offset}`,
+    [patientId, ...catArgs]
   );
   return paginatedResponse(rows.map(mapDocument), total, pg);
 }
@@ -328,6 +334,31 @@ export async function deleteDocument(patientId, id) {
     const { join } = await import('node:path');
     await unlink(join(ud, doc.file_path)).catch(() => {});
   }
+}
+
+export async function getDocumentFile(patientId, id) {
+  const [[doc]] = await pool.execute(
+    'SELECT id, title, mime_type, file_path FROM nova_documents WHERE patient_id = ? AND id = ?',
+    [patientId, id]
+  );
+  if (!doc || !doc.file_path) return null;
+
+  const { uploadDir: ud } = await import('../middleware/upload.js');
+  const { resolve, join, basename } = await import('node:path');
+  const absolute = resolve(join(ud, doc.file_path));
+  const root = resolve(ud);
+  if (!absolute.startsWith(root)) {
+    const err = new Error('Chemin document invalide.');
+    err.status = 400;
+    throw err;
+  }
+
+  return {
+    path: absolute,
+    mimeType: doc.mime_type || 'application/octet-stream',
+    filename: basename(doc.file_path),
+    title: doc.title,
+  };
 }
 
 /* ─── Conversations & Messages ───────────────────────────────── */
@@ -593,8 +624,8 @@ export async function getNotifications(patientId, query = {}) {
     'SELECT COUNT(*) AS total FROM nova_notifications WHERE patient_id = ?', [patientId]
   );
   const [rows] = await pool.execute(
-    'SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-    [patientId, pg.limit, pg.offset]
+    `SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC LIMIT ${pg.limit} OFFSET ${pg.offset}`,
+    [patientId]
   );
   return paginatedResponse(rows.map((r) => ({
     id: r.id, type: r.type, title: r.title, body: r.body,
@@ -991,6 +1022,7 @@ function mapAppointment(row) {
   return {
     id: row.id,
     startsAt: row.starts_at,
+    doctorId: row.doctor_id,
     doctorName: row.doctor_name,
     specialty: row.specialty,
     location: row.location,

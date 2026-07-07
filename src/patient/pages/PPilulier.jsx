@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Pill, Check, Clock, X, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Pill, Check, Clock, X, AlertTriangle, Award, Bell, CheckCircle2, Moon, Sun } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PPilulier({ data, onReload, notify, pills, setPills, card, sub, darkMode }) {

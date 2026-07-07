@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Microscope, Plus, Search, Clock, Check, ChevronRight, Save, X } from 'lucide-react';
+import { Microscope, Plus, Send, Save, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -8,8 +8,8 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
   const [form,     setForm]     = useState({ patientId: '', type: 'blood', title: '', notes: '' });
   const [saving,   setSaving]   = useState(false);
 
-  const requests = data || [];
-  const patients = patientsData || [];
+  const requests = Array.isArray(data) ? data : [];
+  const patients = Array.isArray(patientsData) ? patientsData : [];
 
   const labTypes = [
     { id: 'blood',   label: 'Bilan sanguin',  icon: '🩸' },

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import QRCode from 'qrcode';
-import { requirePatient } from '../middleware/auth.js';
+import { requirePatient, requirePermission } from '../middleware/auth.js';
 import { upload, uploadDir, verifyUploadedFile } from '../middleware/upload.js';
 import {
   getInsurance,
@@ -26,6 +26,7 @@ import {
   getDoctorSlots,
   bookSlot,
   getDocuments,
+  getDocumentFile,
   getEmergencyCard,
   getHistory,
   getLabResults,
@@ -67,14 +68,41 @@ import {
 
 import { wrap, validateBody } from '../middleware/helpers.js';
 import { cacheFor } from '../middleware/cache.js';
+import { answerPatientAssistant } from '../services/ai.service.js';
+import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
+import { buildPatientSummaryPdf } from '../services/export.service.js';
 
 const router = Router();
 router.use(requirePatient);
+
+const familyRelationshipSchema = z.preprocess((value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  const aliases = {
+    enfant: 'child',
+    child: 'child',
+    conjoint: 'spouse',
+    epoux: 'spouse',
+    spouse: 'spouse',
+    parent: 'parent',
+    frere: 'sibling',
+    soeur: 'sibling',
+    sibling: 'sibling',
+    autre: 'other',
+    other: 'other',
+  };
+  return aliases[normalized] || value;
+}, z.enum(['child', 'spouse', 'parent', 'sibling', 'other']));
 
 /* ─── Dashboard & Profil ─────────────────────────────────────── */
 
 router.get('/dashboard', cacheFor(30), wrap(async (req, res) => {
   res.json(await getDashboard(req.user.patientId));
+}));
+
+router.post('/assistant', validateBody(z.object({
+  question: z.string().min(2).max(800),
+})), wrap(async (req, res) => {
+  res.json(answerPatientAssistant(req.body.question));
 }));
 
 router.get('/profile', cacheFor(60), wrap(async (req, res) => {
@@ -152,7 +180,7 @@ router.get('/appointments', wrap(async (req, res) => {
 
 router.post('/appointments', validateBody(z.object({
   startsAt:   z.string().datetime(),
-  doctorName: z.string().min(1),
+  doctorId:   z.string().min(1),
   specialty:  z.string().default('Médecine générale'),
   location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
@@ -163,9 +191,6 @@ router.post('/appointments', validateBody(z.object({
 
 router.patch('/appointments/:id', validateBody(z.object({
   startsAt:   z.string().datetime().optional(),
-  doctorName: z.string().min(1).optional(),
-  specialty:  z.string().optional(),
-  location:   z.string().optional(),
   mode:       z.enum(['onsite', 'video']).optional(),
   status:     z.enum(['requested', 'confirmed', 'cancelled']).optional(),
 })), wrap(async (req, res) => {
@@ -191,11 +216,11 @@ router.get('/history', wrap(async (req, res) => {
 
 /* ─── Documents ──────────────────────────────────────────────── */
 
-router.get('/documents', wrap(async (req, res) => {
+router.get('/documents', requirePermission('patient.documents'), wrap(async (req, res) => {
   res.json(await getDocuments(req.user.patientId, req.query));
 }));
 
-router.post('/documents', upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
+router.post('/documents', requirePermission('patient.documents'), upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
   const title    = req.body.title    || (req.file ? req.file.originalname : 'Document');
   const category = req.body.category || 'other';
   const doc = await createDocument(req.user.patientId, {
@@ -208,9 +233,16 @@ router.post('/documents', upload.single('file'), verifyUploadedFile, wrap(async 
   res.status(201).json(doc);
 }));
 
-router.delete('/documents/:id', wrap(async (req, res) => {
+router.delete('/documents/:id', requirePermission('patient.documents'), wrap(async (req, res) => {
   await deleteDocument(req.user.patientId, req.params.id);
   res.status(204).send();
+}));
+
+router.get('/documents/:id/download', requirePermission('patient.documents'), wrap(async (req, res) => {
+  const file = await getDocumentFile(req.user.patientId, req.params.id);
+  if (!file) return res.status(404).json({ error: 'not_found', message: 'Document introuvable' });
+  res.type(file.mimeType);
+  res.download(file.path, file.filename);
 }));
 
 /* ─── Conversations & Messages ───────────────────────────────── */
@@ -358,23 +390,21 @@ router.get('/emergency-card/qr', wrap(async (req, res) => {
   const card = await getEmergencyCard(req.user.patientId);
   if (!card) return res.status(404).json({ error: 'not_found' });
 
-  const payload = JSON.stringify({
-    n: `${card.firstName} ${card.lastName}`,
-    dob: card.birthDate,
-    bt: card.bloodType,
-    al: card.allergies.join(', ') || 'Aucune',
-    ec: card.emergencyContact?.phone || '',
-    cmu: card.cmuNumber,
-  });
+  const jwt = (await import('jsonwebtoken')).default;
+  const token = jwt.sign(
+    { type: 'emergency_card', patientId: req.user.patientId },
+    process.env.JWT_SECRET,
+    { expiresIn: '15m' }
+  );
 
-  const dataUrl = await QRCode.toDataURL(payload, {
+  const dataUrl = await QRCode.toDataURL(token, {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 300,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  res.json({ qr: dataUrl, payload });
+  res.json({ qr: dataUrl, expiresIn: 900 });
 }));
 
 /* ─── Wellness Goals ─────────────────────────────────────────── */
@@ -417,6 +447,31 @@ router.get('/insurance', wrap(async (req, res) => {
   res.json(await getInsurance(req.user.patientId));
 }));
 
+router.get('/payments', wrap(async (req, res) => {
+  res.json(await listPatientPayments(req.user.patientId));
+}));
+
+router.post('/payments', validateBody(z.object({
+  appointmentId: z.string().optional(),
+  doctorId: z.string().optional(),
+  amount: z.number().int().positive().optional(),
+  currency: z.string().default('XOF'),
+  method: z.enum(['cash', 'mobile_money', 'insurance', 'offline']).default('offline'),
+  reference: z.string().max(100).optional(),
+  note: z.string().max(500).optional(),
+})), wrap(async (req, res) => {
+  res.status(201).json(await createPatientPayment(req.user.patientId, req.body));
+}));
+
+router.get('/export/pdf', wrap(async (req, res) => {
+  const pdf = await buildPatientSummaryPdf(req.user.patientId);
+  if (!pdf) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="nova-export-patient.pdf"');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(pdf);
+}));
+
 /* ─── Pharmacies ─────────────────────────────────────────────── */
 
 router.get('/pharmacies', wrap(async (req, res) => {
@@ -450,15 +505,15 @@ router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
 
 /* ─── Consentements ──────────────────────────────────────────── */
 
-router.get('/consents', wrap(async (req, res) => {
+router.get('/consents', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await getConsents(req.user.patientId));
 }));
 
-router.post('/consents/:id/grant', wrap(async (req, res) => {
+router.post('/consents/:id/grant', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await grantConsent(req.user.patientId, req.params.id));
 }));
 
-router.post('/consents/:id/revoke', wrap(async (req, res) => {
+router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await revokeConsent(req.user.patientId, req.params.id));
 }));
 
@@ -470,14 +525,14 @@ router.get('/access-logs', wrap(async (req, res) => {
 
 /* ─── Dossier familial ───────────────────────────────────────── */
 
-router.get('/family', wrap(async (req, res) => {
+router.get('/family', requirePermission('patient.family'), wrap(async (req, res) => {
   res.json(await getFamilyMembers(req.user.patientId));
 }));
 
-router.post('/family', validateBody(z.object({
+router.post('/family', requirePermission('patient.family'), validateBody(z.object({
   firstName:       z.string().min(1),
   lastName:        z.string().min(1),
-  relationship:    z.enum(['child', 'spouse', 'parent', 'sibling', 'other']),
+  relationship:    familyRelationshipSchema,
   birthDate:       z.string().optional(),
   memberPatientId: z.string().optional(),
   notes:           z.string().max(500).optional(),
@@ -485,17 +540,17 @@ router.post('/family', validateBody(z.object({
   res.status(201).json(await createFamilyMember(req.user.patientId, req.body));
 }));
 
-router.patch('/family/:id', validateBody(z.object({
+router.patch('/family/:id', requirePermission('patient.family'), validateBody(z.object({
   firstName:    z.string().min(1).optional(),
   lastName:     z.string().min(1).optional(),
-  relationship: z.enum(['child', 'spouse', 'parent', 'sibling', 'other']).optional(),
+  relationship: familyRelationshipSchema.optional(),
   birthDate:    z.string().optional(),
   notes:        z.string().max(500).optional(),
 })), wrap(async (req, res) => {
   res.json(await updateFamilyMember(req.user.patientId, req.params.id, req.body));
 }));
 
-router.delete('/family/:id', wrap(async (req, res) => {
+router.delete('/family/:id', requirePermission('patient.family'), wrap(async (req, res) => {
   await deleteFamilyMember(req.user.patientId, req.params.id);
   res.status(204).send();
 }));

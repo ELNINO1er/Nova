@@ -1,17 +1,49 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
 
-export const getToken = () => localStorage.getItem('nova_token') || '';
+export const getToken = () => '';
+
+let refreshPromise = null;
+
+async function refreshToken() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return false;
+    await res.json().catch(() => ({}));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function request(path, options = {}) {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  let response = await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers });
+
+  // Auto-refresh on 401
+  if (response.status === 401) {
+    if (!refreshPromise) refreshPromise = refreshToken();
+    const refreshed = await refreshPromise;
+    refreshPromise = null;
+
+    if (refreshed) {
+      response = await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers });
+    } else {
+      // Refresh failed — force logout
+      localStorage.removeItem('nova_token');
+      localStorage.removeItem('nova_refresh_token');
+      localStorage.removeItem('nova_user');
+      window.dispatchEvent(new Event('nova:logout'));
+      throw new Error('Session expirée. Veuillez vous reconnecter.');
+    }
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

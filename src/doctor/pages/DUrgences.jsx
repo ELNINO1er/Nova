@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Plus, Search, Clock, Check, ChevronRight, Save, X, ShieldAlert, Bell } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Bell, Check, CheckCircle2, ChevronRight, Clock, Phone, Plus, Save, Search, ShieldAlert, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -9,8 +9,8 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
   const [saving,   setSaving]     = useState(false);
   const [resolving, setResolving] = useState(null);
 
-  const alerts  = data || [];
-  const patients = patientsData || [];
+  const alerts  = Array.isArray(data) ? data : [];
+  const patients = Array.isArray(patientsData) ? patientsData : [];
   const open    = alerts.filter(a => a.status === 'open');
   const resolved = alerts.filter(a => a.status === 'resolved');
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Edit3, Save, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Edit3, Save, Shield, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 
 export default function DSignature({ data, loading, onSave, notify, card, sub, border, darkMode }) {

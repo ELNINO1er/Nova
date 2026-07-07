@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireDoctor } from '../middleware/auth.js';
+import { requireDoctor, requirePermission } from '../middleware/auth.js';
 import {
   getDoctorDashboard,
   getDoctorPatients,
@@ -39,6 +39,8 @@ import {
 } from '../services/doctor.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
+import { answerDoctorAssistant } from '../services/ai.service.js';
+import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog } from '../middleware/audit.js';
 
 const router = Router();
@@ -49,12 +51,19 @@ router.get('/dashboard', wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
 }));
 
+router.post('/assistant', validateBody(z.object({
+  question: z.string().min(2).max(800),
+  highRiskCount: z.number().int().min(0).optional(),
+})), wrap(async (req, res) => {
+  res.json(answerDoctorAssistant(req.body.question, { highRiskCount: req.body.highRiskCount || 0 }));
+}));
+
 /* ─── Patients ─────────────────────────────────────────────── */
-router.get('/patients', wrap(async (req, res) => {
+router.get('/patients', requirePermission('doctor.patients'), wrap(async (req, res) => {
   res.json(await getDoctorPatients(req.user.doctorId, req.query));
 }));
 
-router.post('/patients', validateBody(z.object({
+router.post('/patients', requirePermission('doctor.patients.create'), validateBody(z.object({
   firstName:             z.string().min(1),
   lastName:              z.string().min(1),
   phone:                 z.string().min(8),
@@ -76,7 +85,7 @@ router.post('/patients', validateBody(z.object({
   res.status(201).json(await createPatientByDoctor(req.user.doctorId, req.body));
 }));
 
-router.get('/patients/:id', accessLog('patient_record'), wrap(async (req, res) => {
+router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('patient_record'), wrap(async (req, res) => {
   const data = await getDoctorPatient(req.user.doctorId, req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable ou non autorisé.' });
   res.json(data);
@@ -102,7 +111,7 @@ router.get('/consultations', wrap(async (req, res) => {
   res.json(await getDoctorConsultations(req.user.doctorId));
 }));
 
-router.post('/consultations', validateBody(z.object({
+router.post('/consultations', requirePermission('doctor.consultations'), validateBody(z.object({
   patientId:          z.string().min(1),
   motif:              z.string().optional(),
   diagnosisMain:      z.string().optional(),
@@ -149,7 +158,7 @@ router.get('/prescriptions/:id', wrap(async (req, res) => {
   res.json(data);
 }));
 
-router.post('/prescriptions', validateBody(z.object({
+router.post('/prescriptions', requirePermission('doctor.prescriptions'), validateBody(z.object({
   patientId: z.string().min(1),
   items:     z.array(z.object({
     name:         z.string().min(1),
@@ -195,6 +204,18 @@ router.get('/finances', wrap(async (req, res) => {
   res.json(await getDoctorFinances(req.user.doctorId));
 }));
 
+router.get('/payments', wrap(async (req, res) => {
+  res.json(await listDoctorPayments(req.user.doctorId));
+}));
+
+router.patch('/payments/:id/paid', validateBody(z.object({
+  reference: z.string().max(100).optional(),
+})), wrap(async (req, res) => {
+  const payment = await markDoctorPaymentPaid(req.user.doctorId, req.params.id, req.body.reference || null);
+  if (!payment) return res.status(404).json({ error: 'not_found', message: 'Paiement introuvable.' });
+  res.json(payment);
+}));
+
 /* ─── Réputation complète ───────────────────────────────────── */
 router.get('/reputation', wrap(async (req, res) => {
   res.json(await getDoctorFullReputation(req.user.doctorId));
@@ -216,7 +237,7 @@ router.get('/lab-requests', wrap(async (req, res) => {
   res.json(await getDoctorLabRequests(req.user.doctorId));
 }));
 
-router.post('/lab-requests', validateBody(z.object({
+router.post('/lab-requests', requirePermission('doctor.lab_requests'), validateBody(z.object({
   patientId:      z.string().min(1),
   type:           z.string().min(1),
   title:          z.string().min(1),
@@ -227,7 +248,7 @@ router.post('/lab-requests', validateBody(z.object({
 }));
 
 /* ─── Consentement : demander accès dossier patient ──────────── */
-router.post('/consents/:patientId/request', validateBody(z.object({
+router.post('/consents/:patientId/request', requirePermission('doctor.consents.request'), validateBody(z.object({
   scope: z.array(z.string()).min(1),
 })), auditLog('consent.request', 'consent'), wrap(async (req, res) => {
   const { randomUUID } = await import('node:crypto');

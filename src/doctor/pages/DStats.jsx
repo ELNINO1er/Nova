@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, ClipboardList, Star, BarChart3, TrendingUp } from 'lucide-react';
+import { Star, Stethoscope } from 'lucide-react';
 
 export default function DStats({ data, loading, card, sub, border, darkMode }) {
   if (loading || !data) {

@@ -20,7 +20,7 @@ import PMsg from '../patient/pages/PMsg.jsx';
 import PDocs from '../patient/pages/PDocs.jsx';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
 
-export default function DoctorPages({ page, setPage, onRx, onCP, setShowVid, card, sub, border, darkMode }) {
+export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedTick, setShowVid, card, sub, border, darkMode }) {
   const [apiData,    setApiData]    = useState({});
   const [apiLoading, setApiLoading] = useState({});
   const [notice,     setNotice]     = useState(null);
@@ -56,6 +56,13 @@ export default function DoctorPages({ page, setPage, onRx, onCP, setShowVid, car
   };
 
   useEffect(() => { loadPage(page); }, [page]);
+
+  useEffect(() => {
+    if (!patientCreatedTick) return;
+    loadPage('patients', true);
+    loadPage('dashboard', true);
+    if (page === 'chronic-patients') loadPage('chronic-patients', true);
+  }, [patientCreatedTick]);
 
   const p = { card, sub, border, darkMode, notify, setPage, setShowVid };
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Calendar, Clock, MapPin, Video, Plus, X, Check, Trash2, Edit3, Search, CalendarClock } from 'lucide-react';
+import { Calendar, Clock, MapPin, Video, Plus, X, Check, Trash2, Edit3, Search, CalendarClock, Brain, CheckCircle2 } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
-import { formatDate, formatDateFull } from '../../utils/format.js';
+import { formatDate, formatDateFull, formatShortDayMonth } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
 
 export default function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {

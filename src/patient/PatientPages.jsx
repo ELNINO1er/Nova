@@ -27,7 +27,7 @@ import SettingsPage from './pages/SettingsPage.jsx';
 
 export { PMsg, PDocs, SettingsPage };
 
-export default function PatientPages({ page, setPage, setShowQR, pills, setPills, setShowVid, onProfileSaved, card, sub, border, darkMode }) {
+export default function PatientPages({ page, setPage, setShowQR, pills, setPills, setShowVid, onProfileSaved, onBadgesChange, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
   const [apiData, setApiData] = useState({});
   const [apiLoading, setApiLoading] = useState({});
@@ -88,6 +88,18 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));
   };
+  const replaceNotifications = (value) => {
+    replacePageData('notifications', value);
+    if (Array.isArray(value)) {
+      onBadgesChange?.({ notifications: value.filter((n) => !n.isRead).length });
+    }
+  };
+  const replaceMessages = (value) => {
+    replacePageData('messages', value);
+    if (Array.isArray(value)) {
+      onBadgesChange?.({ messages: value.reduce((sum, c) => sum + Number(c.unreadCount || 0), 0) });
+    }
+  };
   const replacePageDataAndRefreshDashboard = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value, dashboard: undefined }));
   };
@@ -112,14 +124,14 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     vaccinations: <PVax data={apiData.vaccinations} {...p} />,
     dna: <PDNA data={apiData.dna} profile={apiData.profile || apiData.dashboard?.profile} onReload={(value) => replacePageData('dna', value)} notify={notify} {...p} />,
     history: <PHistory data={apiData.history} {...p} />,
-    messages: <PMsg data={apiData.messages} setShowVid={setShowVid} {...p} />,
+    messages: <PMsg data={apiData.messages} onConversationsChange={replaceMessages} setShowVid={setShowVid} {...p} />,
     documents: <PDocs data={apiData.documents} onReload={(value) => replacePageDataAndRefreshDashboard('documents', value)} notify={notify} {...p} />,
     notes: <PNotes data={apiData.notes} onReload={(value) => replacePageData('notes', value)} notify={notify} {...p} />,
     prescriptions: <POrdonnances data={apiData.prescriptions} {...p} />,
     labresults: <PLabResults data={apiData.labresults} {...p} />,
     vitals: <PVitals data={apiData.vitals} onAddVital={(v) => replacePageData('vitals', v)} notify={notify} {...p} />,
     doctors: <PDoctors data={apiData.doctors} onBooked={() => { loadPage('rdv', true); loadPage('notifications', true); }} notify={notify} setPage={setPage} {...p} />,
-    notifications: <PNotifications data={apiData.notifications} onReload={(v) => replacePageData('notifications', v)} notify={notify} setPage={setPage} {...p} />,
+    notifications: <PNotifications data={apiData.notifications} onReload={replaceNotifications} notify={notify} setPage={setPage} {...p} />,
     urgence: <PUrgence data={apiData.urgence} {...p} />,
     assistant: <PAssistant patientData={apiData.dashboard} {...p} />,
     wellness: <PWell data={apiData.wellness} profile={apiData.dashboard?.profile} onReload={(v) => replacePageData('wellness', v)} notify={notify} {...p} />,

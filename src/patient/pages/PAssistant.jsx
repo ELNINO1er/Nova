@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Brain, Send, Bot, Activity, Pill, Calendar, Sparkles, Target, Heart, Zap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Brain, Send, Bot, Activity, Pill, Calendar, Sparkles, Target, Heart, Zap, AlertTriangle, User } from 'lucide-react';
+import { patientApi } from '../../api/patientApi.js';
 
 export default function PAssistant({ patientData, card, sub, border, darkMode }) {
   const [messages, setMessages] = useState([
@@ -45,9 +46,15 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
     setMessages(m => [...m, { role: 'user', text: txt, ts: new Date() }]);
     setInput('');
     setTyping(true);
-    await new Promise(r => setTimeout(r, 900 + Math.random() * 800));
-    setTyping(false);
-    setMessages(m => [...m, { role: 'assistant', text: simulateResponse(txt), ts: new Date() }]);
+    try {
+      const reply = await patientApi.assistant(txt);
+      const prefix = reply.risk === 'emergency' ? 'Urgence potentielle : ' : reply.risk === 'warning' ? 'Attention : ' : '';
+      setMessages(m => [...m, { role: 'assistant', text: `${prefix}${reply.answer}\n\n${reply.disclaimer}`, ts: new Date() }]);
+    } catch (err) {
+      setMessages(m => [...m, { role: 'assistant', text: `Service assistant indisponible. Contactez votre medecin pour toute question medicale.\n\n${err.message || ''}`, ts: new Date() }]);
+    } finally {
+      setTyping(false);
+    }
   };
 
   const renderText = (txt) => txt.split('\n').map((line, i) => {

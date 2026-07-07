@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Users, TrendingUp } from 'lucide-react';
+import { Award, Star, TrendingUp, Users } from 'lucide-react';
 
 export default function DReputation({ data, loading, card, sub, border, darkMode }) {
   if (loading || !data) return (

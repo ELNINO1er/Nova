@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import { randomUUID, randomInt } from 'node:crypto';
 import { pool } from '../db/database.js';
+import { sendSms } from './sms.provider.js';
 
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_MAX_ATTEMPTS = 3;
@@ -36,8 +37,7 @@ export async function sendOtp(phone) {
     [id, cleaned, codeHash, OTP_MAX_ATTEMPTS, expiresAt]
   );
 
-  // TODO: Send SMS in production
-  // await smsProvider.send(cleaned, `Votre code NOVA : ${code}`);
+  await sendSms(cleaned, `Votre code NOVA : ${code}. Il expire dans ${OTP_EXPIRY_MINUTES} minutes.`);
 
   // In dev mode, return the code (remove in production!)
   const isDev = process.env.NODE_ENV !== 'production';
@@ -94,10 +94,89 @@ export async function verifyOtp(phone, code) {
       role: user.role,
       patientId: user.patient_id || null,
       doctorId: user.doctor_id || null,
+      pharmacyId: user.pharmacy_id || null,
       name: user.name,
       avatar: user.avatar,
     },
   };
+}
+
+export async function startDoctorPasswordLogin(email, password) {
+  const cleaned = String(email || '').trim().toLowerCase();
+  const [[user]] = await pool.execute(
+    `SELECT u.*, d.email AS doctor_email
+     FROM nova_users u
+     JOIN nova_doctors d ON d.id = u.doctor_id
+     WHERE u.role = 'doctor' AND LOWER(d.email) = ?
+     LIMIT 1`,
+    [cleaned]
+  );
+  if (!user) return { error: 'invalid_credentials', message: 'Identifiants medecin invalides.' };
+
+  const valid = await bcrypt.compare(password, user.password_hash || user.code_hash);
+  if (!valid) return { error: 'invalid_credentials', message: 'Identifiants medecin invalides.' };
+
+  const otp = await sendOtp(user.phone);
+  if (!otp) return { error: 'otp_unavailable', message: 'Impossible de generer le code OTP.' };
+  return {
+    otpId: otp.otpId,
+    expiresIn: otp.expiresIn,
+    maskedPhone: maskPhone(user.phone),
+    ...(otp.devCode ? { devCode: otp.devCode } : {}),
+  };
+}
+
+export async function verifyOtpById(otpId, code, expectedRole = null) {
+  const [[otp]] = await pool.execute(
+    `SELECT * FROM nova_otp
+     WHERE id = ? AND verified = 0 AND expires_at > NOW()
+     LIMIT 1`,
+    [otpId]
+  );
+
+  if (!otp) {
+    return { error: 'otp_expired', message: 'Code expire ou invalide. Demandez un nouveau code.' };
+  }
+
+  if (otp.attempts >= otp.max_attempts) {
+    await pool.execute('UPDATE nova_otp SET verified = 1 WHERE id = ?', [otp.id]);
+    return { error: 'otp_max_attempts', message: 'Trop de tentatives. Demandez un nouveau code.' };
+  }
+
+  const valid = await bcrypt.compare(code, otp.code_hash);
+
+  if (!valid) {
+    await pool.execute('UPDATE nova_otp SET attempts = attempts + 1 WHERE id = ?', [otp.id]);
+    const remaining = otp.max_attempts - otp.attempts - 1;
+    return {
+      error: 'otp_invalid',
+      message: `Code incorrect. ${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.`,
+    };
+  }
+
+  await pool.execute('UPDATE nova_otp SET verified = 1 WHERE id = ?', [otp.id]);
+
+  const [[user]] = await pool.execute('SELECT * FROM nova_users WHERE phone = ?', [otp.phone]);
+  if (!user) return { error: 'user_not_found', message: 'Utilisateur introuvable.' };
+  if (expectedRole && user.role !== expectedRole) return { error: 'forbidden', message: 'Role non autorise pour ce flux.' };
+
+  return {
+    user: {
+      id: user.id,
+      role: user.role,
+      patientId: user.patient_id || null,
+      doctorId: user.doctor_id || null,
+      pharmacyId: user.pharmacy_id || null,
+      name: user.name,
+      avatar: user.avatar,
+    },
+  };
+}
+
+function maskPhone(phone) {
+  const value = String(phone || '');
+  if (value.length < 4) return '****';
+  return `${'*'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
 /**
@@ -114,6 +193,7 @@ export async function loginUser(phone, code) {
     role:      user.role,
     patientId: user.patient_id  || null,
     doctorId:  user.doctor_id   || null,
+    pharmacyId: user.pharmacy_id || null,
     name:      user.name,
     avatar:    user.avatar,
   };

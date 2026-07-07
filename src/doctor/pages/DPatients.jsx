@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, User, Phone, MapPin, ChevronLeft, Heart, Activity, Droplet, Thermometer, Pill, Microscope, ClipboardList, Calendar, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -10,10 +10,10 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
   const [patLoading, setPatLoading] = useState(false);
   const [fileTab,  setFileTab]  = useState('profil');
 
-  const patients = data || [];
+  const patients = Array.isArray(data) ? data : [];
   const filtered = patients.filter(p =>
     !search ||
-    `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
+    `${p.firstName || ''} ${p.lastName || ''}`.toLowerCase().includes(search.toLowerCase()) ||
     (p.cmuNumber || '').toLowerCase().includes(search.toLowerCase()) ||
     (p.phone || '').includes(search)
   );
@@ -62,10 +62,10 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
                   className={`w-full text-left p-2.5 rounded-xl flex items-center gap-2 transition-all
                     ${selected?.id === p.id ? 'bg-red-600 text-white' : (darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100')}`}>
                   <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-700 flex items-center justify-center text-white font-bold text-xs flex-shrink-0`}>
-                    {p.firstName[0]}{p.lastName[0]}
+                    {(p.firstName || '?')[0]}{(p.lastName || '?')[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate">{p.firstName} {p.lastName}</p>
+                    <p className="font-semibold text-sm truncate">{p.firstName || 'Patient'} {p.lastName || ''}</p>
                     <p className={`text-[10px] ${selected?.id === p.id ? 'text-red-100' : sub} truncate`}>{p.cmuNumber} • {p.age} ans</p>
                   </div>
                 </button>
@@ -130,10 +130,10 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
       )}
       <div className={`${card} border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4`}>
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center text-xl font-bold flex-shrink-0">
-          {pat.firstName[0]}{pat.lastName[0]}
+          {(pat.firstName || '?')[0]}{(pat.lastName || '?')[0]}
         </div>
         <div className="flex-1">
-          <h3 className="text-xl font-bold">{pat.firstName} {pat.lastName}</h3>
+          <h3 className="text-xl font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</h3>
           <p className={`text-xs ${sub}`}>{pat.cmuNumber}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
             <span><strong>{pat.age} ans</strong> • {pat.sex === 'M' ? 'Homme' : 'Femme'}</span>

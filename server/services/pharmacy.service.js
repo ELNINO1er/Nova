@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 
@@ -37,7 +38,7 @@ export async function getPharmacyDashboard(pharmacyId) {
     totalDispenses: totalCount,
     recentDispenses: recentDispenses.map(r => ({
       id: r.id,
-      patientName: `${r.first_name} ${r.last_name}`,
+      patientName: displayName(r.first_name, r.last_name),
       status: r.status,
       dispensedAt: r.dispensed_at,
     })),
@@ -46,9 +47,25 @@ export async function getPharmacyDashboard(pharmacyId) {
 
 /* ─── Vérifier ordonnance via QR / ID ─────────────────────────── */
 
-export async function verifyPrescriptionQR(prescriptionId) {
+export async function verifyPrescriptionQR(qrToken) {
+  let decoded;
+  try {
+    decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+  } catch {
+    const err = new Error('QR ordonnance invalide ou expiré.');
+    err.status = 401;
+    throw err;
+  }
+  if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
+    const err = new Error('QR ordonnance invalide.');
+    err.status = 422;
+    throw err;
+  }
+  const prescriptionId = decoded.prescriptionId;
+
   const [[rx]] = await pool.execute(
-    `SELECT p.*, pat.first_name, pat.last_name, pat.cmu_number, pat.birth_date, pat.blood_type
+    `SELECT p.id, p.patient_id, p.doctor_name, p.doctor_specialty, p.issued_at, p.valid_until, p.status,
+            pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
      WHERE p.id = ?`,
@@ -66,10 +83,8 @@ export async function verifyPrescriptionQR(prescriptionId) {
 
   return {
     id: rx.id,
-    patientName: `${rx.first_name} ${rx.last_name}`,
-    cmuNumber: rx.cmu_number,
-    birthDate: rx.birth_date,
-    bloodType: rx.blood_type,
+    patientName: displayName(rx.first_name, rx.last_name),
+    cmuNumber: maskIdentifier(rx.cmu_number),
     doctorName: rx.doctor_name,
     doctorSpecialty: rx.doctor_specialty,
     issuedAt: rx.issued_at,
@@ -95,7 +110,7 @@ export async function verifyPrescriptionQR(prescriptionId) {
 
 export async function getPrescriptionForPharmacy(prescriptionId) {
   const [[rx]] = await pool.execute(
-    `SELECT p.id, p.patient_id, p.doctor_name, p.doctor_specialty, p.issued_at, p.valid_until, p.status, p.notes,
+    `SELECT p.id, p.patient_id, p.doctor_name, p.doctor_specialty, p.issued_at, p.valid_until, p.status,
             pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
@@ -121,14 +136,13 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
 
   return {
     id: rx.id,
-    patientName: `${rx.first_name} ${rx.last_name}`,
-    cmuNumber: rx.cmu_number,
+    patientName: displayName(rx.first_name, rx.last_name),
+    cmuNumber: maskIdentifier(rx.cmu_number),
     doctorName: rx.doctor_name,
     doctorSpecialty: rx.doctor_specialty,
     issuedAt: rx.issued_at,
     validUntil: rx.valid_until,
     status: rx.status,
-    notes: rx.notes,
     items: items.map(i => ({
       id: i.id,
       name: i.name,
@@ -142,7 +156,6 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
       status: d.status,
       pharmacyName: d.pharmacyName,
       dispensedAt: d.dispensed_at,
-      notes: d.notes,
     })),
   };
 }
@@ -151,16 +164,22 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
 
 export async function dispensePrescription(pharmacyId, pharmacistUserId, payload) {
   // Vérifier que l'ordonnance existe et est dispensable
-  const verification = await verifyPrescriptionQR(payload.prescriptionId);
-  if (!verification) {
+  const [[rxStatus]] = await pool.execute(
+    `SELECT p.id, p.valid_until, p.status,
+            (SELECT d.status FROM nova_dispenses d WHERE d.prescription_id = p.id ORDER BY d.dispensed_at DESC LIMIT 1) AS last_dispense_status
+     FROM nova_prescriptions p WHERE p.id = ?`,
+    [payload.prescriptionId]
+  );
+  if (!rxStatus) {
     const err = new Error('Ordonnance introuvable.');
     err.status = 404;
     throw err;
   }
-  if (!verification.verification.canDispense) {
+  const isExpired = rxStatus.valid_until && new Date(rxStatus.valid_until) < new Date();
+  if (isExpired || rxStatus.last_dispense_status === 'full' || rxStatus.status !== 'active') {
     const err = new Error(
-      verification.verification.expired ? 'Ordonnance expirée.'
-      : verification.verification.alreadyFull ? 'Ordonnance déjà entièrement délivrée.'
+      isExpired ? 'Ordonnance expiree.'
+      : rxStatus.last_dispense_status === 'full' ? 'Ordonnance deja entierement delivree.'
       : 'Ordonnance non dispensable.'
     );
     err.status = 422;
@@ -245,12 +264,25 @@ export async function getDispenseHistory(pharmacyId, query = {}) {
   const [rows] = await pool.execute(sql, args);
   return rows.map(r => ({
     id: r.id,
-    patientName: `${r.first_name} ${r.last_name}`,
-    cmuNumber: r.cmu_number,
+    patientName: displayName(r.first_name, r.last_name),
+    cmuNumber: maskIdentifier(r.cmu_number),
     doctorName: r.doctor_name,
     status: r.status,
     notes: r.notes,
     dispensedAt: r.dispensed_at,
     rxIssuedAt: r.rx_issued_at,
   }));
+}
+
+function displayName(firstName, lastName) {
+  const first = String(firstName || '').trim();
+  const last = String(lastName || '').trim();
+  return `${first} ${last ? `${last[0]}.` : ''}`.trim() || 'Patient';
+}
+
+function maskIdentifier(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const visible = raw.slice(-4);
+  return `${'*'.repeat(Math.max(4, raw.length - 4))}${visible}`;
 }

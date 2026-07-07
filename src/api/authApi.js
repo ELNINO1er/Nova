@@ -5,6 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001
 async function authRequest(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
+    credentials: 'include',
     ...options,
   });
   const data = await res.json().catch(() => ({}));
@@ -18,20 +19,43 @@ export const authApi = {
     body: JSON.stringify({ phone: phone.replace(/\s/g, '') }),
   }),
 
+  sendOtp: (phone) => authRequest('/auth/otp/send', {
+    method: 'POST',
+    body: JSON.stringify({ phone: phone.replace(/\s/g, '') }),
+  }),
+
+  verifyOtp: (phone, code) => authRequest('/auth/otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ phone: phone.replace(/\s/g, ''), code }),
+  }),
+
+  startDoctorPasswordLogin: (email, password) => authRequest('/auth/doctor/password/start', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  }),
+
+  verifyDoctorOtp: (otpId, code) => authRequest('/auth/doctor/otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ otpId, code }),
+  }),
+
   login: (phone, code) => authRequest('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ phone: phone.replace(/\s/g, ''), code }),
   }),
 
   me: () => {
-    const token = localStorage.getItem('nova_token') || '';
-    return authRequest('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+    return authRequest('/auth/me');
   },
 
-  logout: () => {
+  logout: async () => {
+    await authRequest('/auth/logout', { method: 'POST' }).catch(() => {});
     localStorage.removeItem('nova_token');
+    localStorage.removeItem('nova_refresh_token');
+    localStorage.removeItem('nova_user');
   },
 
-  getToken: () => localStorage.getItem('nova_token') || '',
-  setToken: (t) => localStorage.setItem('nova_token', t),
+  getToken: () => '',
+  setToken: () => localStorage.removeItem('nova_token'),
+  setRefreshToken: () => localStorage.removeItem('nova_refresh_token'),
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Bell, Lock, Eye, Moon, Smartphone, HelpCircle, ChevronRight } from 'lucide-react';
+import { Settings, Bell, Lock, Eye, Moon, Smartphone, HelpCircle, ChevronRight, HeartPulse, AlertCircle, BookOpen, Database, FileDown, HardDrive, Mail, MessageCircle, Palette, Phone, Shield, Wifi } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function SettingsPage({ data, card, sub, border, darkMode }) {

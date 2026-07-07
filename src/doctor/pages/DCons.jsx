@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Plus, Search, Clock, Check, ChevronRight, Save, X, Edit3 } from 'lucide-react';
+import { ClipboardList, Edit3, Plus, Save, Stethoscope, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -10,8 +10,8 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
   const [editCons, setEditCons] = useState(null); // {id, motif, diagnosisMain, diagnosisSecondary, notes, recommendations, status}
   const [editSaving, setEditSaving] = useState(false);
 
-  const consultations = data || [];
-  const patients = patientsData || [];
+  const consultations = Array.isArray(data) ? data : [];
+  const patients = Array.isArray(patientsData) ? patientsData : [];
 
   const handleShowForm = () => {
     setShowForm(true);

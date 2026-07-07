@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, Brain, Send, Activity, Heart, AlertTriangle, Sparkles, Target, Zap } from 'lucide-react';
+import { doctorApi } from '../../api/doctorApi.js';
 
 export default function DAssistantIA({ chronicData, consultData, statsData, loadChronic, loadConsult, loadStats, notify, card, sub, border, darkMode }) {
   const [query,    setQuery]    = useState('');

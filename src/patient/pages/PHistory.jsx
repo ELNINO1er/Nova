@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock } from 'lucide-react';
+import { Clock, ClipboardList } from 'lucide-react';
 import { formatDate, historyTypeLabel } from '../../utils/format.js';
 
 export default function PHistory({ data, card, sub, darkMode }) {
@@ -11,7 +11,8 @@ export default function PHistory({ data, card, sub, darkMode }) {
       </div>
     );
   }
-  const cs = data.map((item) => ({
+  const rows = Array.isArray(data) ? data : (data?.data || []);
+  const cs = rows.map((item) => ({
     d: formatDate(item.occurredAt),
     dr: item.doctorName,
     sp: historyTypeLabel(item.type),

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart, Activity, Pill, Calendar, FileText, User, Stethoscope,
   Shield, Search, AlertTriangle, Plus, Check, Clock, Download, X,
@@ -13,10 +13,33 @@ import {
   HelpCircle, BookOpen, Pencil, HardDrive, Wifi
 } from 'lucide-react';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
+import { adminApi } from '../api/adminApi.js';
 
 /* ============== ADMIN PAGES ============== */
 export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    const loaders = {
+      dashboard: adminApi.dashboard,
+      audit: () => adminApi.auditLogs({ limit: 50 }),
+      system: adminApi.system,
+    };
+    const loader = loaders[page];
+    setError('');
+    if (!loader) {
+      setData(null);
+      return () => { alive = false; };
+    }
+    loader()
+      .then((res) => { if (alive) setData(res); })
+      .catch((err) => { if (alive) setError(err.message || 'Chargement impossible.'); });
+    return () => { alive = false; };
+  }, [page]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -30,16 +53,24 @@ export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMo
           </button>
         </div>
       </div>
-      {page === 'dashboard' && <ADash {...p} />}
-      {page === 'audit' && <AAudit {...p} />}
+      {error && <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</div>}
+      {page === 'dashboard' && <ADash data={data} {...p} />}
+      {page === 'audit' && <AAudit data={data} {...p} />}
       {page === 'users' && <AUsers onCP={onCP} onCD={onCD} {...p} />}
-      {page === 'system' && <ASystem {...p} />}
+      {page === 'system' && <ASystem data={data} {...p} />}
       {page === 'settings' && <SettingsPage {...p} />}
     </div>
   );
 }
 
-function ADash({ card, sub, darkMode }) {
+function ADash({ data, card, sub, darkMode }) {
+  const kpis = data?.kpis || {};
+  const statCards = [
+    { l: 'Patients', v: (kpis.patients ?? 124532).toLocaleString('fr-FR'), s: 'Comptes patients', c: 'red', I: Users },
+    { l: 'Medecins', v: (kpis.doctors ?? 3247).toLocaleString('fr-FR'), s: 'Professionnels actifs', c: 'blue', I: Stethoscope },
+    { l: "Consult. aujourd'hui", v: (kpis.consultationsToday ?? 8924).toLocaleString('fr-FR'), s: 'Jour courant', c: 'emerald', I: Activity },
+    { l: 'Tracabilite 24h', v: (kpis.access24h ?? 7).toLocaleString('fr-FR'), s: `${kpis.audit24h ?? 2} actions audit`, c: 'amber', I: AlertTriangle }
+  ];
   const rs = [
     { n: 'Abidjan', u: 48720, x: 35, y: 75, s: 24 },
     { n: 'Bouaké', u: 12340, x: 45, y: 50, s: 16 },
@@ -49,7 +80,15 @@ function ADash({ card, sub, darkMode }) {
   ];
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-      {[
+      {statCards.map((k, i) => (
+        <div key={i} className={`${card} border rounded-2xl p-5`}>
+          <div className={`w-10 h-10 rounded-lg bg-${k.c}-100 flex items-center justify-center mb-3`}><k.I className={`w-5 h-5 text-${k.c}-600`} /></div>
+          <p className={`text-xs ${sub}`}>{k.l}</p>
+          <p className="text-3xl font-bold mt-1">{k.v}</p>
+          <p className={`text-xs mt-1 text-${k.c}-600 font-semibold`}>{k.s}</p>
+        </div>
+      ))}
+      {false && [
         { l: 'Patients', v: '124,532', s: '+2,341 ce mois', c: 'red', I: Users },
         { l: 'Médecins', v: '3,247', s: '+89 ce mois', c: 'blue', I: Stethoscope },
         { l: 'Consult. aujourd\'hui', v: '8,924', s: 'Pic à 14h', c: 'emerald', I: Activity },
@@ -110,8 +149,14 @@ function ADash({ card, sub, darkMode }) {
   );
 }
 
-function AAudit({ card, sub, darkMode }) {
-  const ls = [
+function AAudit({ data, card, sub, darkMode }) {
+  const ls = data?.data?.length ? data.data.map((row) => ({
+    t: formatDate(row.createdAt),
+    a: row.userRole || row.userId || 'system',
+    ac: row.action,
+    tg: row.resourceId || row.resourceType || '-',
+    cr: row.action?.includes('status_update') ? 'warning' : 'info',
+  })) : [
     { t: '28/04/2026 10:42:18', a: 'Dr. Adjoua Koné', ac: 'Accès dossier', tg: '#CI-2024-0847', cr: 'info' },
     { t: '28/04/2026 10:38:02', a: 'Dr. Yao Konan', ac: 'Prescription', tg: 'Amlodipine 5mg', cr: 'info' },
     { t: '28/04/2026 10:30:45', a: 'Admin', ac: 'Modif permissions', tg: 'user_id: 4521', cr: 'warning' },
@@ -166,6 +211,9 @@ function AAudit({ card, sub, darkMode }) {
 
 function AUsers({ onCP, onCD, card, sub, darkMode }) {
   const [tab, setTab] = useState('doctors');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const ds = [
     { n: 'Dr. Adjoua Koné', sp: 'Cardiologie', p: '+225 01 02 03 04 05', s: 'Actif' },
     { n: 'Dr. Yao Konan', sp: 'Médecine générale', p: '+225 01 23 45 67 89', s: 'Actif' },
@@ -177,7 +225,22 @@ function AUsers({ onCP, onCD, card, sub, darkMode }) {
     { n: 'Aminata Diallo', cmu: 'CI-2024-1245', p: '+225 05 12 34 56 78', a: 34 },
     { n: 'Yao Brou', cmu: 'CI-2024-3389', p: '+225 07 23 45 67 89', a: 67 }
   ];
-  const list = tab === 'doctors' ? ds : ps;
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError('');
+    adminApi.users({ type: tab, limit: 50 })
+      .then((res) => { if (alive) setRows(res?.data || []); })
+      .catch((err) => { if (alive) setError(err.message || 'Chargement impossible.'); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [tab]);
+
+  const list = rows.length
+    ? rows.map((u) => tab === 'doctors'
+      ? { n: `Dr. ${u.firstName || ''} ${u.lastName || ''}`.trim(), sp: u.specialty || '-', p: u.phone || '-', s: u.isAvailable ? 'Actif' : 'Suspendu' }
+      : { n: `${u.firstName || ''} ${u.lastName || ''}`.trim(), cmu: u.cmuNumber || '-', p: u.phone || '-', a: ageFromBirthDate(u.birthDate) })
+    : (tab === 'doctors' ? ds : ps);
   return (
     <div className={`${card} border rounded-2xl p-6`}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -236,10 +299,25 @@ function AUsers({ onCP, onCD, card, sub, darkMode }) {
   );
 }
 
-function ASystem({ card, sub, darkMode }) {
+function ASystem({ data, card, sub, darkMode }) {
+  const uptimeDays = data?.api?.uptimeSeconds ? (data.api.uptimeSeconds / 86400).toFixed(1) : null;
+  const entityTotal = data?.database ? Object.values(data.database).reduce((a, b) => a + Number(b || 0), 0) : null;
+  const systemCards = [
+    { l: 'Uptime API', v: uptimeDays ? `${uptimeDays}j` : '99.97%', s: data?.api?.nodeEnv || '30 jours', I: ServerCog, c: 'emerald' },
+    { l: 'Permissions', v: data?.security?.permissions ?? '142', s: 'RBAC actif', I: Zap, c: 'blue' },
+    { l: 'Donnees', v: entityTotal ?? '67%', s: 'Entites principales', I: Database, c: 'amber' }
+  ];
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      {[
+      {systemCards.map((s, i) => (
+        <div key={i} className={`${card} border rounded-2xl p-6`}>
+          <div className={`w-10 h-10 rounded-lg bg-${s.c}-100 flex items-center justify-center mb-3`}><s.I className={`w-5 h-5 text-${s.c}-600`} /></div>
+          <p className={`text-xs ${sub}`}>{s.l}</p>
+          <p className="text-3xl font-bold mt-1">{s.v}</p>
+          <p className={`text-xs ${sub} mt-1`}>{s.s}</p>
+        </div>
+      ))}
+      {false && [
         { l: 'Uptime', v: '99.97%', s: '30 jours', I: ServerCog, c: 'emerald' },
         { l: 'Latence API', v: '142ms', s: 'Moyenne', I: Zap, c: 'blue' },
         { l: 'Stockage', v: '67%', s: '4.2 / 6.3 TB', I: Database, c: 'amber' }
@@ -268,4 +346,22 @@ function ASystem({ card, sub, darkMode }) {
       </div>
     </div>
   );
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function ageFromBirthDate(value) {
+  if (!value) return '-';
+  const birth = new Date(value);
+  if (Number.isNaN(birth.getTime())) return '-';
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age -= 1;
+  return age;
 }

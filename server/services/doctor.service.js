@@ -71,10 +71,7 @@ export async function getDoctorPatients(doctorId, query = {}) {
 }
 
 export async function getDoctorPatient(doctorId, patientId) {
-  const [[access]] = await pool.execute(
-    `SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? LIMIT 1`,
-    [doctorId, patientId]
-  );
+  const access = await hasDoctorPatientAccess(doctorId, patientId);
   if (!access) return null;
 
   const [[patient]] = await pool.execute(`SELECT * FROM nova_patients WHERE id = ?`, [patientId]);
@@ -89,7 +86,7 @@ export async function getDoctorPatient(doctorId, patientId) {
     [patientId, doctorId]
   );
   const [prescriptions] = await pool.execute(
-    `SELECT * FROM nova_prescriptions WHERE patient_id = ? ORDER BY prescribed_at DESC LIMIT 5`, [patientId]
+    `SELECT * FROM nova_prescriptions WHERE patient_id = ? ORDER BY issued_at DESC LIMIT 5`, [patientId]
   );
   const [labResults] = await pool.execute(
     `SELECT * FROM nova_lab_results WHERE patient_id = ? ORDER BY performed_at DESC LIMIT 5`, [patientId]
@@ -110,7 +107,7 @@ export async function getDoctorPatient(doctorId, patientId) {
       id: c.id, motif: c.motif, diagnosisMain: c.diagnosis_main, notes: c.notes,
       recommendations: c.recommendations, status: c.status, startedAt: c.started_at,
     })),
-    prescriptions: prescriptions.map(r => ({ id: r.id, prescribedAt: r.prescribed_at, status: r.status })),
+    prescriptions: prescriptions.map(r => ({ id: r.id, issuedAt: r.issued_at, status: r.status })),
     labResults: labResults.map(r => ({ id: r.id, title: r.title, performedAt: r.performed_at, status: r.status })),
   };
 }
@@ -141,9 +138,10 @@ export async function updateDoctorAppointment(doctorId, id, changes) {
   if (changes.location) { sets.push('location = ?');  vals.push(changes.location); }
   if (!sets.length) return null;
   vals.push(id);
-  await pool.execute(`UPDATE nova_appointments SET ${sets.join(', ')} WHERE id = ?`, vals);
+  vals.push(doctorId);
+  await pool.execute(`UPDATE nova_appointments SET ${sets.join(', ')} WHERE id = ? AND doctor_id = ?`, vals);
   const [[row]] = await pool.execute(
-    `SELECT a.*, p.first_name, p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id WHERE a.id = ?`, [id]
+    `SELECT a.*, p.first_name, p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id WHERE a.id = ? AND a.doctor_id = ?`, [id, doctorId]
   );
   return mapApptWithPatient(row);
 }
@@ -263,15 +261,37 @@ export async function createPatientByDoctor(doctorId, payload) {
 }
 
 async function verifyDoctorPatientRelation(doctorId, patientId) {
-  const [[access]] = await pool.execute(
-    'SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? LIMIT 1',
-    [doctorId, patientId]
-  );
+  const access = await hasDoctorPatientAccess(doctorId, patientId);
   if (!access) {
     const err = new Error('Aucune relation avec ce patient.');
     err.status = 403;
     throw err;
   }
+}
+
+async function hasDoctorPatientAccess(doctorId, patientId) {
+  const [[consent]] = await pool.execute(
+    `SELECT id FROM nova_consents
+     WHERE doctor_id = ? AND patient_id = ? AND status = 'granted'
+       AND (expires_at IS NULL OR expires_at > NOW())
+     LIMIT 1`,
+    [doctorId, patientId]
+  );
+  if (consent) return true;
+
+  const [[clinicalRelation]] = await pool.execute(
+    `SELECT id FROM (
+       SELECT id FROM nova_consultations WHERE doctor_id = ? AND patient_id = ?
+       UNION ALL
+       SELECT id FROM nova_prescriptions WHERE doctor_id = ? AND patient_id = ?
+       UNION ALL
+       SELECT id FROM nova_lab_requests WHERE doctor_id = ? AND patient_id = ?
+       UNION ALL
+       SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? AND status <> 'cancelled'
+     ) rel LIMIT 1`,
+    [doctorId, patientId, doctorId, patientId, doctorId, patientId, doctorId, patientId]
+  );
+  return !!clinicalRelation;
 }
 
 export async function createConsultation(doctorId, payload) {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StickyNote, Plus, Edit3, Trash2, Save, X, Palette } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { StickyNote, Plus, Edit3, Trash2, Save, X, Palette, Pencil, Star } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';

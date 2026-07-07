@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 /* ============== SIDEBAR ============== */
-export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkMode, sub, border }) {
+export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, badges = {}, darkMode, sub, border }) {
   const sec = role === 'patient' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Accueil',I:Home},{id:'profile',l:'Mon profil',I:User}]},
     { t: 'SUIVI MÉDICAL', i: [
@@ -25,8 +25,8 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
       {id:'history',l:'Historique',I:ClipboardList}
     ]},
     { t: 'COMMUNICATION', i: [
-      {id:'notifications',l:'Notifications',I:Bell,b:5},
-      {id:'messages',l:'Messages',I:MessageCircle,b:3},
+      {id:'notifications',l:'Notifications',I:Bell,b:badges.notifications},
+      {id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},
       {id:'prescriptions',l:'Ordonnances',I:FileDown},
       {id:'documents',l:'Documents',I:FileText},
       {id:'notes',l:'Bloc-notes',I:StickyNote}
@@ -48,7 +48,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
     { t: 'ACTIVITÉ', i: [{id:'agenda',l:'Agenda RDV',I:CalendarClock},{id:'consultations',l:'Consultations',I:ClipboardList},{id:'prescriptions',l:'Ordonnances',I:FileDown},{id:'lab-requests',l:'Demandes labo',I:Microscope},{id:'stats',l:'Statistiques',I:TrendingUp}]},
     { t: 'CLINIQUE', i: [{id:'chronic-patients',l:'Suivi chroniques',I:HeartPulse},{id:'urgences',l:'Urgences & Alertes',I:ShieldAlert},{id:'assistant-ia',l:'Assistant IA Nova',I:Brain}]},
     { t: 'GESTION', i: [{id:'finances',l:'Finances',I:TrendingUp},{id:'reputation',l:'Réputation & Avis',I:Award},{id:'signature',l:'Signature électronique',I:Edit3}]},
-    { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:5},{id:'documents',l:'Documents',I:FileText}]},
+    { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},{id:'documents',l:'Documents',I:FileText}]},
     { t: 'COMPTE', i: [{id:'profile',l:'Mon profil',I:User},{id:'settings',l:'Paramètres',I:Settings}]}
   ] : role === 'pharmacist' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:Home},{id:'scan',l:'Scanner ordonnance',I:Search}]},
@@ -78,7 +78,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, darkM
                   <button key={it.id} onClick={() => setPage(it.id)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${isAct ? act : ina}`}>
                     <it.I className="w-4 h-4 flex-shrink-0" />
                     <span className="flex-1 text-left truncate">{it.l}</span>
-                    {it.b && <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isAct ? 'bg-white text-red-600' : 'bg-red-600 text-white'}`}>{it.b}</span>}
+                    {Number(it.b) > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isAct ? 'bg-white text-red-600' : 'bg-red-600 text-white'}`}>{it.b}</span>}
                   </button>
                 );
               })}

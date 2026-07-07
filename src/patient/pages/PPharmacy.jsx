@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MapPin, Phone, Clock, Star, Search, Pill, Check, ShoppingCart } from 'lucide-react';
+import { MapPin, Phone, Clock, Star, Search, Pill, Check, ShoppingCart, ClipboardList, Siren } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PPharmacy({ data, card, sub, border, darkMode, notify }) {

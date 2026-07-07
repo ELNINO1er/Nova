@@ -12,17 +12,16 @@ import patientRoutes from './routes/patient.routes.js';
 import doctorRoutes  from './routes/doctor.routes.js';
 import authRoutes     from './routes/auth.routes.js';
 import pharmacyRoutes from './routes/pharmacy.routes.js';
+import adminRoutes    from './routes/admin.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
-import { uploadDir } from './middleware/upload.js';
-import { requirePatient, requireAuth } from './middleware/auth.js';
 
 const app = express();
 const port = Number(process.env.API_PORT || 4001);
 
 app.use(compression());
 app.use(helmet());
-app.use(cors({ origin: process.env.WEB_ORIGIN || 'http://localhost:5174' }));
+app.use(cors({ origin: process.env.WEB_ORIGIN || 'http://localhost:5174', credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
 
@@ -50,7 +49,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/patient/me',  patientRoutes);
 app.use('/api/doctor/me',   doctorRoutes);
 app.use('/api/pharmacy/me', pharmacyRoutes);
-app.use('/uploads', requireAuth, express.static(uploadDir));
+app.use('/api/admin/me',    adminRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

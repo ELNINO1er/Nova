@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Pill, Clock, Check, Printer, Search, ChevronRight, ChevronLeft, X, FileDown, AlertTriangle } from 'lucide-react';
+import { Pill, Clock, Check, Printer, Search, ChevronRight, ChevronLeft, X, FileDown, AlertTriangle, AlertCircle, Download, FileText } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
@@ -7,6 +7,8 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
   const [filter, setFilter]   = useState('all');
   const [expanded, setExpanded] = useState(null);
   const [printing, setPrinting] = useState(null);
+  const [qrModal, setQrModal] = useState(null);
+  const [qrLoading, setQrLoading] = useState('');
 
   const statusLabel = { active: 'Active', expired: 'Expirée', cancelled: 'Annulée' };
   const statusStyle = {
@@ -32,6 +34,16 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
       window.print();
       setPrinting(null);
     }, 300);
+  };
+
+  const showQr = async (presc) => {
+    setQrLoading(presc.id);
+    try {
+      const data = await patientApi.prescriptionQR(presc.id);
+      setQrModal(data);
+    } finally {
+      setQrLoading('');
+    }
   };
 
   if (!data) return (
@@ -79,6 +91,20 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
             {printing.notes && <p className="mt-6 text-sm text-slate-500 border-t pt-4">{printing.notes}</p>}
           </div>
         </div>
+      )}
+
+      {qrModal && (
+        <>
+          <button className="fixed inset-0 z-40 bg-slate-950/50 print:hidden" onClick={() => setQrModal(null)} aria-label="Fermer" />
+          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-6 shadow-2xl text-center print:hidden`}>
+            <p className="font-bold mb-1">QR ordonnance</p>
+            <p className={`text-xs ${sub} mb-4`}>A presenter a la pharmacie</p>
+            <img src={qrModal.qr} alt="QR ordonnance" className="mx-auto rounded-xl w-48 h-48" />
+            <p className={`text-[10px] ${sub} mt-3 break-all`}>Token signe, sans donnees medicales visibles.</p>
+            <textarea readOnly value={qrModal.token || ''} className={`mt-3 h-20 w-full resize-none rounded-lg border p-2 text-[10px] ${darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`} />
+            <button onClick={() => setQrModal(null)} className="mt-4 w-full px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">Fermer</button>
+          </div>
+        </>
       )}
 
       <div className="flex items-center justify-between flex-wrap gap-2 print:hidden">
@@ -149,6 +175,11 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors
                           ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                         <Download className="w-3.5 h-3.5" /> Imprimer
+                      </button>
+                      <button onClick={() => showQr(presc)} disabled={qrLoading === presc.id}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50
+                          ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                        <FileDown className="w-3.5 h-3.5" /> QR
                       </button>
                       <button onClick={() => setExpanded(open ? null : presc.id)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors

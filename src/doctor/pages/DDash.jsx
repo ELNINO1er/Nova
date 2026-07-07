@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, Users, Activity, Star, ChevronRight, Stethoscope, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { AlertCircle, Brain, Calendar, ClipboardList, Heart, Star, ChevronRight, Users } from 'lucide-react';
 import { initials } from '../../utils/format.js';
 
 export default function DDash({ data, loading, setPage, card, sub, border, darkMode }) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Star, MapPin, Clock, Calendar, Check, ChevronRight, ChevronLeft, Phone, Video } from 'lucide-react';
+import { Search, Star, MapPin, Clock, Calendar, Check, ChevronRight, ChevronLeft, Phone, Video, PhoneCall, User, Users, Zap } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDateFull, initials } from '../../utils/format.js';
 

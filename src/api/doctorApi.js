@@ -2,6 +2,10 @@ import { request, toQuery } from './client.js';
 
 export const doctorApi = {
   dashboard:    ()        => request('/doctor/me/dashboard'),
+  assistant:    (question, context = {}) => request('/doctor/me/assistant', {
+    method: 'POST',
+    body: JSON.stringify({ question, ...context }),
+  }),
   patients:     (params = {}) => request(`/doctor/me/patients${toQuery(params)}`),
   patient:      (id)      => request(`/doctor/me/patients/${id}`),
   appointments: (params = {}) => request(`/doctor/me/appointments${toQuery(params)}`),
@@ -21,6 +25,8 @@ export const doctorApi = {
   createAlert:         (payload) => request('/doctor/me/alerts', { method: 'POST', body: JSON.stringify(payload) }),
   resolveAlert:        (id)      => request(`/doctor/me/alerts/${id}/resolve`, { method: 'PATCH' }),
   finances:            ()        => request('/doctor/me/finances'),
+  payments:            ()        => request('/doctor/me/payments'),
+  markPaymentPaid:     (id, reference) => request(`/doctor/me/payments/${id}/paid`, { method: 'PATCH', body: JSON.stringify({ reference }) }),
   reputation:          ()        => request('/doctor/me/reputation'),
   signature:           ()        => request('/doctor/me/signature'),
   saveSignature:       (payload) => request('/doctor/me/signature', { method: 'POST', body: JSON.stringify(payload) }),

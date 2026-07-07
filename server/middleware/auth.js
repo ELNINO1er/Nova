@@ -30,6 +30,7 @@ export function signRefreshToken(payload) {
 }
 
 export function verifyRefreshToken(token) {
+  if (isBlacklisted(token)) return null;
   try {
     const payload = jwt.verify(token, REFRESH_SECRET);
     if (payload.type !== 'refresh') return null;
@@ -43,11 +44,12 @@ export function verifyRefreshToken(token) {
 
 function verifyToken(req, res) {
   const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
+  const cookieToken = getCookie(req, 'nova_access_token');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : cookieToken;
+  if (!token) {
     res.status(401).json({ error: 'unauthorized', message: 'Token manquant.' });
     return null;
   }
-  const token = header.slice(7);
   if (isBlacklisted(token)) {
     res.status(401).json({ error: 'token_revoked', message: 'Token révoqué. Reconnectez-vous.' });
     return null;
@@ -60,6 +62,13 @@ function verifyToken(req, res) {
     res.status(401).json({ error: 'invalid_token', message: 'Token invalide ou expiré.' });
     return null;
   }
+}
+
+function getCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  const found = raw.split(';').map(v => v.trim()).find(v => v.startsWith(`${name}=`));
+  if (!found) return null;
+  return decodeURIComponent(found.slice(name.length + 1));
 }
 
 /* ── Role-based middlewares ─────────────────────────────────────── */

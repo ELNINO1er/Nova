@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, Plus, X, Save, AlertTriangle, Heart, Users, Syringe } from 'lucide-react';
+import { Brain, Plus, X, Save, AlertTriangle, Heart, HeartPulse, Users, Syringe, Stethoscope, Droplet, User } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PDNA({ data, profile, onReload, notify, card, sub, border, darkMode }) {

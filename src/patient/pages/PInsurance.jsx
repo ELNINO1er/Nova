@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Check, Phone, MapPin, Calendar, FileText, CheckCircle2 } from 'lucide-react';
+import { Shield, Check, Phone, MapPin, Calendar, FileText, CheckCircle2, Stethoscope } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
 
 export default function PInsurance({ data, card, sub, border, darkMode }) {

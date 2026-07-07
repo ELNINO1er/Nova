@@ -4,6 +4,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001
 
 export const patientApi = {
   dashboard: () => request('/patient/me/dashboard'),
+  assistant: (question) => request('/patient/me/assistant', {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  }),
   profile: () => request('/patient/me/profile'),
   updateProfile: (payload) => request('/patient/me/profile', {
     method: 'PATCH',
@@ -79,12 +83,19 @@ export const patientApi = {
     const r = await fetch(`${API_BASE_URL}/patient/me/documents`, {
       method: 'POST',
       body: formData,
+      credentials: 'include',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
     return r.json();
   },
   insurance: () => request('/patient/me/insurance'),
+  payments: () => request('/patient/me/payments'),
+  createPayment: (payload) => request('/patient/me/payments', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  exportPdfUrl: () => `${API_BASE_URL}/patient/me/export/pdf`,
   pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
   pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
   createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
