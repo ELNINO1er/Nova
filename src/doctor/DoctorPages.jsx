@@ -45,6 +45,10 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       finances:           doctorApi.finances,
       reputation:         doctorApi.reputation,
       signature:          doctorApi.signature,
+      messages:           doctorApi.conversations,
+      documents:          doctorApi.documents,
+      settings:           doctorApi.settings,
+      notifications:      doctorApi.notifications,
     };
     const load = loaders[pageKey];
     if (!load || (!force && apiData[pageKey])) return;
@@ -104,8 +108,8 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'agenda'        && <DAgenda   data={apiData.agenda}        loading={apiLoading.agenda}        onReload={() => loadPage('agenda', true)}   {...p} />}
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'stats'         && <DStats    data={apiData.stats}         loading={apiLoading.stats}         {...p} />}
-      {page === 'messages'      && <PMsg setShowVid={setShowVid} {...p} />}
-      {page === 'documents'     && <PDocs {...p} />}
+      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} {...p} />}
+      {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'lab-requests'       && <DLabRequests     data={apiData['lab-requests']}       loading={apiLoading['lab-requests']}      onReload={() => loadPage('lab-requests', true)}      patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
@@ -115,7 +119,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'finances'    && <DFinances   data={apiData.finances}   loading={apiLoading.finances}   {...p} />}
       {page === 'reputation'  && <DReputation data={apiData.reputation} loading={apiLoading.reputation} {...p} />}
       {page === 'signature'   && <DSignature  data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
-      {page === 'settings'    && <SettingsPage {...p} />}
+      {page === 'settings'    && <SettingsPage data={apiData.settings} api={doctorApi} {...p} />}
     </div>
   );
 }

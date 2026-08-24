@@ -39,6 +39,7 @@ import {
 } from '../services/doctor.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
+import { upload, verifyUploadedFile } from '../middleware/upload.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog } from '../middleware/audit.js';
@@ -418,6 +419,48 @@ router.patch('/notifications/read-all', wrap(async (req, res) => {
   const { markAllNotificationsReadForUser } = await import('../services/notification.service.js');
   await markAllNotificationsReadForUser(req.user.id);
   res.json({ ok: true });
+}));
+
+/* ── Messages (doctor) ───────────────────────────── */
+router.get('/conversations', wrap(async (req, res) => {
+  const { getDoctorConversations } = await import('../services/doctor.service.js');
+  res.json(await getDoctorConversations(req.user.doctorId));
+}));
+router.get('/conversations/:id', wrap(async (req, res) => {
+  const { getDoctorConversation } = await import('../services/doctor.service.js');
+  res.json(await getDoctorConversation(req.user.doctorId, req.params.id));
+}));
+router.post('/conversations/:id/messages', wrap(async (req, res) => {
+  const { createDoctorMessage } = await import('../services/doctor.service.js');
+  res.json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
+}));
+router.patch('/conversations/:id/read', wrap(async (req, res) => {
+  const { markDoctorConversationRead } = await import('../services/doctor.service.js');
+  res.json(await markDoctorConversationRead(req.user.doctorId, req.params.id));
+}));
+
+/* ── Documents (doctor) ──────────────────────────── */
+router.get('/documents', wrap(async (req, res) => {
+  const { getDoctorDocuments } = await import('../services/doctor.service.js');
+  res.json(await getDoctorDocuments(req.user.doctorId));
+}));
+router.post('/documents', upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
+  const { createDoctorDocument } = await import('../services/doctor.service.js');
+  res.json(await createDoctorDocument(req.user.doctorId, req.body, req.file));
+}));
+router.delete('/documents/:id', wrap(async (req, res) => {
+  const { deleteDoctorDocument } = await import('../services/doctor.service.js');
+  res.json(await deleteDoctorDocument(req.user.doctorId, req.params.id));
+}));
+
+/* ── Settings (doctor) ───────────────────────────── */
+router.get('/settings', wrap(async (req, res) => {
+  const { getDoctorSettings } = await import('../services/doctor.service.js');
+  res.json(await getDoctorSettings(req.user.id));
+}));
+router.patch('/settings', wrap(async (req, res) => {
+  const { updateDoctorSettings } = await import('../services/doctor.service.js');
+  res.json(await updateDoctorSettings(req.user.id, req.body));
 }));
 
 export default router;

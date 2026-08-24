@@ -23,6 +23,8 @@ import PDocs from './pages/PDocs.jsx';
 import PNotes from './pages/PNotes.jsx';
 import PInsurance from './pages/PInsurance.jsx';
 import PPharmacy from './pages/PPharmacy.jsx';
+import PFamily from './pages/PFamily.jsx';
+import PPrivacy from './pages/PPrivacy.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 
 export { PMsg, PDocs, SettingsPage };
@@ -61,6 +63,11 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       wellness: patientApi.wellnessGoals,
       insurance: patientApi.insurance,
       pharmacy: patientApi.pharmacies,
+      family: patientApi.familyMembers,
+      privacy: async () => {
+        const [consents, accessLogs] = await Promise.all([patientApi.consents(), patientApi.accessLogs()]);
+        return { consents, accessLogs };
+      },
       settings: patientApi.settings,
     };
     const load = loaders[pageKey];
@@ -137,6 +144,8 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     wellness: <PWell data={apiData.wellness} profile={apiData.dashboard?.profile} onReload={(v) => replacePageData('wellness', v)} notify={notify} {...p} />,
     insurance: <PInsurance data={apiData.insurance} {...p} />,
     pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} {...p} />,
+    family: <PFamily data={apiData.family} onReload={(v) => replacePageData('family', v)} notify={notify} {...p} />,
+    privacy: <PPrivacy data={apiData.privacy} onReload={(v) => replacePageData('privacy', v)} notify={notify} {...p} />,
     settings: <SettingsPage data={apiData.settings} {...p} />
   };
 

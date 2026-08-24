@@ -6,7 +6,8 @@ import { ConfirmDialog } from '../../components/PatientModal.jsx';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
 
-export default function PDocs({ data, onReload, notify, card, sub, border, darkMode }) {
+export default function PDocs({ data, onReload, notify, card, sub, border, darkMode, api: apiOverride }) {
+  const api = apiOverride || patientApi;
   const [f, setF] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -49,8 +50,8 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
       if (pickedFile) fd.append('file', pickedFile);
       fd.append('title', docForm.title || pickedFile?.name || 'Document');
       fd.append('category', docForm.category);
-      await patientApi.uploadDocument(fd);
-      onReload?.(await patientApi.documents());
+      await api.uploadDocument(fd);
+      onReload?.(await api.documents());
       notify?.('Document ajouté');
       setShowForm(false);
       setDocForm({ title: '', category: 'prescription' });
@@ -65,8 +66,8 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   const deleteDocument = async (id) => {
     if (!id) return;
     try {
-      await patientApi.deleteDocument(id);
-      onReload?.(await patientApi.documents());
+      await api.deleteDocument(id);
+      onReload?.(await api.documents());
       notify?.('Document supprimé');
       setPendingDelete(null);
     } catch (error) {

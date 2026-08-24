@@ -987,3 +987,123 @@ export async function addVitalByDoctor(doctorId, patientId, payload) {
   );
   return { id, patientId, type: payload.type, value: payload.value, unit: payload.unit, measuredAt: now };
 }
+
+// ── Doctor Conversations ──────────────────────────
+export async function getDoctorConversations(doctorId) {
+  const [rows] = await pool.execute(
+    `SELECT c.*, p.first_name, p.last_name
+     FROM nova_conversations c
+     JOIN nova_patients p ON p.id = c.patient_id
+     WHERE c.doctor_id = ?
+     ORDER BY c.updated_at DESC`,
+    [doctorId]
+  );
+  return rows.map(r => ({
+    id: r.id, patientId: r.patient_id,
+    doctorName: r.doctor_name, doctorSpecialty: r.doctor_specialty,
+    patientName: `${r.first_name} ${r.last_name}`,
+    unreadCount: r.unread_count, lastMessage: r.last_message,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export async function getDoctorConversation(doctorId, convId) {
+  const [[conv]] = await pool.execute(
+    'SELECT * FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
+  );
+  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  const [messages] = await pool.execute(
+    'SELECT * FROM nova_messages WHERE conversation_id = ? ORDER BY created_at ASC', [convId]
+  );
+  return {
+    id: conv.id, patientId: conv.patient_id,
+    doctorName: conv.doctor_name, doctorSpecialty: conv.doctor_specialty,
+    messages: messages.map(m => ({
+      id: m.id, senderRole: m.sender_role, body: m.body,
+      attachmentName: m.attachment_name, isRead: !!m.is_read, createdAt: m.created_at,
+    })),
+  };
+}
+
+export async function createDoctorMessage(doctorId, convId, { body }) {
+  const [[conv]] = await pool.execute(
+    'SELECT id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
+  );
+  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await pool.execute(
+    'INSERT INTO nova_messages (id, conversation_id, sender_role, body, is_read, created_at) VALUES (?,?,?,?,0,?)',
+    [id, convId, 'doctor', body, now]
+  );
+  await pool.execute(
+    'UPDATE nova_conversations SET last_message = ?, unread_count = unread_count + 1, updated_at = ? WHERE id = ?',
+    [body, now, convId]
+  );
+  return { id, conversationId: convId, senderRole: 'doctor', body, createdAt: now };
+}
+
+export async function markDoctorConversationRead(doctorId, convId) {
+  const [[conv]] = await pool.execute(
+    'SELECT id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
+  );
+  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  await pool.execute('UPDATE nova_messages SET is_read = 1 WHERE conversation_id = ? AND sender_role = ?', [convId, 'patient']);
+  await pool.execute('UPDATE nova_conversations SET unread_count = 0 WHERE id = ?', [convId]);
+  return { ok: true };
+}
+
+// ── Doctor Documents ──────────────────────────────
+export async function getDoctorDocuments(doctorId) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM nova_documents WHERE patient_id = ? ORDER BY created_at DESC',
+    [doctorId]
+  );
+  return rows.map(r => ({
+    id: r.id, title: r.title, category: r.category,
+    mimeType: r.mime_type, sizeBytes: r.size_bytes,
+    filePath: r.file_path, createdAt: r.created_at,
+  }));
+}
+
+export async function createDoctorDocument(doctorId, body, file) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await pool.execute(
+    'INSERT INTO nova_documents (id, patient_id, title, category, mime_type, size_bytes, file_path, created_at) VALUES (?,?,?,?,?,?,?,?)',
+    [id, doctorId, body.title || file.originalname, body.category || 'other', file.mimetype, file.size, file.filename, now]
+  );
+  return { id, title: body.title || file.originalname, category: body.category || 'other', createdAt: now };
+}
+
+export async function deleteDoctorDocument(doctorId, docId) {
+  const [[doc]] = await pool.execute('SELECT file_path FROM nova_documents WHERE id = ? AND patient_id = ?', [docId, doctorId]);
+  if (!doc) throw Object.assign(new Error('Document introuvable'), { status: 404 });
+  await pool.execute('DELETE FROM nova_documents WHERE id = ?', [docId]);
+  if (doc.file_path) {
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const fullPath = path.join(process.cwd(), 'data', 'uploads', doc.file_path);
+    await fs.unlink(fullPath).catch(() => {});
+  }
+  return { ok: true };
+}
+
+// ── Doctor Settings ───────────────────────────────
+export async function getDoctorSettings(userId) {
+  const [[row]] = await pool.execute(
+    'SELECT settings_json FROM nova_patient_settings WHERE patient_id = ?', [userId]
+  );
+  if (!row) return {};
+  try { return JSON.parse(row.settings_json); } catch { return {}; }
+}
+
+export async function updateDoctorSettings(userId, payload) {
+  const json = JSON.stringify(payload);
+  await pool.execute(
+    `INSERT INTO nova_patient_settings (patient_id, settings_json, updated_at) VALUES (?, ?, NOW())
+     ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = NOW()`,
+    [userId, json]
+  );
+  return payload;
+}

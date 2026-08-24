@@ -51,4 +51,30 @@ export const doctorApi = {
   declineReferral: (id) => request(`/doctor/me/referrals/${id}/decline`, { method: 'POST' }),
   // Vitals par médecin
   addPatientVital: (patientId, payload) => request(`/doctor/me/patients/${patientId}/vitals`, { method: 'POST', body: JSON.stringify(payload) }),
+  // Notifications
+  notifications: () => request('/doctor/me/notifications'),
+  markNotificationRead: (id) => request(`/doctor/me/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () => request('/doctor/me/notifications/read-all', { method: 'PATCH' }),
+  // Messages
+  conversations: () => request('/doctor/me/conversations'),
+  conversation: (id) => request(`/doctor/me/conversations/${id}`),
+  sendMessage: (id, payload) => request(`/doctor/me/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(payload) }),
+  markConversationRead: (id) => request(`/doctor/me/conversations/${id}/read`, { method: 'PATCH' }),
+  // Documents
+  documents: () => request('/doctor/me/documents'),
+  deleteDocument: (id) => request(`/doctor/me/documents/${id}`, { method: 'DELETE' }),
+  uploadDocument: async (formData) => {
+    const { getToken } = await import('./client.js');
+    const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
+    const token = getToken();
+    const r = await fetch(`${API}/doctor/me/documents`, {
+      method: 'POST', body: formData, credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
+    return r.json();
+  },
+  // Settings
+  settings: () => request('/doctor/me/settings'),
+  updateSettings: (payload) => request('/doctor/me/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
 };

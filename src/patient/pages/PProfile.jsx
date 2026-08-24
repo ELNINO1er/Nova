@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, Phone, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren } from 'lucide-react';
+import { User, Calendar, Phone, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PProfile({ data, onSaved, card, sub, border, darkMode }) {
@@ -96,6 +96,10 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
         <div className="flex flex-col items-end gap-2">
           {saveError && <p className="text-xs text-red-200 bg-red-900/40 px-3 py-1 rounded-lg max-w-xs text-right">{saveError}</p>}
           <div className="flex gap-2">
+            <a href={patientApi.exportPdfUrl()} target="_blank" rel="noreferrer"
+              className="relative bg-white/20 text-white px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow">
+              <FileDown className="w-4 h-4" /> Exporter PDF
+            </a>
             {edit && <button onClick={() => { setEdit(false); setSaveError(''); }} className="relative bg-white/20 text-white px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow">
               <X className="w-4 h-4" /> Annuler
             </button>}

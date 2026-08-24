@@ -696,10 +696,10 @@ export async function getLabResult(patientId, id) {
   return {
     id: row.id,
     title: row.title,
-    laboratoryName: row.laboratory_name,
+    laboratoryName: row.lab_name,
     performedAt: row.performed_at,
     status: row.status,
-    doctorName: row.doctor_name,
+    doctorName: row.ordered_by,
     items: items.map(mapLabResultItem),
   };
 }

@@ -41,6 +41,10 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, badge
       {id:'wellness',  l:'Bien-être',   I:Target},
       {id:'insurance', l:'Assurance',   I:ShieldCheck},
     ]},
+    { t: 'FAMILLE & VIE PRIVÉE', i: [
+      {id:'family',  l:'Ma famille',    I:Users},
+      {id:'privacy', l:'Vie privée',    I:Lock},
+    ]},
     { t: 'COMPTE', i: [{id:'settings',l:'Paramètres',I:Settings}]}
   ] : role === 'doctor' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],

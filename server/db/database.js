@@ -733,7 +733,6 @@ async function createTables(conn) {
 
   /* ── Normalisation : ajouter doctor_id FK là où manquant ──── */
   const addFKColumns = [
-    'ALTER TABLE nova_appointments ADD COLUMN doctor_id_fk VARCHAR(36) DEFAULT NULL',
     'ALTER TABLE nova_conversations ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL',
     'ALTER TABLE nova_lab_results ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL',
   ];
@@ -820,7 +819,6 @@ async function createTables(conn) {
     'CREATE INDEX IF NOT EXISTS idx_ndr_patient ON nova_doctor_reputation (patient_id)',
     'CREATE INDEX IF NOT EXISTS idx_npi_prescription ON nova_prescription_items (prescription_id)',
     'CREATE INDEX IF NOT EXISTS idx_nlri_labresult ON nova_lab_result_items (lab_result_id)',
-    'CREATE INDEX IF NOT EXISTS idx_na_doctor_fk ON nova_appointments (doctor_id_fk)',
     'CREATE INDEX IF NOT EXISTS idx_nc_doctor ON nova_conversations (doctor_id)',
     'CREATE INDEX IF NOT EXISTS idx_nlr_doctor ON nova_lab_results (doctor_id)',
     'CREATE INDEX IF NOT EXISTS idx_nfm_member ON nova_family_members (member_patient_id)',
@@ -1055,7 +1053,7 @@ async function seedDoctors(conn) {
     await conn.query(
       `INSERT IGNORE INTO nova_doctors (id,first_name,last_name,specialty,sub_specialty,city,address,phone,rating,reviews_count,experience_years,languages,bio,avatar_initials,avatar_color,consultation_fee,accepts_cmu,is_available)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id,fn,ln,sp,subsp,city,addr,ph,rat,rev,exp,lang,bio,init,color,fee*1000,cmu,1]
+      [id,fn,ln,sp,subsp,city,addr,ph,rat,rev,exp,lang,bio,init,color,fee,cmu,1]
     );
   }
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Syringe, Check, Clock, AlertTriangle, ChevronRight, Search, QrCode, Shield, ShieldCheck } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
+import { patientApi } from '../../api/patientApi.js';
 
 export default function PVax({ data, card, sub, border, darkMode }) {
   const [showQR, setShowQR]   = useState(false);

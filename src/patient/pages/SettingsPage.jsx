@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Bell, Lock, Eye, Moon, Smartphone, HelpCircle, ChevronRight, HeartPulse, AlertCircle, BookOpen, Database, FileDown, HardDrive, Mail, MessageCircle, Palette, Phone, Shield, Wifi } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
-export default function SettingsPage({ data, card, sub, border, darkMode }) {
+export default function SettingsPage({ data, card, sub, border, darkMode, api: apiOverride }) {
+  const api = apiOverride || patientApi;
   const [as, setAs] = useState('notif');
   const [s, setS] = useState({
     notif: { pill: true, rdv: true, msg: true, eme: true, news: true, promo: false },
@@ -55,7 +56,7 @@ export default function SettingsPage({ data, card, sub, border, darkMode }) {
   const upd = async (cat, k, v) => {
     const next = { ...s, [cat]: { ...s[cat], [k]: v !== undefined ? v : !s[cat][k] } };
     setS(next);
-    await patientApi.updateSettings({
+    await api.updateSettings({
       notifications: {
         appointments: next.notif.rdv,
         medications: next.notif.pill,
