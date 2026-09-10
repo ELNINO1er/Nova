@@ -430,9 +430,12 @@ router.get('/conversations/:id', wrap(async (req, res) => {
   const { getDoctorConversation } = await import('../services/doctor.service.js');
   res.json(await getDoctorConversation(req.user.doctorId, req.params.id));
 }));
-router.post('/conversations/:id/messages', wrap(async (req, res) => {
+router.post('/conversations/:id/messages', validateBody(z.object({
+  body:           z.string().min(1).max(2000),
+  attachmentName: z.string().max(255).optional(),
+})), wrap(async (req, res) => {
   const { createDoctorMessage } = await import('../services/doctor.service.js');
-  res.json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
+  res.status(201).json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
 }));
 router.patch('/conversations/:id/read', wrap(async (req, res) => {
   const { markDoctorConversationRead } = await import('../services/doctor.service.js');
@@ -446,7 +449,7 @@ router.get('/documents', wrap(async (req, res) => {
 }));
 router.post('/documents', upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
   const { createDoctorDocument } = await import('../services/doctor.service.js');
-  res.json(await createDoctorDocument(req.user.doctorId, req.body, req.file));
+  res.status(201).json(await createDoctorDocument(req.user.doctorId, req.body, req.file));
 }));
 router.delete('/documents/:id', wrap(async (req, res) => {
   const { deleteDoctorDocument } = await import('../services/doctor.service.js');
@@ -458,7 +461,10 @@ router.get('/settings', wrap(async (req, res) => {
   const { getDoctorSettings } = await import('../services/doctor.service.js');
   res.json(await getDoctorSettings(req.user.id));
 }));
-router.patch('/settings', wrap(async (req, res) => {
+router.patch('/settings', validateBody(z.object({}).passthrough().refine(
+  (v) => JSON.stringify(v).length <= 8000,
+  { message: 'Paramètres trop volumineux.' },
+)), wrap(async (req, res) => {
   const { updateDoctorSettings } = await import('../services/doctor.service.js');
   res.json(await updateDoctorSettings(req.user.id, req.body));
 }));

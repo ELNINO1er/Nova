@@ -706,16 +706,23 @@ export async function getLabResult(patientId, id) {
 
 /* ─── Profil médical ─────────────────────────────────────────── */
 
+// mysql2 renvoie déjà les colonnes JSON désérialisées ; ne parser que les chaînes.
+function safeJson(value, fallback = []) {
+  if (value == null) return fallback;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 export async function getMedicalProfile(patientId) {
   const [[row]] = await pool.execute(
     'SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]
   );
   if (!row) return { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
   return {
-    allergies:       JSON.parse(row.allergies       || '[]'),
-    chronicDiseases: JSON.parse(row.chronic_diseases || '[]'),
-    familyHistory:   JSON.parse(row.family_history   || '[]'),
-    surgicalHistory: JSON.parse(row.surgical_history || '[]'),
+    allergies:       safeJson(row.allergies),
+    chronicDiseases: safeJson(row.chronic_diseases),
+    familyHistory:   safeJson(row.family_history),
+    surgicalHistory: safeJson(row.surgical_history),
     updatedAt:       row.updated_at,
   };
 }
@@ -805,9 +812,9 @@ export async function getEmergencyCard(patientId) {
 
   const [[mpRow]] = await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
   const mp = mpRow ? {
-    allergies:       JSON.parse(mpRow.allergies       || '[]'),
-    chronicDiseases: JSON.parse(mpRow.chronic_diseases || '[]'),
-    surgicalHistory: JSON.parse(mpRow.surgical_history || '[]'),
+    allergies:       safeJson(mpRow.allergies),
+    chronicDiseases: safeJson(mpRow.chronic_diseases),
+    surgicalHistory: safeJson(mpRow.surgical_history),
   } : { allergies: [], chronicDiseases: [], surgicalHistory: [] };
 
   const [activeTreatments] = await pool.execute(

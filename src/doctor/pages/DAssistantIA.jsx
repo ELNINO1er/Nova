@@ -34,29 +34,19 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
     })),
   ].slice(0, 6);
 
-  // Réponse IA simulée
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!query.trim()) return;
     const q = query.trim();
     setMessages(m => [...m, { role: 'user', text: q }]);
     setQuery('');
-    setTimeout(() => {
-      let reply = '';
-      const ql = q.toLowerCase();
-      if (ql.includes('hypertension') || ql.includes('tension'))
-        reply = '📋 Pour l\'hypertension artérielle : contrôlez la tension à chaque visite, prescrivez un bilan rénal annuel (créatinine, protéinurie), surveillez les facteurs de risque cardiovasculaires. Recommandez une réduction du sel < 5g/j et 30min d\'activité physique quotidienne.';
-      else if (ql.includes('diabète') || ql.includes('glucose') || ql.includes('glycémie'))
-        reply = '🩸 Pour le diabète de type 2 : HbA1c toutes les 3 mois jusqu\'à équilibre puis tous les 6 mois. Bilan lipidique annuel. Fond d\'œil + bilan rénal annuel. Surveillance des pieds à chaque consultation. Éducation thérapeutique systématique.';
-      else if (ql.includes('patient') && ql.includes('risque'))
-        reply = `⚠️ J\'ai identifié ${chronic.filter(p => p.risk === 'high').length} patient(s) à risque critique parmi vos patients chroniques. Je vous recommande de les contacter en priorité pour un bilan de suivi.`;
-      else if (ql.includes('consultat') || ql.includes('stats'))
-        reply = `📈 Ce mois, vous avez réalisé ${stats.monthConsultations || '—'} consultations. Vos 3 pathologies les plus fréquentes : ${(stats.diagnoses || []).slice(0, 3).map(d => d.name).join(', ') || '—'}.`;
-      else if (ql.includes('ordonnance') || ql.includes('prescription'))
-        reply = '💊 Rappel légal : toute ordonnance doit comporter votre nom, n° RPPS, la date, le nom du patient et les médicaments avec posologie complète. La durée de validité est limitée selon les classes de médicaments (3 mois pour les stupéfiants).';
-      else
-        reply = `Je n\'ai pas de réponse précise pour "${q}" dans ma base de connaissances actuelle. Je vous suggère de consulter les recommandations HAS ou de créer une alerte de suivi pour ce patient.`;
-      setMessages(m => [...m, { role: 'ai', text: reply }]);
-    }, 800);
+    const highRiskCount = chronic.filter(p => p.risk === 'high').length;
+    try {
+      const reply = await doctorApi.assistant(q, { highRiskCount });
+      const prefix = reply.risk === 'emergency' ? 'Urgence potentielle : ' : reply.risk === 'warning' ? 'Attention : ' : '';
+      setMessages(m => [...m, { role: 'ai', text: `${prefix}${reply.answer}\n\n${reply.disclaimer}` }]);
+    } catch (err) {
+      setMessages(m => [...m, { role: 'ai', text: `Service assistant indisponible. ${err.message || ''}`.trim() }]);
+    }
   };
 
   const levelCls = { critical: 'border-red-200 bg-red-50', warning: 'border-amber-200 bg-amber-50', info: 'border-blue-200 bg-blue-50' };

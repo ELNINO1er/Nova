@@ -13,20 +13,42 @@ export const pool = mysql.createPool({
   timezone: '+00:00',
 });
 
+const IDEMPOTENT_DDL_ERRORS = new Set([
+  'ER_DUP_FIELDNAME',
+  'ER_DUP_KEYNAME',
+  'ER_FK_DUP_NAME',
+  'ER_TABLE_EXISTS_ERROR',
+]);
+
+async function runIdempotentDdl(conn, sql) {
+  try {
+    await conn.query(sql);
+  } catch (error) {
+    if (!IDEMPOTENT_DDL_ERRORS.has(error.code)) throw error;
+  }
+}
+
 export async function initDb() {
   const conn = await pool.getConnection();
   try {
     await createTables(conn);
-    await seedDemo(conn);
-    await seedVitalHistory(conn);
-    await seedDoctors(conn);
-    await seedNotifications(conn);
-    await seedWellnessGoals(conn);
-    await seedUsers(conn);
-    await seedInsurance(conn);
-    await seedPharmacies(conn);
-    await seedDoctorUser(conn);
-    await seedDoctorData(conn);
+    // SEED_DEMO=true insère les comptes/données de démonstration.
+    // Autorisé en production (phase de validation) — idempotent, activé explicitement via l'env.
+    if (process.env.SEED_DEMO === 'true') {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[seed] SEED_DEMO=true : insertion des données de démonstration en production.');
+      }
+      await seedDemo(conn);
+      await seedVitalHistory(conn);
+      await seedDoctors(conn);
+      await seedNotifications(conn);
+      await seedWellnessGoals(conn);
+      await seedUsers(conn);
+      await seedInsurance(conn);
+      await seedPharmacies(conn);
+      await seedDoctorUser(conn);
+      await seedDoctorData(conn);
+    }
     await seedRbac(conn);
     await createOperationalTables(conn);
     await addForeignKeys(conn);
@@ -204,7 +226,21 @@ async function createTables(conn) {
     )
   `);
   // migration : ajouter file_path si table existait déjà sans cette colonne
-  await conn.query(`ALTER TABLE nova_documents ADD COLUMN file_path VARCHAR(500)`).catch(() => {});
+  await runIdempotentDdl(conn, `ALTER TABLE nova_documents ADD COLUMN file_path VARCHAR(500)`);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctor_documents (
+      id VARCHAR(36) PRIMARY KEY,
+      doctor_id VARCHAR(36) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      mime_type VARCHAR(100),
+      size_bytes INT,
+      file_path VARCHAR(500),
+      created_at VARCHAR(30) NOT NULL,
+      INDEX idx_ndd_doctor (doctor_id)
+    )
+  `);
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS nova_lab_results (
@@ -329,6 +365,14 @@ async function createTables(conn) {
   await conn.query(`
     CREATE TABLE IF NOT EXISTS nova_patient_settings (
       patient_id VARCHAR(36) PRIMARY KEY,
+      settings_json TEXT NOT NULL,
+      updated_at VARCHAR(30) NOT NULL
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_doctor_settings (
+      user_id VARCHAR(36) PRIMARY KEY,
       settings_json TEXT NOT NULL,
       updated_at VARCHAR(30) NOT NULL
     )
@@ -469,10 +513,10 @@ async function createTables(conn) {
   /* ── Phase 5A : Espace médecin ──────────────────────────────── */
 
   // Migration : ajouter doctor_id aux rendez-vous et aux utilisateurs
-  await conn.query(`ALTER TABLE nova_appointments ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
-  await conn.query(`ALTER TABLE nova_appointments ADD INDEX idx_na_doctor (doctor_id)`).catch(() => {});
-  await conn.query(`ALTER TABLE nova_users ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
-  await conn.query(`ALTER TABLE nova_users ADD COLUMN pharmacy_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
+  await runIdempotentDdl(conn, `ALTER TABLE nova_appointments ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_appointments ADD INDEX idx_na_doctor (doctor_id)`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_users ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_users ADD COLUMN pharmacy_id VARCHAR(36) DEFAULT NULL`);
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS nova_consultations (
@@ -523,11 +567,11 @@ async function createTables(conn) {
   `);
 
   /* ── Phase 5D : Signature + Finances ────────────────────────── */
-  await conn.query(`ALTER TABLE nova_doctors ADD COLUMN signature_data TEXT DEFAULT NULL`).catch(() => {});
+  await runIdempotentDdl(conn, `ALTER TABLE nova_doctors ADD COLUMN signature_data TEXT DEFAULT NULL`);
 
   /* ── Phase 5B : Ordonnances médecin ─────────────────────────── */
-  await conn.query(`ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`).catch(() => {});
-  await conn.query(`ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`).catch(() => {});
+  await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`);
 
   /* ── Phase 5C : Suivi chroniques + Urgences ──────────────────── */
   await conn.query(`
@@ -728,7 +772,7 @@ async function createTables(conn) {
     'ALTER TABLE nova_pharmacies ADD COLUMN created_at VARCHAR(30)',
   ];
   for (const sql of addColumns) {
-    await conn.query(sql).catch(() => {});
+    await runIdempotentDdl(conn, sql);
   }
 
   /* ── Normalisation : ajouter doctor_id FK là où manquant ──── */
@@ -737,7 +781,7 @@ async function createTables(conn) {
     'ALTER TABLE nova_lab_results ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL',
   ];
   for (const sql of addFKColumns) {
-    await conn.query(sql).catch(() => {});
+    await runIdempotentDdl(conn, sql);
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -808,23 +852,23 @@ async function createTables(conn) {
     'ALTER TABLE nova_notifications ADD INDEX idx_nnot_user (user_id)',
   ];
   for (const sql of notifMigrations) {
-    await conn.query(sql).catch(() => {});
+    await runIdempotentDdl(conn, sql);
   }
 
   // Add missing indexes (idempotent via IF NOT EXISTS / IGNORE)
   const indexes = [
-    'CREATE INDEX IF NOT EXISTS idx_nms_medication ON nova_medication_schedules (medication_id)',
-    'CREATE INDEX IF NOT EXISTS idx_npo_pharmacy ON nova_pharmacy_orders (pharmacy_id)',
-    'CREATE INDEX IF NOT EXISTS idx_npo_prescription ON nova_pharmacy_orders (prescription_id)',
-    'CREATE INDEX IF NOT EXISTS idx_ndr_patient ON nova_doctor_reputation (patient_id)',
-    'CREATE INDEX IF NOT EXISTS idx_npi_prescription ON nova_prescription_items (prescription_id)',
-    'CREATE INDEX IF NOT EXISTS idx_nlri_labresult ON nova_lab_result_items (lab_result_id)',
-    'CREATE INDEX IF NOT EXISTS idx_nc_doctor ON nova_conversations (doctor_id)',
-    'CREATE INDEX IF NOT EXISTS idx_nlr_doctor ON nova_lab_results (doctor_id)',
-    'CREATE INDEX IF NOT EXISTS idx_nfm_member ON nova_family_members (member_patient_id)',
+    'CREATE INDEX idx_nms_medication ON nova_medication_schedules (medication_id)',
+    'CREATE INDEX idx_npo_pharmacy ON nova_pharmacy_orders (pharmacy_id)',
+    'CREATE INDEX idx_npo_prescription ON nova_pharmacy_orders (prescription_id)',
+    'CREATE INDEX idx_ndr_patient ON nova_doctor_reputation (patient_id)',
+    'CREATE INDEX idx_npi_prescription ON nova_prescription_items (prescription_id)',
+    'CREATE INDEX idx_nlri_labresult ON nova_lab_result_items (lab_result_id)',
+    'CREATE INDEX idx_nc_doctor ON nova_conversations (doctor_id)',
+    'CREATE INDEX idx_nlr_doctor ON nova_lab_results (doctor_id)',
+    'CREATE INDEX idx_nfm_member ON nova_family_members (member_patient_id)',
   ];
   for (const sql of indexes) {
-    await conn.query(sql).catch(() => {});
+    await runIdempotentDdl(conn, sql);
   }
 }
 
@@ -901,17 +945,17 @@ async function seedDemo(conn) {
   `);
 
   await conn.query(`
-    INSERT INTO nova_conversations (id, patient_id, doctor_name, doctor_specialty, unread_count, last_message, updated_at) VALUES
-    ('conv-1','patient-demo','Dr. Aïcha Touré','Cardiologie',2,'Merci de surveiller votre tension.','2026-04-28T09:00:00.000Z'),
-    ('conv-2','patient-demo','Dr. Yao Konan','Médecine générale',1,'Votre rendez-vous est confirmé pour le 15 mai.','2026-04-27T15:10:00.000Z'),
-    ('conv-3','patient-demo','Dr. Mariam Bamba','Endocrinologie',0,'À bientôt pour le suivi.','2026-04-20T11:00:00.000Z')
+    INSERT INTO nova_conversations (id, patient_id, doctor_id, doctor_name, doctor_specialty, unread_count, last_message, updated_at) VALUES
+    ('conv-1','patient-demo','doc-001','Dr. Aïcha Touré','Cardiologie',2,'Merci de surveiller votre tension.','2026-04-28T09:00:00.000Z'),
+    ('conv-2','patient-demo','doc-003','Dr. Yao Konan','Médecine générale',1,'Votre rendez-vous est confirmé pour le 15 mai.','2026-04-27T15:10:00.000Z'),
+    ('conv-3','patient-demo','doc-004','Dr. Mariam Bamba','Endocrinologie',0,'À bientôt pour le suivi.','2026-04-20T11:00:00.000Z')
   `);
 
   await conn.query(`
     INSERT INTO nova_messages (id, conversation_id, sender_role, body, is_read, created_at) VALUES
-    ('msg-1','conv-1','patient','Bonjour Docteur, j'ai mesuré ma tension ce matin : 14/9. Est-ce que c'est inquiétant ?',1,'2026-04-28T07:45:00.000Z'),
+    ('msg-1','conv-1','patient','Bonjour Docteur, j''ai mesuré ma tension ce matin : 14/9. Est-ce que c''est inquiétant ?',1,'2026-04-28T07:45:00.000Z'),
     ('msg-2','conv-1','doctor','Bonjour Kouamé. Cette valeur est légèrement élevée. Avez-vous bien pris votre Amlodipine ce matin ?',1,'2026-04-28T08:15:00.000Z'),
-    ('msg-3','conv-1','patient','Oui, je l'ai prise à 8h comme d'habitude.',1,'2026-04-28T08:30:00.000Z'),
+    ('msg-3','conv-1','patient','Oui, je l''ai prise à 8h comme d''habitude.',1,'2026-04-28T08:30:00.000Z'),
     ('msg-4','conv-1','doctor','Très bien. Surveillez votre tension ce soir. Si elle dépasse 16/10, contactez-moi immédiatement.',0,'2026-04-28T08:45:00.000Z'),
     ('msg-5','conv-1','doctor','Merci de surveiller votre tension.',0,'2026-04-28T09:00:00.000Z'),
     ('msg-6','conv-2','doctor','Bonjour, je confirme votre rendez-vous du 15 mai à 9h00 pour votre bilan de santé.',1,'2026-04-27T14:00:00.000Z'),
@@ -928,10 +972,10 @@ async function seedDemo(conn) {
   `);
 
   await conn.query(`
-    INSERT INTO nova_lab_results (id, patient_id, title, lab_name, ordered_by, performed_at, status, notes) VALUES
-    ('lr-1','patient-demo','Bilan métabolique complet','Laboratoire PISAM','Dr. Mariam Bamba','2026-04-18T07:45:00.000Z','available','Prélèvement à jeun depuis 12h.'),
-    ('lr-2','patient-demo','Numération formule sanguine (NFS)','Laboratoire PISAM','Dr. Aïcha Touré','2026-03-10T08:00:00.000Z','reviewed','Résultats normaux dans l''ensemble.'),
-    ('lr-3','patient-demo','Bilan lipidique','Laboratoire CHU Treichville','Dr. Yao Konan','2026-01-22T07:30:00.000Z','reviewed',NULL)
+    INSERT INTO nova_lab_results (id, patient_id, doctor_id, title, lab_name, ordered_by, performed_at, status, notes) VALUES
+    ('lr-1','patient-demo','doc-004','Bilan métabolique complet','Laboratoire PISAM','Dr. Mariam Bamba','2026-04-18T07:45:00.000Z','available','Prélèvement à jeun depuis 12h.'),
+    ('lr-2','patient-demo','doc-001','Numération formule sanguine (NFS)','Laboratoire PISAM','Dr. Aïcha Touré','2026-03-10T08:00:00.000Z','reviewed','Résultats normaux dans l''ensemble.'),
+    ('lr-3','patient-demo','doc-003','Bilan lipidique','Laboratoire CHU Treichville','Dr. Yao Konan','2026-01-22T07:30:00.000Z','reviewed',NULL)
   `);
 
   await conn.query(`
@@ -1039,10 +1083,10 @@ async function seedDoctors(conn) {
   if (existing) return;
 
   const doctors = [
-    ['doc-001','Abdoulaye','Koné','Cardiologie','Cardiologie interventionnelle','Abidjan - Plateau','Immeuble Médical, Av. Terrasson de Fougères','+225 27 20 31 00 01',4.9,127,18,'fr',6,'Spécialiste en maladies cardiovasculaires avec 18 ans d\'expérience. Ancien interne à l\'Hôpital de Paris.','AK','red',25000,1],
+    ['doc-001','Aïcha','Touré','Cardiologie','Cardiologie interventionnelle','Abidjan - Plateau','Immeuble Médical, Av. Terrasson de Fougères','+225 27 20 31 00 01',4.9,127,18,'fr',6,'Spécialiste en maladies cardiovasculaires avec 18 ans d\'expérience. Ancienne interne à l\'Hôpital de Paris.','AT','red',25000,1],
     ['doc-002','Mariam','Touré','Gynécologie-Obstétrique','Grossesse à risque','Abidjan - Cocody','Clinique Sainte Marie, Cocody','+225 27 22 44 33 00',4.8,98,12,'fr',4,'Gynécologue obstétricienne dédiée à la santé maternelle et féminine.','MT','purple',20000,1],
-    ['doc-003','Sékou','Bamba','Médecine générale',null,'Abidjan - Yopougon','Centre de Santé de Yopougon','+225 27 23 55 66 77',4.7,203,8,'fr',3,'Médecin généraliste de proximité, prise en charge globale du patient.','SB','blue',10000,1],
-    ['doc-004','Ibrahim','Coulibaly','Endocrinologie','Diabétologie','Abidjan - Deux-Plateaux','Clinique les 2 Plateaux','+225 27 22 41 00 30',4.8,76,15,'fr',5,'Expert en diabète et maladies métaboliques. Formé à l\'Université de Bordeaux.','IC','orange',22000,1],
+    ['doc-003','Yao','Konan','Médecine générale',null,'Abidjan - Yopougon','Centre de Santé de Yopougon','+225 27 23 55 66 77',4.7,203,8,'fr',3,'Médecin généraliste de proximité, prise en charge globale du patient.','YK','blue',10000,1],
+    ['doc-004','Mariam','Bamba','Endocrinologie','Diabétologie','Abidjan - Deux-Plateaux','Clinique les 2 Plateaux','+225 27 22 41 00 30',4.8,76,15,'fr',5,'Experte en diabète et maladies métaboliques. Formée à l\'Université de Bordeaux.','MB','orange',22000,1],
     ['doc-005','Fatou','Ouattara','Pédiatrie','Néonatologie','Abidjan - Treichville','CHU de Treichville, Pédiatrie','+225 27 21 75 12 12',4.9,154,10,'fr',3,'Pédiatre passionnée par le suivi de l\'enfant de la naissance à l\'adolescence.','FO','emerald',15000,1],
     ['doc-006','Amadou','Diallo','Neurologie',null,'Abidjan - Marcory','Clinique Marcory','+225 27 21 26 00 90',4.6,45,20,'fr,en',6,'Neurologue spécialisé dans les AVC, l\'épilepsie et les céphalées chroniques.','AD','indigo',30000,0],
     ['doc-007','Paul','N\'Goran','Dermatologie','Dermatologie esthétique','Abidjan - Cocody','Dermacos, Riviera 2','+225 27 22 49 17 17',4.7,89,14,'fr',4,'Dermatologue expert en maladies cutanées et en dermatologie esthétique.','PN','pink',18000,1],
@@ -1087,10 +1131,10 @@ async function seedNotifications(conn) {
 
   const now = new Date();
   const notifs = [
-    ['notif-001','patient-demo','appointment','RDV demain à 10h00','Dr. Koné Abdoulaye – Cardiologie – Clinique du Plateau','rdv', '2026-05-28T08:00:00.000Z'],
+    ['notif-001','patient-demo','appointment','RDV demain à 10h00','Dr. Aïcha Touré – Cardiologie – Clinique du Plateau','rdv', '2026-05-28T08:00:00.000Z'],
     ['notif-002','patient-demo','medication','Médicament manqué','Vous n\'avez pas pris votre Metformine ce soir.','pilulier', '2026-05-28T21:00:00.000Z'],
     ['notif-003','patient-demo','vaccine','Vaccin à renouveler','Votre vaccin contre la fièvre typhoïde arrive à expiration dans 30 jours.','vaccinations', '2026-05-27T09:00:00.000Z'],
-    ['notif-004','patient-demo','message','Nouveau message','Dr. Coulibaly Ibrahim vous a répondu.','messages', '2026-05-27T14:30:00.000Z'],
+    ['notif-004','patient-demo','message','Nouveau message','Dr. Mariam Bamba vous a répondu.','messages', '2026-05-27T14:30:00.000Z'],
     ['notif-005','patient-demo','result','Résultats disponibles','Votre bilan lipidique du 25/05/2026 est prêt.','labresults', '2026-05-25T16:00:00.000Z'],
   ];
 
@@ -1364,6 +1408,6 @@ async function addForeignKeys(conn) {
   ];
 
   for (const sql of foreignKeys) {
-    await conn.query(sql).catch(() => {});
+    await runIdempotentDdl(conn, sql);
   }
 }

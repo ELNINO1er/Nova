@@ -56,8 +56,15 @@ export async function sendSms(to, message) {
   if (provider === 'twilio') return sendViaTwilio(to, message);
   if (provider === 'webhook') return sendViaWebhook(to, message);
 
+  // Mode démonstration : aucun SMS réel, le code est renvoyé à l'écran (voir auth.service).
+  // Fonctionne aussi en production pour la phase de validation avec des médecins.
+  if (provider === 'demo') {
+    console.info(`[sms:demo] ${to} ${message}`);
+    return { ok: true, provider: 'demo' };
+  }
+
   if (isProduction) {
-    throw new Error('SMS_PROVIDER must be configured in production.');
+    throw new Error('SMS_PROVIDER must be configured in production (twilio, webhook ou demo).');
   }
 
   console.info(`[sms:dev] ${to} ${message}`);

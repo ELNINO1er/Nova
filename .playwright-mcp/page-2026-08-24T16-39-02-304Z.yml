@@ -1,0 +1,59 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e12]:
+        - heading "NOVA" [level=1] [ref=f1e13]
+        - paragraph [ref=f1e14]: Carnet Santé Ivoirien
+      - generic [ref=f1e15]: Espace docteur
+      - generic [ref=f1e21]:
+        - button "Mode sombre" [ref=f1e22] [cursor=pointer]
+        - button "Notifications" [ref=f1e25] [cursor=pointer]
+        - button "AT Dr. Aïcha Touré Se déconnecter" [ref=f1e30] [cursor=pointer]:
+          - generic [ref=f1e31]: AT
+          - generic [ref=f1e32]:
+            - paragraph [ref=f1e33]: Dr. Aïcha Touré
+            - paragraph [ref=f1e34]: Se déconnecter
+  - generic [ref=f1e35]:
+    - complementary [ref=f1e36]:
+      - navigation [ref=f1e37]:
+        - generic [ref=f1e38]:
+          - paragraph [ref=f1e39]: PRINCIPAL
+          - generic [ref=f1e40]:
+            - button "Tableau de bord" [ref=f1e41] [cursor=pointer]
+            - button "Mes patients" [ref=f1e45] [cursor=pointer]
+            - button "Nouveau patient" [ref=f1e52] [cursor=pointer]
+        - generic [ref=f1e58]:
+          - paragraph [ref=f1e59]: ACTIVITÉ
+          - generic [ref=f1e60]:
+            - button "Agenda RDV" [ref=f1e61] [cursor=pointer]
+            - button "Consultations" [ref=f1e67] [cursor=pointer]
+            - button "Ordonnances" [ref=f1e72] [cursor=pointer]
+            - button "Demandes labo" [ref=f1e78] [cursor=pointer]
+            - button "Statistiques" [ref=f1e84] [cursor=pointer]
+        - generic [ref=f1e89]:
+          - paragraph [ref=f1e90]: CLINIQUE
+          - generic [ref=f1e91]:
+            - button "Suivi chroniques" [ref=f1e92] [cursor=pointer]
+            - button "Urgences & Alertes" [ref=f1e97] [cursor=pointer]
+            - button "Assistant IA Nova" [ref=f1e101] [cursor=pointer]
+        - generic [ref=f1e113]:
+          - paragraph [ref=f1e114]: GESTION
+          - generic [ref=f1e115]:
+            - button "Finances" [ref=f1e116] [cursor=pointer]
+            - button "Réputation & Avis" [ref=f1e121] [cursor=pointer]
+            - button "Signature électronique" [ref=f1e126] [cursor=pointer]
+        - generic [ref=f1e130]:
+          - paragraph [ref=f1e131]: COMMUNICATION
+          - generic [ref=f1e132]:
+            - button "Messages" [ref=f1e133] [cursor=pointer]
+            - button "Documents" [ref=f1e137] [cursor=pointer]
+        - generic [ref=f1e142]:
+          - paragraph [ref=f1e143]: COMPTE
+          - generic [ref=f1e144]:
+            - button "Mon profil" [ref=f1e145] [cursor=pointer]
+            - button "Paramètres" [ref=f1e150] [cursor=pointer]
+      - generic [ref=f1e158]:
+        - paragraph [ref=f1e161]: Aide & Support
+        - paragraph [ref=f1e162]: 24h/24 • 7j/7
+        - button "Contacter" [ref=f1e163] [cursor=pointer]
+    - main [ref=f1e164]

@@ -76,7 +76,12 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
 
     setApiLoading((current) => ({ ...current, [pageKey]: true }));
     load()
-      .then((data) => {
+      .then((raw) => {
+        // Déballe les enveloppes paginées { data:[...], pagination } en tableau,
+        // pour un format de liste uniforme côté composants.
+        const data = raw && !Array.isArray(raw) && Array.isArray(raw.data) && raw.pagination
+          ? raw.data
+          : raw;
         setApiData((current) => ({ ...current, [pageKey]: data }));
         setApiError('');
       })

@@ -74,7 +74,7 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
           <Bot className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold">Assistant Nova</h2>
+          <h2 className="text-2xl font-bold">Assistant IA Nova</h2>
           <p className={`text-xs ${sub}`}>IA Santé · Informations générales uniquement</p>
         </div>
         <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1">

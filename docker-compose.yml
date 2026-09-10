@@ -33,8 +33,17 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-nova_root_pass}
       DB_NAME: ${DB_NAME:-sika_sante}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
       NODE_ENV: production
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5174}
+      WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
+      # Validation : SEED_DEMO=true + SMS_PROVIDER=demo → comptes démo + code OTP affiché à l'écran.
+      SEED_DEMO: ${SEED_DEMO:-false}
+      SMS_PROVIDER: ${SMS_PROVIDER:?SMS_PROVIDER is required}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM: ${TWILIO_FROM:-}
     volumes:
       - nova_uploads:/app/data/uploads
 

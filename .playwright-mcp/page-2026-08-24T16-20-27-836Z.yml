@@ -1,0 +1,26 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e11]:
+        - heading "NOVA" [level=1] [ref=e12]
+        - paragraph [ref=e13]: Carnet Sante Ivoirien
+      - generic [ref=e14]:
+        - text: Plateforme Sante securisee
+        - heading "Votre sante, en toute serenite." [level=2] [ref=e15]: Votre sante,en toute serenite.
+        - paragraph [ref=e16]: Acces patient, medecin, pharmacie et administration avec OTP.
+      - generic [ref=e17]: RBAC, audit et sessions securisees
+  - main [ref=e21]:
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - heading "Bienvenue" [level=3] [ref=e25]
+        - paragraph [ref=e26]: Choisissez votre mode de connexion.
+      - generic [ref=e27]:
+        - button "Patient" [ref=e28] [cursor=pointer]
+        - button "Medecin" [ref=e32] [cursor=pointer]
+      - generic [ref=e37]:
+        - text: Numero de telephone
+        - generic [ref=e38]:
+          - generic [ref=e39]: "+225"
+          - textbox "07 89 45 23 11" [active] [ref=e40]
+      - button "Recevoir le code" [disabled] [ref=e43]
+      - paragraph [ref=e46]: Un code a 4 chiffres sera envoye par SMS.

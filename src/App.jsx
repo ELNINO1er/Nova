@@ -4,7 +4,7 @@ import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
-import { AyaChat, ConsModal, CreateDoctorModal, CreatePatientModal, QRModal, RxModal, VideoModal } from './modals/index.jsx';
+import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
@@ -66,26 +66,36 @@ export default function App() {
     } catch {}
     return null;
   });
-  const [auth, setAuth] = useState(() => {
-    try {
-      return localStorage.getItem('nova_user') ? 'ok' : 'login';
-    } catch {}
-    return 'login';
-  });
+  const [auth, setAuth] = useState('checking');
   const [page, setPage] = useState('dashboard');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('nova_darkMode') === 'true');
   const [showQR, setShowQR] = useState(false);
-  const [showAya, setShowAya] = useState(false);
-  const [showRx, setShowRx] = useState(false);
-  const [showCons, setShowCons] = useState(false);
   const [showCP, setShowCP] = useState(false);
-  const [showCD, setShowCD] = useState(false);
   const [showVid, setShowVid] = useState(false);
   const [patientCreatedTick, setPatientCreatedTick] = useState(0);
   const [badges, setBadges] = useState({});
   const [pills, setPills] = useState({});
   const [sbOpen, setSbOpen] = useState(false);
   const role = user?.role || 'patient';
+
+  useEffect(() => {
+    let cancelled = false;
+    authApi.me().then((sessionUser) => {
+      if (cancelled) return;
+      const restored = { ...user, ...sessionUser };
+      localStorage.setItem('nova_user', JSON.stringify(restored));
+      setUser(restored);
+      setAuth('ok');
+    }).catch(() => {
+      if (cancelled) return;
+      localStorage.removeItem('nova_user');
+      setUser(null);
+      setAuth('login');
+    });
+    return () => { cancelled = true; };
+    // Session restoration must run once on application startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-logout si le refresh token échoue
   useEffect(() => {
@@ -107,7 +117,6 @@ export default function App() {
 
   const onLogout = () => {
     authApi.logout().catch?.(() => {});
-    localStorage.removeItem('nova_token');
     localStorage.removeItem('nova_user');
     setUser(null);
     setBadges({});
@@ -131,6 +140,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [auth, role]);
 
+  if (auth === 'checking') return <PageFallback darkMode={darkMode} />;
   if (auth !== 'ok') return <Login auth={auth} setAuth={setAuth} onLogin={onLogin} />;
 
   const RoleIcon = ROLE_META[role]?.Icon || User;
@@ -185,7 +195,7 @@ export default function App() {
       <div className="flex-1 flex">
         {sbOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSbOpen(false)}></div>}
         <Sidebar role={role} page={page} setPage={(p) => { setPage(p); setSbOpen(false); }} sbOpen={sbOpen}
-          onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} badges={badges} {...props} />
+          onCP={() => setShowCP(true)} badges={badges} {...props} />
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -198,9 +208,9 @@ export default function App() {
                     setUser(updated);
                     localStorage.setItem('nova_user', JSON.stringify(updated));
                   }} {...props} />}
-                {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onRx={() => setShowRx(true)} onCons={() => setShowCons(true)} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
+                {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
                 {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
-                {role === 'admin' && <AdminPages page={page} onCP={() => setShowCP(true)} onCD={() => setShowCD(true)} {...props} />}
+                {role === 'admin' && <AdminPages page={page} {...props} />}
               </Suspense>
             </ErrorBoundary>
           </div>
@@ -208,15 +218,11 @@ export default function App() {
       </div>
 
       {showQR && <QRModal onClose={() => setShowQR(false)} />}
-      {showAya && <AyaChat onClose={() => setShowAya(false)} />}
-      {showRx && <RxModal onClose={() => setShowRx(false)} {...props} />}
-      {showCons && <ConsModal onClose={() => setShowCons(false)} {...props} />}
       {showCP && <CreatePatientModal onClose={() => setShowCP(false)} onCreated={() => setPatientCreatedTick(t => t + 1)} role={role} {...props} />}
-      {showCD && <CreateDoctorModal onClose={() => setShowCD(false)} {...props} />}
       {showVid && <VideoModal onClose={() => setShowVid(false)} />}
 
-      {role === 'patient' && !showAya && (
-        <button onClick={() => setShowAya(true)} className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">
+      {role === 'patient' && page !== 'assistant' && (
+        <button onClick={() => setPage('assistant')} className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">
           <Bot className="w-6 h-6" />
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white animate-pulse"></span>
         </button>

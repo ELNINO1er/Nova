@@ -8,20 +8,19 @@
     "dev:api": "nodemon server/index.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:api\"",
     "start": "node server/index.js",
+    "create:admin": "node server/scripts/create-admin.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.5.2",
-    "file-type": "^16.5.4",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.468.0",
@@ -33,15 +32,16 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.17.0",
     "swagger-ui-express": "^5.0.1",
-    "vite": "^7.1.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.20",
     "concurrently": "^10.0.3",
     "nodemon": "^3.1.14",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "vite": "^7.1.0",
     "vitest": "^4.1.8"
   }
 }

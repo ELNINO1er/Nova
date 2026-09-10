@@ -3,8 +3,14 @@ import { pool } from '../db/database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET env variable is required. Set it in .env');
+if (process.env.NODE_ENV === 'production' && JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must contain at least 32 characters in production.');
+}
 
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + '-refresh');
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_REFRESH_SECRET || REFRESH_SECRET.length < 32 || REFRESH_SECRET === JWT_SECRET)) {
+  throw new Error('JWT_REFRESH_SECRET must be distinct and contain at least 32 characters in production.');
+}
 
 /* ── Token blacklist (in-memory, swap for Redis in production) ── */
 const blacklistedTokens = new Set();

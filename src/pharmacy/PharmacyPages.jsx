@@ -20,6 +20,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
   const loadPage = (key, force = false) => {
     const loaders = {
       dashboard: pharmacyApi.dashboard,
+      settings:  pharmacyApi.dashboard,
       history:   pharmacyApi.dispenses,
     };
     const load = loaders[key];
@@ -45,6 +46,41 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
       {page === 'dashboard' && <PhDashboard data={apiData.dashboard} loading={apiLoading.dashboard} setPage={setPage} notify={notify} {...p} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
+      {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} {...p} />}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PARAMÈTRES PHARMACIE
+   ═══════════════════════════════════════════════════════════════ */
+function PhSettings({ data, loading, card, sub, border, darkMode }) {
+  if (loading && !data) return <PhSkeleton darkMode={darkMode} card={card} />;
+  const ph = data?.pharmacy || {};
+
+  return (
+    <div className="space-y-5">
+      <div className={`${card} border rounded-2xl p-5`}>
+        <h3 className="font-bold mb-4 flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-600" /> Informations de l'officine
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <InfoCell label="Nom" value={ph.name} sub={sub} />
+          <InfoCell label="Ville" value={ph.city} sub={sub} />
+          <InfoCell label="Téléphone" value={ph.phone} sub={sub} />
+          <InfoCell label="Adresse" value={ph.address} sub={sub} />
+        </div>
+      </div>
+
+      <div className={`${card} border rounded-2xl p-5`}>
+        <h3 className="font-bold mb-2 flex items-center gap-2">
+          <User className="w-5 h-5 text-emerald-600" /> Compte
+        </h3>
+        <p className={`text-sm ${sub}`}>
+          La gestion du compte et des préférences de l'officine sera disponible prochainement.
+          Pour toute modification, contactez l'administrateur.
+        </p>
+      </div>
     </div>
   );
 }

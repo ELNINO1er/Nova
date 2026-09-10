@@ -12,7 +12,7 @@ const router = Router();
 
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
   sameSite: 'lax',
   path: '/',
 };
@@ -70,14 +70,17 @@ router.post('/otp/verify', async (req, res, next) => {
     }
 
     const { user } = result;
+    // Les médecins doivent s'authentifier via le flux dédié (mot de passe + OTP),
+    // pas via l'OTP téléphone générique — sinon le mot de passe est contournable.
+    if (user.role === 'doctor') {
+      return res.status(403).json({ error: 'forbidden', message: 'Veuillez utiliser la connexion médecin dédiée.' });
+    }
     const tokenPayload = { id: user.id, role: user.role, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null };
     const token = signAccessToken(tokenPayload);
     const refreshToken = signRefreshToken(tokenPayload);
     setAuthCookies(res, token, refreshToken);
 
-    res.json({
-      token,
-      refreshToken,
+    res.set('Cache-Control', 'no-store').json({
       user: { id: user.id, role: user.role, name: user.name, avatar: user.avatar, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null },
     });
   } catch (err) { next(err); }
@@ -125,9 +128,7 @@ router.post('/doctor/otp/verify', async (req, res, next) => {
     const refreshToken = signRefreshToken(tokenPayload);
     setAuthCookies(res, token, refreshToken);
 
-    res.json({
-      token,
-      refreshToken,
+    res.set('Cache-Control', 'no-store').json({
       user: { id: user.id, role: user.role, name: user.name, avatar: user.avatar, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null },
     });
   } catch (err) { next(err); }
@@ -145,15 +146,16 @@ router.post('/login', async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'invalid_credentials', message: 'Code incorrect.' });
     }
+    if (user.role === 'doctor') {
+      return res.status(403).json({ error: 'forbidden', message: 'Veuillez utiliser la connexion médecin dédiée.' });
+    }
 
     const tokenPayload = { id: user.id, role: user.role, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null };
     const token = signAccessToken(tokenPayload);
     const refreshToken = signRefreshToken(tokenPayload);
     setAuthCookies(res, token, refreshToken);
 
-    res.json({
-      token,
-      refreshToken,
+    res.set('Cache-Control', 'no-store').json({
       user: { id: user.id, role: user.role, name: user.name, avatar: user.avatar, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null },
     });
   } catch (err) { next(err); }
@@ -179,13 +181,14 @@ router.post('/refresh', async (req, res, next) => {
     const newRefreshToken = signRefreshToken(tokenPayload);
     setAuthCookies(res, newToken, newRefreshToken);
 
-    res.json({ token: newToken, refreshToken: newRefreshToken });
+    res.set('Cache-Control', 'no-store').json({ ok: true });
   } catch (err) { next(err); }
 });
 
 /* ── POST /api/auth/logout — invalider le token ─────────────── */
-router.post('/logout', requireAuth, (req, res) => {
-  if (req.token) blacklistToken(req.token);
+router.post('/logout', (req, res) => {
+  const accessToken = getCookie(req, 'nova_access_token');
+  if (accessToken) blacklistToken(accessToken);
   const refreshToken = getCookie(req, 'nova_refresh_token');
   if (refreshToken) blacklistToken(refreshToken);
   clearAuthCookies(res);
@@ -204,12 +207,16 @@ router.get('/me', requireAuth, async (req, res, next) => {
       [req.user.role]
     );
 
-    res.json({
+    const [[account]] = await pool.execute('SELECT name, avatar FROM nova_users WHERE id = ? AND deleted_at IS NULL', [req.user.id]);
+    if (!account) return res.status(401).json({ error: 'account_inactive', message: 'Compte introuvable ou desactive.' });
+    res.set('Cache-Control', 'no-store').json({
       id: req.user.id,
       role: req.user.role,
       patientId: req.user.patientId,
       doctorId: req.user.doctorId,
       pharmacyId: req.user.pharmacyId,
+      name: account.name,
+      avatar: account.avatar,
       permissions: permissions.map(p => p.code),
     });
   } catch (err) { next(err); }

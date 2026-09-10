@@ -1,6 +1,4 @@
-import { request } from './client.js';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 async function authRequest(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -50,12 +48,6 @@ export const authApi = {
 
   logout: async () => {
     await authRequest('/auth/logout', { method: 'POST' }).catch(() => {});
-    localStorage.removeItem('nova_token');
-    localStorage.removeItem('nova_refresh_token');
     localStorage.removeItem('nova_user');
   },
-
-  getToken: () => '',
-  setToken: () => localStorage.removeItem('nova_token'),
-  setRefreshToken: () => localStorage.removeItem('nova_refresh_token'),
 };

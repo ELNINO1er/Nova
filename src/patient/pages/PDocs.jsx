@@ -4,7 +4,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatBytes, mapDocumentCategory } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export default function PDocs({ data, onReload, notify, card, sub, border, darkMode, api: apiOverride }) {
   const api = apiOverride || patientApi;

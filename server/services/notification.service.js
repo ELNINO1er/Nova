@@ -183,6 +183,7 @@ export async function getNotificationsForUser(userId, role) {
     const [rows] = await pool.execute(
       `SELECT * FROM nova_notifications
        WHERE (user_id = ? OR patient_id = ?)
+         AND (target_role IS NULL OR target_role = 'patient')
        ORDER BY created_at DESC LIMIT 50`,
       [userId, user?.patient_id || '']
     );

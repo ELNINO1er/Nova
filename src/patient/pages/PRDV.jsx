@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, Video, Plus, X, Check, Trash2, Edit3, Search, CalendarClock, Brain, CheckCircle2 } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatDateFull, formatShortDayMonth } from '../../utils/format.js';
@@ -8,13 +8,23 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [doctors, setDoctors] = useState([]);
   const [form, setForm] = useState({
     startsAt: '2026-06-01T09:00',
-    doctorName: 'Dr. Aïcha Touré',
-    specialty: 'Médecine générale',
-    location: 'CHU Treichville',
+    doctorId: '',
     mode: 'onsite',
   });
+
+  useEffect(() => {
+    let active = true;
+    patientApi.doctors()
+      .then((res) => {
+        if (!active) return;
+        setDoctors(Array.isArray(res) ? res : (res?.data || []));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   const rs = data?.length ? data.map((r) => {
     const date = new Date(r.startsAt);
     const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86400000));
@@ -27,6 +37,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       dl: daysLeft,
       v: r.mode === 'video',
       id: r.id,
+      doctorId: r.doctorId,
       startsAt: r.startsAt,
       status: r.status,
       mode: r.mode,
@@ -34,23 +45,26 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   }) : [];
   const resetRdvForm = () => {
     setEditingId(null);
-    setForm({ startsAt: '2026-06-01T09:00', doctorName: 'Dr. Aïcha Touré', specialty: 'Médecine générale', location: 'CHU Treichville', mode: 'onsite' });
+    setForm({ startsAt: '2026-06-01T09:00', doctorId: '', mode: 'onsite' });
   };
   const openEditRdv = (rdv) => {
     setEditingId(rdv.id);
     setForm({
       startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : '2026-06-01T09:00',
-      doctorName: rdv.dr,
-      specialty: rdv.sp,
-      location: rdv.l,
+      doctorId: rdv.doctorId || '',
       mode: rdv.mode || (rdv.v ? 'video' : 'onsite'),
     });
     setShowForm(true);
   };
   const saveRdv = async () => {
+    if (!editingId && !form.doctorId) {
+      notify?.('Veuillez sélectionner un médecin', 'error');
+      return;
+    }
     const payload = {
-      ...form,
       startsAt: new Date(form.startsAt).toISOString(),
+      doctorId: form.doctorId,
+      mode: form.mode,
       status: 'requested',
     };
     try {
@@ -100,14 +114,17 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
             <h3 className="font-bold mb-4">{editingId ? 'Modifier le rendez-vous' : 'Nouveau rendez-vous'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <input type="datetime-local" value={form.startsAt} onChange={(e) => setForm({...form, startsAt: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <input value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} placeholder="Médecin" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+              <select value={form.doctorId} disabled={!!editingId} onChange={(e) => setForm({...form, doctorId: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm md:col-span-2 disabled:opacity-60 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+                <option value="">{editingId ? 'Médecin (non modifiable)' : 'Sélectionner un médecin'}</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.fullName} — {d.specialty}{d.city ? ` (${d.city})` : ''}</option>
+                ))}
+              </select>
               <select value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                 <option value="onsite">Présentiel</option>
                 <option value="video">Téléconsultation</option>
               </select>
-              <input value={form.specialty} onChange={(e) => setForm({...form, specialty: e.target.value})} placeholder="Spécialité" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <input value={form.location} onChange={(e) => setForm({...form, location: e.target.value})} placeholder="Lieu" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <div className="flex gap-2">
+              <div className="flex gap-2 md:col-span-2">
                 <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">{editingId ? 'Modifier' : 'Créer'}</button>
                 <button onClick={() => { setShowForm(false); resetRdvForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
               </div>

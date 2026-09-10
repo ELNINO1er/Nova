@@ -1,5 +1,5 @@
-const CACHE_NAME = 'nova-app-shell-v1';
-const APP_SHELL = ['/', '/manifest.json'];
+const CACHE_NAME = 'nova-app-shell-v2';
+const APP_SHELL = ['/', '/manifest.json', '/nova-icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -19,7 +19,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(event.request).catch(() => new Response(
-        JSON.stringify({ error: 'offline', message: 'Connexion indisponible. Les donnees medicales ne sont pas servies depuis le cache.' }),
+        JSON.stringify({ error: 'offline', message: 'Connexion indisponible. Les données médicales ne sont pas servies depuis le cache.' }),
         { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
       ))
     );

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 /* ============== SIDEBAR ============== */
-export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, badges = {}, darkMode, sub, border }) {
+export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}, darkMode, sub, border }) {
   const sec = role === 'patient' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Accueil',I:Home},{id:'profile',l:'Mon profil',I:User}]},
     { t: 'SUIVI MÉDICAL', i: [
@@ -35,7 +35,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, badge
       {id:'doctors',  l:'Trouver un médecin', I:Stethoscope},
       {id:'pharmacy', l:'Pharmacie',          I:Pill},
       {id:'urgence',  l:'SOS Urgence',        I:Siren},
-      {id:'assistant',l:'Assistant Nova IA',  I:Bot},
+      {id:'assistant',l:'Assistant IA Nova',  I:Bot},
     ]},
     { t: 'BIEN-ÊTRE & ASSURANCE', i: [
       {id:'wellness',  l:'Bien-être',   I:Target},
@@ -60,8 +60,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, onCD, badge
     { t: 'COMPTE', i: [{id:'settings',l:'Paramètres',I:Settings}]}
   ] : [
     { t: 'GOUVERNANCE', i: [{id:'dashboard',l:'Tour de Contrôle',I:BarChart3},{id:'audit',l:"Journal d'audit",I:Lock}]},
-    { t: 'GESTION', i: [{id:'users',l:'Utilisateurs',I:Users}],
-      as: [{l:'Nouveau médecin',I:Stethoscope,on:onCD},{l:'Nouveau patient',I:UserPlus,on:onCP}]},
+    { t: 'GESTION', i: [{id:'users',l:'Utilisateurs',I:Users}]},
     { t: 'INFRASTRUCTURE', i: [{id:'system',l:'Système',I:ServerCog},{id:'settings',l:'Paramètres',I:Settings}]}
   ];
 

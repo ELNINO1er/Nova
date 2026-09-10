@@ -1,6 +1,6 @@
-import { request, getToken, toQuery } from './client.js';
+import { request, toQuery } from './client.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const patientApi = {
   dashboard: () => request('/patient/me/dashboard'),
@@ -33,10 +33,7 @@ export const patientApi = {
   vaccinations: () => request('/patient/me/vaccinations'),
   history: () => request('/patient/me/history'),
   documents: (params = {}) => request(`/patient/me/documents${toQuery(params)}`),
-  createDocument: (payload) => request('/patient/me/documents', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  }),
+  // Upload réel via uploadDocument (multipart) — voir plus bas.
   deleteDocument: (id) => request(`/patient/me/documents/${id}`, { method: 'DELETE' }),
   conversations: () => request('/patient/me/conversations'),
   conversation: (id) => request(`/patient/me/conversations/${id}`),
@@ -79,12 +76,10 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   uploadDocument: async (formData) => {
-    const token = getToken();
     const r = await fetch(`${API_BASE_URL}/patient/me/documents`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
     return r.json();

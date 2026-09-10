@@ -1,6 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
-
-export const getToken = () => '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 let refreshPromise = null;
 
@@ -37,8 +35,6 @@ export async function request(path, options = {}) {
       response = await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers });
     } else {
       // Refresh failed — force logout
-      localStorage.removeItem('nova_token');
-      localStorage.removeItem('nova_refresh_token');
       localStorage.removeItem('nova_user');
       window.dispatchEvent(new Event('nova:logout'));
       throw new Error('Session expirée. Veuillez vous reconnecter.');

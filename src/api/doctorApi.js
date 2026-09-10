@@ -64,12 +64,9 @@ export const doctorApi = {
   documents: () => request('/doctor/me/documents'),
   deleteDocument: (id) => request(`/doctor/me/documents/${id}`, { method: 'DELETE' }),
   uploadDocument: async (formData) => {
-    const { getToken } = await import('./client.js');
-    const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api';
-    const token = getToken();
+    const API = import.meta.env.VITE_API_BASE_URL || '/api';
     const r = await fetch(`${API}/doctor/me/documents`, {
       method: 'POST', body: formData, credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
     return r.json();

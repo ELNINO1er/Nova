@@ -32,7 +32,7 @@ export default function Login({ auth, setAuth, onLogin }) {
 
   const submit = async () => {
     setErr('');
-    if (mode === 'phone' && cleaned.length !== 10) return setErr('Numero invalide.');
+    if (mode === 'phone' && cleaned.length !== 10) return setErr('Numéro invalide.');
     if (mode === 'doctor' && (!email || password.length < 4)) return setErr('Email ou mot de passe invalide.');
 
     setLoad(true);
@@ -58,8 +58,6 @@ export default function Login({ auth, setAuth, onLogin }) {
       const data = mode === 'doctor'
         ? await authApi.verifyDoctorOtp(doctorOtpId, code)
         : await authApi.verifyOtp(cleaned, code);
-      authApi.setToken(data.token);
-      if (data.refreshToken) authApi.setRefreshToken(data.refreshToken);
       onLogin(data.user);
     } catch (error) {
       setErr(error.message || 'Code incorrect.');
@@ -93,16 +91,16 @@ export default function Login({ auth, setAuth, onLogin }) {
             </div>
             <div>
               <h1 className="text-2xl font-bold">NOVA</h1>
-              <p className="text-xs text-red-100">Carnet Sante Ivoirien</p>
+              <p className="text-xs text-red-100">Carnet Santé Ivoirien</p>
             </div>
           </div>
           <div>
-            <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-bold">Plateforme Sante securisee</span>
-            <h2 className="text-5xl font-bold leading-tight mt-5">Votre sante,<br /><span className="text-amber-300">en toute serenite.</span></h2>
-            <p className="text-red-100 mt-4 text-lg max-w-md">Acces patient, medecin, pharmacie et administration avec OTP.</p>
+            <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-bold">Plateforme Santé sécurisée</span>
+            <h2 className="text-5xl font-bold leading-tight mt-5">Votre santé,<br /><span className="text-amber-300">en toute sérénité.</span></h2>
+            <p className="text-red-100 mt-4 text-lg max-w-md">Accès patient, médecin, pharmacie et administration avec OTP.</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-red-100">
-            <ShieldCheck className="w-4 h-4" /> RBAC, audit et sessions securisees
+            <ShieldCheck className="w-4 h-4" /> RBAC, audit et sessions sécurisées
           </div>
         </div>
       </aside>
@@ -115,7 +113,7 @@ export default function Login({ auth, setAuth, onLogin }) {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900">NOVA</h1>
-              <p className="text-xs text-slate-500">Carnet Sante Ivoirien</p>
+              <p className="text-xs text-slate-500">Carnet Santé Ivoirien</p>
             </div>
           </div>
 
@@ -132,20 +130,20 @@ export default function Login({ auth, setAuth, onLogin }) {
                   onClick={() => { setMode('phone'); setErr(''); }}
                   className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'phone' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}
                 >
-                  <User className="w-4 h-4" /> Patient
+                  <User className="w-4 h-4" /> Téléphone
                 </button>
                 <button
                   type="button"
                   onClick={() => { setMode('doctor'); setErr(''); }}
                   className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'doctor' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}
                 >
-                  <Stethoscope className="w-4 h-4" /> Medecin
+                  <Stethoscope className="w-4 h-4" /> Médecin
                 </button>
               </div>
 
               {mode === 'phone' ? (
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 uppercase">Numero de telephone</label>
+                  <label className="text-xs font-semibold text-slate-700 uppercase">Numéro de téléphone</label>
                   <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus-within:border-red-500`}>
                     <span className="text-sm font-semibold text-slate-900">+225</span>
                     <input
@@ -159,11 +157,12 @@ export default function Login({ auth, setAuth, onLogin }) {
                     />
                     <Smartphone className="w-5 h-5 text-slate-400" />
                   </div>
+                  <p className="mt-2 text-[11px] text-slate-500">Patients, pharmaciens et administrateurs : connexion par téléphone.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <label className="text-xs font-semibold text-slate-700 uppercase">Email medecin</label>
+                    <label className="text-xs font-semibold text-slate-700 uppercase">Email médecin</label>
                     <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus-within:border-red-500`}>
                       <input
                         type="email"
@@ -201,7 +200,7 @@ export default function Login({ auth, setAuth, onLogin }) {
               >
                 {load ? 'Envoi...' : <>Recevoir le code <ArrowRight className="w-4 h-4" /></>}
               </button>
-              <p className="text-[11px] text-slate-500 text-center">Un code a 4 chiffres sera envoye par SMS.</p>
+              <p className="text-[11px] text-slate-500 text-center">Un code à 4 chiffres sera envoyé par SMS.</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -212,9 +211,9 @@ export default function Login({ auth, setAuth, onLogin }) {
                 <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center mb-4">
                   <KeyRound className="w-7 h-7 text-red-600" />
                 </div>
-                <h3 className="text-3xl font-bold text-slate-900">Verification</h3>
+                <h3 className="text-3xl font-bold text-slate-900">Vérification</h3>
                 <p className="text-slate-500 mt-2">
-                  Code envoye au <span className="font-semibold text-slate-900">{mode === 'doctor' ? maskedPhone : `+225 ${phone}`}</span>
+                  Code envoyé au <span className="font-semibold text-slate-900">{mode === 'doctor' ? maskedPhone : `+225 ${phone}`}</span>
                 </p>
               </div>
 
@@ -236,11 +235,11 @@ export default function Login({ auth, setAuth, onLogin }) {
               </div>
 
               {err && <p className="text-sm text-red-600 text-center flex items-center justify-center gap-1"><AlertCircle className="w-4 h-4" /> {err}</p>}
-              {load && <div className="text-center text-sm text-slate-600">Verification...</div>}
+              {load && <div className="text-center text-sm text-slate-600">Vérification...</div>}
               {devCode && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
                   <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-900"><strong>Mode dev :</strong> code <strong className="font-mono">{devCode}</strong></p>
+                  <p className="text-xs text-amber-900"><strong>Code de démonstration :</strong> <strong className="font-mono">{devCode}</strong></p>
                 </div>
               )}
             </div>

@@ -16,7 +16,7 @@ import SettingsPage from '../patient/pages/SettingsPage.jsx';
 import { adminApi } from '../api/adminApi.js';
 
 /* ============== ADMIN PAGES ============== */
-export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMode }) {
+export default function AdminPages({ page, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -44,19 +44,11 @@ export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMo
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div><h2 className="text-2xl font-bold">Tour de Contrôle</h2><p className={`text-sm ${sub}`}>Gouvernance & Audit • NOVA Côte d'Ivoire</p></div>
-        <div className="flex gap-2">
-          <button onClick={onCD} className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2`}>
-            <Stethoscope className="w-4 h-4" /> Nouveau médecin
-          </button>
-          <button onClick={onCP} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
-            <UserPlus className="w-4 h-4" /> Nouveau patient
-          </button>
-        </div>
       </div>
       {error && <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</div>}
       {page === 'dashboard' && <ADash data={data} {...p} />}
       {page === 'audit' && <AAudit data={data} {...p} />}
-      {page === 'users' && <AUsers onCP={onCP} onCD={onCD} {...p} />}
+      {page === 'users' && <AUsers {...p} />}
       {page === 'system' && <ASystem data={data} {...p} />}
       {page === 'settings' && <SettingsPage {...p} />}
     </div>
@@ -66,18 +58,19 @@ export default function AdminPages({ page, onCP, onCD, card, sub, border, darkMo
 function ADash({ data, card, sub, darkMode }) {
   const kpis = data?.kpis || {};
   const statCards = [
-    { l: 'Patients', v: (kpis.patients ?? 124532).toLocaleString('fr-FR'), s: 'Comptes patients', c: 'red', I: Users },
-    { l: 'Medecins', v: (kpis.doctors ?? 3247).toLocaleString('fr-FR'), s: 'Professionnels actifs', c: 'blue', I: Stethoscope },
-    { l: "Consult. aujourd'hui", v: (kpis.consultationsToday ?? 8924).toLocaleString('fr-FR'), s: 'Jour courant', c: 'emerald', I: Activity },
-    { l: 'Tracabilite 24h', v: (kpis.access24h ?? 7).toLocaleString('fr-FR'), s: `${kpis.audit24h ?? 2} actions audit`, c: 'amber', I: AlertTriangle }
+    { l: 'Patients', v: (kpis.patients ?? 0).toLocaleString('fr-FR'), s: 'Comptes patients', c: 'red', I: Users },
+    { l: 'Médecins', v: (kpis.doctors ?? 0).toLocaleString('fr-FR'), s: 'Professionnels enregistrés', c: 'blue', I: Stethoscope },
+    { l: "Consult. aujourd'hui", v: (kpis.consultationsToday ?? 0).toLocaleString('fr-FR'), s: 'Jour courant', c: 'emerald', I: Activity },
+    { l: 'Traçabilité 24h', v: (kpis.access24h ?? 0).toLocaleString('fr-FR'), s: `${kpis.audit24h ?? 0} actions audit`, c: 'amber', I: AlertTriangle }
   ];
-  const rs = [
-    { n: 'Abidjan', u: 48720, x: 35, y: 75, s: 24 },
-    { n: 'Bouaké', u: 12340, x: 45, y: 50, s: 16 },
-    { n: 'Yamoussoukro', u: 8920, x: 40, y: 60, s: 14 },
-    { n: 'San-Pédro', u: 6230, x: 25, y: 85, s: 12 },
-    { n: 'Korhogo', u: 4870, x: 42, y: 25, s: 10 }
-  ];
+  const positions = [[35, 75], [45, 50], [40, 60], [25, 85], [42, 25], [55, 40], [30, 45], [48, 72]];
+  const rs = (data?.cities || []).map((city, index) => ({
+    n: city.city,
+    u: Number(city.patients || 0),
+    x: positions[index]?.[0] || 50,
+    y: positions[index]?.[1] || 50,
+    s: Math.max(8, Math.min(24, 8 + Math.log10(Number(city.patients || 1)) * 4)),
+  }));
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
       {statCards.map((k, i) => (
@@ -118,51 +111,18 @@ function ADash({ data, card, sub, darkMode }) {
           </svg>
         </div>
       </div>
-      <div className={`lg:col-span-2 ${card} border rounded-2xl p-6`}>
-        <h3 className="font-bold mb-2">Activité 24h</h3>
-        <div className="h-64 flex items-end gap-1">
-          {Array.from({ length: 24 }, (_, i) => {
-            const p = i === 14 ? 1 : Math.abs(Math.sin(i / 3.8)) * 0.7 + 0.2;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div className={`w-full rounded-t ${i === 14 ? 'bg-red-600' : i >= 8 && i <= 18 ? 'bg-red-400' : darkMode ? 'bg-slate-700' : 'bg-slate-300'}`}
-                  style={{ height: `${p * 100}%`, minHeight: '4px' }}></div>
-                {i % 4 === 0 && <span className={`text-[9px] ${sub}`}>{i}h</span>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="lg:col-span-4 bg-gradient-to-r from-amber-500 to-red-600 text-white rounded-2xl p-6">
-        <div className="flex items-start gap-4">
-          <AlertTriangle className="w-8 h-8 flex-shrink-0" />
-          <div className="flex-1">
-            <h3 className="font-bold text-lg">2 alertes critiques actives</h3>
-            <div className="mt-2 space-y-1 text-sm">
-              <p>• Tentative d'accès non autorisé • IP: 41.207.xxx.xxx • Il y a 12 min</p>
-              <p>• Pic de charge serveur Abidjan • Latence +340ms • Il y a 25 min</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
 function AAudit({ data, card, sub, darkMode }) {
-  const ls = data?.data?.length ? data.data.map((row) => ({
+  const ls = (data?.data || []).map((row) => ({
     t: formatDate(row.createdAt),
     a: row.userRole || row.userId || 'system',
     ac: row.action,
     tg: row.resourceId || row.resourceType || '-',
     cr: row.action?.includes('status_update') ? 'warning' : 'info',
-  })) : [
-    { t: '28/04/2026 10:42:18', a: 'Dr. Adjoua Koné', ac: 'Accès dossier', tg: '#CI-2024-0847', cr: 'info' },
-    { t: '28/04/2026 10:38:02', a: 'Dr. Yao Konan', ac: 'Prescription', tg: 'Amlodipine 5mg', cr: 'info' },
-    { t: '28/04/2026 10:30:45', a: 'Admin', ac: 'Modif permissions', tg: 'user_id: 4521', cr: 'warning' },
-    { t: '28/04/2026 10:25:11', a: 'IP: 41.207.xxx', ac: 'Tentative auth échouée', tg: 'admin@nova.ci', cr: 'critical' },
-    { t: '28/04/2026 09:58:14', a: 'IP: 41.207.xxx', ac: 'Multiples tentatives', tg: '5 comptes', cr: 'critical' }
-  ];
+  }));
   const cs = {
     info: { bg: 'bg-blue-100', t: 'text-blue-700', d: 'bg-blue-500' },
     warning: { bg: 'bg-amber-100', t: 'text-amber-700', d: 'bg-amber-500' },
@@ -209,22 +169,11 @@ function AAudit({ data, card, sub, darkMode }) {
   );
 }
 
-function AUsers({ onCP, onCD, card, sub, darkMode }) {
+function AUsers({ card, sub, darkMode }) {
   const [tab, setTab] = useState('doctors');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const ds = [
-    { n: 'Dr. Adjoua Koné', sp: 'Cardiologie', p: '+225 01 02 03 04 05', s: 'Actif' },
-    { n: 'Dr. Yao Konan', sp: 'Médecine générale', p: '+225 01 23 45 67 89', s: 'Actif' },
-    { n: 'Dr. Mariam Bamba', sp: 'Endocrinologie', p: '+225 01 11 22 33 44', s: 'Actif' },
-    { n: 'Dr. Koffi N\'Guessan', sp: 'ORL', p: '+225 01 55 66 77 88', s: 'Suspendu' }
-  ];
-  const ps = [
-    { n: 'Kouamé Bamba', cmu: 'CI-2024-0847', p: '+225 07 89 45 23 11', a: 52 },
-    { n: 'Aminata Diallo', cmu: 'CI-2024-1245', p: '+225 05 12 34 56 78', a: 34 },
-    { n: 'Yao Brou', cmu: 'CI-2024-3389', p: '+225 07 23 45 67 89', a: 67 }
-  ];
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -236,25 +185,20 @@ function AUsers({ onCP, onCD, card, sub, darkMode }) {
     return () => { alive = false; };
   }, [tab]);
 
-  const list = rows.length
-    ? rows.map((u) => tab === 'doctors'
+  const list = rows.map((u) => tab === 'doctors'
       ? { n: `Dr. ${u.firstName || ''} ${u.lastName || ''}`.trim(), sp: u.specialty || '-', p: u.phone || '-', s: u.isAvailable ? 'Actif' : 'Suspendu' }
-      : { n: `${u.firstName || ''} ${u.lastName || ''}`.trim(), cmu: u.cmuNumber || '-', p: u.phone || '-', a: ageFromBirthDate(u.birthDate) })
-    : (tab === 'doctors' ? ds : ps);
+      : { n: `${u.firstName || ''} ${u.lastName || ''}`.trim(), cmu: u.cmuNumber || '-', p: u.phone || '-', a: ageFromBirthDate(u.birthDate) });
   return (
     <div className={`${card} border rounded-2xl p-6`}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
           <button onClick={() => setTab('doctors')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${tab === 'doctors' ? 'bg-white text-slate-900 shadow' : sub}`}>
-            <Stethoscope className="w-4 h-4" /> Médecins ({ds.length})
+            <Stethoscope className="w-4 h-4" /> Médecins ({tab === 'doctors' ? rows.length : '—'})
           </button>
           <button onClick={() => setTab('patients')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${tab === 'patients' ? 'bg-white text-slate-900 shadow' : sub}`}>
-            <User className="w-4 h-4" /> Patients ({ps.length})
+            <User className="w-4 h-4" /> Patients ({tab === 'patients' ? rows.length : '—'})
           </button>
         </div>
-        <button onClick={tab === 'doctors' ? onCD : onCP} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1">
-          <Plus className="w-3 h-3" /> Nouveau {tab === 'doctors' ? 'médecin' : 'patient'}
-        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

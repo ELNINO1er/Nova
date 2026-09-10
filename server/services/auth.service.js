@@ -39,9 +39,11 @@ export async function sendOtp(phone) {
 
   await sendSms(cleaned, `Votre code NOVA : ${code}. Il expire dans ${OTP_EXPIRY_MINUTES} minutes.`);
 
-  // In dev mode, return the code (remove in production!)
-  const isDev = process.env.NODE_ENV !== 'production';
-  return { otpId: id, expiresIn: OTP_EXPIRY_MINUTES * 60, ...(isDev ? { devCode: code } : {}) };
+  // Le code est renvoyé à l'écran en dev ET en mode démo (SMS_PROVIDER=demo),
+  // pour permettre la validation sans infrastructure SMS. Jamais exposé avec un vrai fournisseur.
+  const exposeCode = process.env.NODE_ENV !== 'production'
+    || (process.env.SMS_PROVIDER || '').toLowerCase() === 'demo';
+  return { otpId: id, expiresIn: OTP_EXPIRY_MINUTES * 60, ...(exposeCode ? { devCode: code } : {}) };
 }
 
 /**
