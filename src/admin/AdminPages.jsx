@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { adminApi } from '../api/adminApi.js';
 import PageError from '../components/PageError.jsx';
+import { ColumnChart, Empty, KpiCard, MiniCalendar, Panel } from '../components/dashboard/kit.jsx';
 
 /* ============== ADMIN PAGES ============== */
 
@@ -73,166 +74,56 @@ function Skeleton({ darkMode }) {
   );
 }
 
-function StatCard({ label, value, hint, Icon, color, card, sub }) {
-  const tones = {
-    red: 'bg-red-100 text-red-600', blue: 'bg-blue-100 text-blue-600', emerald: 'bg-emerald-100 text-emerald-600',
-    amber: 'bg-amber-100 text-amber-600', teal: 'bg-teal-100 text-teal-600', purple: 'bg-purple-100 text-purple-600',
-  };
-  return (
-    <div className={`${card} border rounded-2xl p-5 flex items-start gap-4`}>
-      <div className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center ${tones[color]}`}><Icon className="w-5 h-5" /></div>
-      <div className="min-w-0">
-        <p className={`text-xs ${sub}`}>{label}</p>
-        <p className="text-2xl font-bold leading-tight mt-0.5">{Number(value || 0).toLocaleString('fr-FR')}</p>
-        {hint && <p className={`text-xs mt-0.5 ${sub}`}>{hint}</p>}
-      </div>
-    </div>
-  );
+function StatCard({ label, value, hint, Icon, card, sub }) {
+  return <KpiCard label={label} value={Number(value || 0).toLocaleString('fr-FR')} hint={hint} Icon={Icon} card={card} sub={sub} />;
 }
 
 function ADash({ data, card, sub, darkMode }) {
   const k = data.kpis || {};
-  const cities = data.cities || [];
-  const rowBorder = darkMode ? 'border-slate-800' : 'border-slate-100';
+  const cities = (data.cities || []).map((c) => ({ label: c.city, value: Number(c.patients || 0) }));
+  const totalPatients = cities.reduce((s, c) => s + c.value, 0);
+  const leader = cities[0];
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Patients" value={k.patients} hint="Dossiers enregistrés" Icon={Users} color="red" card={card} sub={sub} />
-        <StatCard label="Médecins" value={k.doctors} hint="Professionnels inscrits" Icon={Stethoscope} color="blue" card={card} sub={sub} />
-        <StatCard label="Pharmacies" value={k.pharmacies} hint="Officines partenaires" Icon={Building2} color="teal" card={card} sub={sub} />
-        <StatCard label="Comptes" value={k.users} hint="Tous rôles confondus" Icon={KeyRound} color="purple" card={card} sub={sub} />
-        <StatCard label="Consultations aujourd’hui" value={k.consultationsToday} Icon={Activity} color="emerald" card={card} sub={sub} />
-        <StatCard label="Commandes pharmacie en cours" value={k.openPharmacyOrders} Icon={Pill} color="amber" card={card} sub={sub} />
-        <StatCard label="Accès aux dossiers (24 h)" value={k.access24h} Icon={ShieldCheck} color="blue" card={card} sub={sub} />
-        <StatCard label="Actions auditées (24 h)" value={k.audit24h} Icon={Lock} color="red" card={card} sub={sub} />
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+      <div className="xl:col-span-2 space-y-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Patients" value={k.patients} hint="Dossiers enregistrés" Icon={Users} card={card} sub={sub} />
+          <StatCard label="Médecins" value={k.doctors} hint="Professionnels inscrits" Icon={Stethoscope} card={card} sub={sub} />
+          <StatCard label="Pharmacies" value={k.pharmacies} hint="Officines partenaires" Icon={Building2} card={card} sub={sub} />
+          <StatCard label="Comptes" value={k.users} hint="Tous rôles confondus" Icon={KeyRound} card={card} sub={sub} />
+        </div>
+        <Panel title="Patients par ville"
+          subtitle={`${totalPatients.toLocaleString('fr-FR')} patients répartis dans ${cities.length} ville${cities.length > 1 ? 's' : ''}`}
+          action={leader && totalPatients ? <div className="text-right"><p className="text-2xl font-bold leading-none">{Math.round((leader.value / totalPatients) * 100)} %</p><p className={`text-xs mt-1 ${sub}`}>à {leader.label}</p></div> : null}
+          card={card} sub={sub}>
+          {cities.length ? <ColumnChart data={cities} valueLabel="patient(s)" height="15rem" darkMode={darkMode} /> : <Empty sub={sub}>Aucun patient enregistré.</Empty>}
+        </Panel>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Consultations" value={k.consultationsToday} hint="Aujourd’hui" Icon={Activity} card={card} sub={sub} />
+          <StatCard label="Commandes" value={k.openPharmacyOrders} hint="Pharmacie, en cours" Icon={Pill} card={card} sub={sub} />
+          <StatCard label="Accès dossiers" value={k.access24h} hint="Dernières 24 h" Icon={ShieldCheck} card={card} sub={sub} />
+          <StatCard label="Actions auditées" value={k.audit24h} hint="Dernières 24 h" Icon={Lock} card={card} sub={sub} />
+        </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <CityChart cities={cities} card={card} sub={sub} darkMode={darkMode} />
-        <div className={`${card} border rounded-2xl p-6`}>
-          <h3 className="font-bold mb-4">Activité récente</h3>
-          {(data.recentAudit || []).length === 0 ? <p className={`text-sm ${sub}`}>Aucune action enregistrée.</p> : (
-            <ul>
+      <div className="space-y-5">
+        <Panel title="Activité récente" subtitle="Dernières actions d’administration" card={card} sub={sub}>
+          {(data.recentAudit || []).length === 0 ? <Empty sub={sub}>Aucune action enregistrée.</Empty> : (
+            <ol className="relative ml-2 border-l-2 border-red-100 space-y-4">
               {data.recentAudit.map((a) => (
-                <li key={a.id} className={`flex items-center justify-between gap-3 py-2.5 border-b last:border-0 ${rowBorder}`}>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate">{actionLabel(a.action)}</p>
-                    <p className={`text-xs ${sub}`}>{ROLE_NAMES[a.userRole] || a.userRole || 'Système'}</p>
-                  </div>
-                  <span className={`text-xs shrink-0 ${sub}`}>{formatDate(a.createdAt)}</span>
+                <li key={a.id} className="ml-4">
+                  <span className="absolute -left-[7px] mt-1.5 w-3 h-3 rounded-full bg-red-600 ring-4 ring-red-50" />
+                  <p className="text-sm font-semibold">{actionLabel(a.action)}</p>
+                  <p className={`text-xs ${sub}`}>{ROLE_NAMES[a.userRole] || a.userRole || 'Système'}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{formatDate(a.createdAt)}</p>
                 </li>
               ))}
-            </ul>
+            </ol>
           )}
-        </div>
+        </Panel>
+        <Panel title="Calendrier" card={card} sub={sub}>
+          <MiniCalendar darkMode={darkMode} />
+        </Panel>
       </div>
-    </div>
-  );
-}
-
-// Graduation « propre » de l'axe : 0 / pas / 2×pas… jusqu'à couvrir le maximum (≤ 5 graduations).
-function niceTicks(max) {
-  const raw = Math.max(1, max) / 4;
-  const pow = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((m) => m * pow).find((v) => v >= raw);
-  const top = Math.ceil(Math.max(1, max) / step) * step;
-  return Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
-}
-
-/* Patients par ville : colonnes animées (croissance au chargement), valeur au sommet,
-   info-bulle au survol (nombre + part), axe et grille discrets, tableau pour lecteurs d'écran. */
-function CityChart({ cities, card, sub, darkMode }) {
-  const [shown, setShown] = useState(false);
-  const [hover, setHover] = useState(null);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setShown(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  const rows = cities.map((c) => ({ city: c.city, patients: Number(c.patients || 0) }));
-  const total = rows.reduce((sum, r) => sum + r.patients, 0);
-  const ticks = niceTicks(Math.max(0, ...rows.map((r) => r.patients)));
-  const top = ticks[ticks.length - 1];
-  const share = (n) => (total ? Math.round((n / total) * 100) : 0);
-  const leader = rows[0];
-  const grid = darkMode ? 'border-slate-800' : 'border-slate-200';
-  const fill = darkMode ? 'bg-red-500' : 'bg-red-600';
-  const fade = darkMode ? 'bg-red-500/35' : 'bg-red-600/35'; // colonnes non survolées : seule la couleur s'estompe
-
-  return (
-    <div className={`${card} border rounded-2xl p-6 flex flex-col`}>
-      <div className="flex items-start justify-between gap-4 mb-5">
-        <div>
-          <h3 className="font-bold">Patients par ville</h3>
-          <p className={`text-xs mt-0.5 ${sub}`}>{total.toLocaleString('fr-FR')} patients répartis dans {rows.length} ville{rows.length > 1 ? 's' : ''}</p>
-        </div>
-        {leader && (
-          <div className="text-right">
-            <p className="text-2xl font-bold leading-none">{share(leader.patients)} %</p>
-            <p className={`text-xs mt-1 ${sub}`}>à {leader.city}</p>
-          </div>
-        )}
-      </div>
-
-      {rows.length === 0 ? <p className={`text-sm ${sub}`}>Aucun patient enregistré.</p> : (
-        <>
-          <div className="flex-1 min-h-[14rem] flex gap-3 pt-5">
-            {/* Axe des valeurs */}
-            <div className={`relative w-7 text-[11px] tabular-nums ${sub}`} aria-hidden="true">
-              {ticks.map((t) => (
-                <span key={t} className="absolute right-0 -translate-y-1/2" style={{ bottom: `${(t / top) * 100}%` }}>{t}</span>
-              ))}
-            </div>
-            <div className="relative flex-1">
-              {/* Quadrillage */}
-              {ticks.map((t) => (
-                <div key={t} className={`absolute inset-x-0 border-t ${grid}`} style={{ bottom: `${(t / top) * 100}%` }} aria-hidden="true" />
-              ))}
-              {/* Colonnes */}
-              <div className="absolute inset-0 flex items-end justify-around">
-                {rows.map((r, i) => {
-                  const pct = (r.patients / top) * 100;
-                  const active = hover === i;
-                  return (
-                    <button key={r.city} type="button"
-                      onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
-                      onFocus={() => setHover(i)} onBlur={() => setHover(null)}
-                      aria-label={`${r.city} : ${r.patients} patients, ${share(r.patients)} %`}
-                      className="relative h-full flex-1 max-w-[7rem] flex flex-col items-center justify-end outline-none">
-                      {/* Valeur posée au sommet, hors du calcul de hauteur : la colonne reste à l'échelle de l'axe. */}
-                      <span
-                        className={`relative w-7 rounded-t-[4px] transition-[height,background-color] duration-700 ease-out motion-reduce:transition-none ${hover !== null && !active ? fade : fill}`}
-                        style={{ height: shown ? `${pct}%` : '0%', transitionDelay: shown ? `${i * 90}ms` : '0ms' }}
-                      >
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-sm font-semibold tabular-nums">{r.patients}</span>
-                      </span>
-                      {active && (
-                        // À côté du sommet de la colonne (jamais sur le titre) ; à gauche pour la dernière colonne.
-                        <span role="tooltip" className={`absolute z-10 translate-y-1/2 px-3 py-2 rounded-lg shadow-lg text-xs text-left whitespace-nowrap pointer-events-none ${darkMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'}`}
-                          style={{ bottom: `${Math.max(pct, 12)}%`, ...(i === rows.length - 1 ? { right: 'calc(50% + 1.25rem)' } : { left: 'calc(50% + 1.25rem)' }) }}>
-                          <span className="font-semibold">{r.city}</span><br />
-                          {r.patients} patient{r.patients > 1 ? 's' : ''} · {share(r.patients)} % du total
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-          {/* Noms des villes, alignés sous les colonnes */}
-          <div className="flex gap-3 mt-2">
-            <div className="w-7" />
-            <div className="flex-1 flex justify-around">
-              {rows.map((r) => <span key={r.city} className={`flex-1 max-w-[7rem] text-center text-xs truncate ${sub}`}>{r.city}</span>)}
-            </div>
-          </div>
-          <table className="sr-only">
-            <caption>Patients par ville</caption>
-            <thead><tr><th>Ville</th><th>Patients</th><th>Part</th></tr></thead>
-            <tbody>{rows.map((r) => <tr key={r.city}><td>{r.city}</td><td>{r.patients}</td><td>{share(r.patients)} %</td></tr>)}</tbody>
-          </table>
-        </>
-      )}
     </div>
   );
 }
@@ -772,10 +663,7 @@ function ASystem({ data, card, sub, darkMode }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className={`${card} border rounded-2xl p-5 flex items-start gap-4`}>
-          <div className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center bg-emerald-100 text-emerald-600"><ServerCog className="w-5 h-5" /></div>
-          <div><p className={`text-xs ${sub}`}>API en ligne depuis</p><p className="text-2xl font-bold leading-tight mt-0.5">{formatUptime(data.api?.uptimeSeconds)}</p><p className={`text-xs mt-0.5 ${sub}`}>Mode : {data.api?.nodeEnv}</p></div>
-        </div>
+        <KpiCard label="API en ligne depuis" value={formatUptime(data.api?.uptimeSeconds)} hint={`Mode : ${data.api?.nodeEnv}`} Icon={ServerCog} card={card} sub={sub} />
         <StatCard label="Permissions RBAC" value={sec.permissions} hint={`${(sec.roles || []).length} rôles`} Icon={ShieldCheck} color="blue" card={card} sub={sub} />
         <StatCard label="Journal d’audit" value={sec.auditLogs} hint="Actions enregistrées" Icon={Lock} color="amber" card={card} sub={sub} />
         <StatCard label="Accès aux dossiers" value={sec.accessLogs} hint="Consultations tracées" Icon={Database} color="purple" card={card} sub={sub} />

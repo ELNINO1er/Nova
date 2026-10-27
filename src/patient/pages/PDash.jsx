@@ -1,183 +1,189 @@
-import React from 'react';
-import { Heart, Activity, Droplet, Thermometer, Calendar, Video, Bell, MessageCircle, FileText, HeartPulse, Siren } from 'lucide-react';
-import { capitalize, formatRelativeDate, dashboardStatusText, dashboardStatusClass } from '../../utils/format.js';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Activity, Calendar, Droplet, FileText, Heart, MapPin, MessageCircle, Pill, QrCode, RefreshCw,
+  Stethoscope, Syringe, Thermometer, Video, CheckCircle2, Clock,
+} from 'lucide-react';
+import { patientApi } from '../../api/patientApi.js';
+import { formatRelativeDate } from '../../utils/format.js';
 import { DashSkeleton } from '../../components/PatientModal.jsx';
+import {
+  Avatar, ColumnChart, DashHeader, Empty, GhostButton, KpiCard, LinkButton, Panel, PrimaryButton,
+  RingGauge, WeekStrip, dayKey, fmtDay, fmtTime,
+} from '../../components/dashboard/kit.jsx';
+
+const VITALS = {
+  blood_pressure: { label: 'Tension', Icon: Heart },
+  blood_glucose: { label: 'Glycémie', Icon: Droplet },
+  heart_rate: { label: 'Pouls', Icon: Activity },
+  temperature: { label: 'Température', Icon: Thermometer },
+};
+const STATUS = { normal: ['Normal', 'good'], watch: ['À surveiller', 'warn'], critical: ['Critique', 'bad'] };
+const HISTORY_ICONS = { consultation: Stethoscope, lab: FileText, vaccine: Syringe, prescription: Pill };
 
 export default function PDash({ data, loading, onRefresh, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
+  const [appointments, setAppointments] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [selected, setSelected] = useState(dayKey(new Date()));
+
+  useEffect(() => {
+    let alive = true;
+    patientApi.appointments().then((r) => alive && setAppointments(Array.isArray(r) ? r : r?.data || [])).catch(() => {});
+    patientApi.history().then((r) => alive && setHistory(Array.isArray(r) ? r : r?.data || [])).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const upcoming = useMemo(() => appointments
+    .filter((a) => a.status !== 'cancelled' && new Date(a.startsAt) >= new Date(new Date().setHours(0, 0, 0, 0)))
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [appointments]);
+  const marked = useMemo(() => new Set(upcoming.map((a) => dayKey(a.startsAt))), [upcoming]);
+  const dayAppointments = upcoming.filter((a) => dayKey(a.startsAt) === selected);
+  const shownAppointments = dayAppointments.length ? dayAppointments : upcoming.slice(0, 2);
+
   if (!data && loading !== false) return <DashSkeleton card={card} sub={sub} darkMode={darkMode} />;
 
-  const vitalMeta = {
-    blood_pressure: { label: 'Tension', Icon: Heart, color: 'red' },
-    blood_glucose: { label: 'Glycémie', Icon: Droplet, color: 'blue' },
-    heart_rate: { label: 'Fréquence', Icon: Activity, color: 'pink' },
-    temperature: { label: 'Température', Icon: Thermometer, color: 'orange' },
-  };
-  const cm = { red: '#dc2626', blue: '#2563eb', pink: '#db2777', orange: '#ea580c' };
-
-  const displayVitals = (data?.latestVitals || []).map((vital) => {
-    const meta = vitalMeta[vital.type] || { label: vital.label, Icon: Activity, color: 'blue' };
-    return {
-      type: vital.type,
-      label: meta.label,
-      value: String(vital.value),
-      unit: vital.unit || '',
-      Icon: meta.Icon,
-      color: meta.color,
-      history: vital.history?.map((p) => p.value).filter(Number.isFinite) || [],
-      status: vital.status,
-      measuredAt: vital.measuredAt,
-    };
-  });
-
   const profile = data?.profile;
-  const patientName = profile ? `${profile.firstName} ${profile.lastName}` : '—';
-  const patientInitials = profile
-    ? `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase()
-    : '—';
-  const patientLocation = profile ? `CMU: ${profile.cmuNumber} — ${profile.city}` : '';
-
-  const healthScore = data?.healthScore ?? 0;
-  const healthStatus = healthScore >= 80 ? 'normal' : healthScore >= 60 ? 'watch' : 'critical';
-  const healthScoreLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'À surveiller' : 'Critique';
-  const scoreDash = `${Math.round((healthScore / 100) * 264)} 264`;
-
-  const remainingMedications = data?.todayMedications
-    ? data.todayMedications.filter((m) => m.intake?.status !== 'taken').length
-    : 0;
-  const unreadMessages = data?.unreadMessages ?? 0;
-  const documentsCount = data?.documentsCount ?? 0;
-
-  const nextRdv = data?.nextAppointment;
-  const hasVideoRdv = nextRdv?.mode === 'video';
+  const firstName = profile?.firstName || '';
+  const vitals = data?.latestVitals || [];
+  const heart = vitals.find((v) => v.type === 'heart_rate');
+  const heartValues = (heart?.history || []).map((p) => Number(p.value)).filter(Number.isFinite);
+  const heartStats = heartValues.length
+    ? { avg: Math.round(heartValues.reduce((s, v) => s + v, 0) / heartValues.length), min: Math.min(...heartValues), max: Math.max(...heartValues) }
+    : null;
+  const heartSeries = (heart?.history || []).slice(-8).map((p) => ({
+    label: new Date(p.measuredAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+    full: fmtDay(p.measuredAt),
+    value: Number(p.value),
+  }));
+  const score = data?.healthScore ?? 0;
+  const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'À surveiller' : 'Critique';
+  const meds = data?.todayMedications || [];
+  const medsLeft = meds.filter((m) => m.intake?.status !== 'taken').length;
+  const stripStart = new Date(); stripStart.setDate(stripStart.getDate() - 2);
 
   return (
     <div className="space-y-5">
-      <div className="bg-gradient-to-br from-red-600 via-red-700 to-red-800 rounded-2xl p-6 text-white relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/20 rounded-full -translate-y-32 translate-x-32 blur-3xl"></div>
-        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-xl font-bold border border-white/30">
-              {patientInitials}
-            </div>
-            <div>
-              <p className="text-red-100 text-sm">Bonjour</p>
-              <h2 className="text-2xl md:text-3xl font-bold">{patientName}</h2>
-              {patientLocation && <p className="text-red-100 text-sm mt-1">{patientLocation}</p>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {onRefresh && (
-              <button onClick={onRefresh} className="bg-white/20 backdrop-blur text-white px-3 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-white/30 transition-colors" title="Rafraîchir">
-                <Activity className="w-4 h-4" />
-              </button>
-            )}
-            <button onClick={() => setShowQR(true)} className="bg-white text-red-700 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 hover:scale-105 transition-transform shadow-xl">
-              <Siren className="w-4 h-4" /> Pass Santé d'urgence
-            </button>
-          </div>
-        </div>
-      </div>
+      <DashHeader
+        title={`Bonjour${firstName ? `, ${firstName}` : ''}`}
+        subtitle={profile ? `Voici le résumé de votre santé · CMU ${profile.cmuNumber}` : 'Voici le résumé de votre santé'}
+        actions={<>
+          <GhostButton Icon={RefreshCw} onClick={onRefresh} darkMode={darkMode} title="Actualiser">Actualiser</GhostButton>
+          <PrimaryButton Icon={QrCode} onClick={() => setShowQR(true)}>Pass Santé d’urgence</PrimaryButton>
+        </>}
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`lg:col-span-1 ${card} border rounded-2xl p-6`}>
-          <div className="flex items-center justify-between mb-4">
-            <p className={`text-xs ${sub}`}>Score de Santé</p>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+        {/* Colonne principale */}
+        <div className="xl:col-span-2 space-y-5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(VITALS).map(([type, meta]) => {
+              const v = vitals.find((x) => x.type === type);
+              const [chip, tone] = STATUS[v?.status] || [null, 'neutral'];
+              return (
+                <KpiCard key={type} label={meta.label} Icon={meta.Icon} value={v ? String(v.value) : '—'} unit={v?.unit}
+                  chip={chip} chipTone={tone} hint={v?.measuredAt ? `Mesuré ${formatRelativeDate(v.measuredAt)}` : 'Aucune mesure'}
+                  onClick={() => setPage('vitals')} card={card} sub={sub} />
+              );
+            })}
           </div>
-          <div className="flex items-center justify-center py-4">
-            <div className="relative w-44 h-44">
-              <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#e2e8f0'} strokeWidth="8" />
-                <circle cx="50" cy="50" r="42" fill="none" stroke="url(#hg)" strokeWidth="8" strokeDasharray={scoreDash} strokeLinecap="round" />
-                <defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#dc2626" /><stop offset="100%" stopColor="#f97316" /></linearGradient></defs>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-4xl font-bold">{healthScore}</span>
-                <span className={`text-xs ${sub}`}>/ 100</span>
-                <span className={`text-xs font-semibold mt-1 ${dashboardStatusClass(healthStatus)}`}>{healthScoreLabel}</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {displayVitals.length > 0 ? displayVitals.map((vital) => {
-            const hasHistory = vital.history.length >= 2;
-            const pts = hasHistory
-              ? (() => { const mx = Math.max(...vital.history), mn = Math.min(...vital.history), r = mx - mn || 1; return vital.history.map((v, idx) => `${(idx/(vital.history.length-1))*100},${100 - ((v-mn)/r)*80 - 10}`).join(' '); })()
-              : '';
-            return (
-              <button key={vital.type} onClick={() => setPage('treatments')} className={`${card} border rounded-2xl p-5 text-left hover:shadow-md transition-shadow`}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className={`text-xs ${sub}`}>{vital.label}</p>
-                  <vital.Icon className={`w-4 h-4 ${sub}`} />
-                </div>
-                <p className="text-2xl font-bold">{vital.value} <span className={`text-sm font-normal ${sub}`}>{vital.unit}</span></p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className={`text-[10px] font-bold ${dashboardStatusClass(vital.status)}`}>{dashboardStatusText(vital.status)}</span>
-                  {vital.measuredAt && <span className={`text-[10px] ${sub}`}>{formatRelativeDate(vital.measuredAt)}</span>}
-                </div>
-                {hasHistory && (
-                  <div className="mt-3 h-12">
-                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-                      <polyline points={pts} fill="none" stroke={cm[vital.color]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+          <Panel title="Mes rendez-vous" subtitle={`${upcoming.length} à venir`} action={<LinkButton onClick={() => setPage('rdv')}>Tout voir</LinkButton>} card={card} sub={sub}>
+            <div className="overflow-x-auto pb-1">
+              <WeekStrip start={stripStart} selected={selected} onSelect={setSelected} marked={marked} darkMode={darkMode} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+              {shownAppointments.length === 0 && <div className="md:col-span-2"><Empty sub={sub}>Aucun rendez-vous prévu. <button type="button" onClick={() => setPage('doctors')} className="text-red-600 font-semibold">Trouver un médecin</button></Empty></div>}
+              {shownAppointments.map((a) => (
+                <div key={a.id} className={`rounded-xl border p-4 flex gap-3 ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                  <Avatar name={a.doctorName} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold truncate">{a.doctorName}</p>
+                    <p className={`text-xs truncate ${sub}`}>{a.specialty || 'Consultation'}</p>
+                    <p className={`text-xs mt-2 flex items-center gap-1.5 ${sub}`}><Clock className="w-3.5 h-3.5" /> {fmtDay(a.startsAt)} · {fmtTime(a.startsAt)}</p>
+                    <p className={`text-xs mt-1 flex items-center gap-1.5 truncate ${sub}`}>{a.mode === 'video' ? <Video className="w-3.5 h-3.5" /> : <MapPin className="w-3.5 h-3.5" />} {a.mode === 'video' ? 'Téléconsultation' : a.location || 'Au cabinet'}</p>
                   </div>
-                )}
-              </button>
-            );
-          }) : (
-            <div className={`sm:col-span-2 ${card} border rounded-2xl p-8 flex flex-col items-center justify-center text-center`}>
-              <HeartPulse className={`w-10 h-10 ${sub} mb-3`} />
-              <p className={`text-sm font-semibold ${sub}`}>Aucune constante enregistrée</p>
-              <p className={`text-xs ${sub} mt-1`}>Vos données apparaîtront ici après votre première consultation.</p>
+                  {a.mode === 'video' && <button type="button" onClick={() => setShowVid(true)} className="self-start px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold">Rejoindre</button>}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-      </div>
+            {!dayAppointments.length && shownAppointments.length > 0 && <p className={`text-[11px] mt-2 ${sub}`}>Rien ce jour-là : voici vos prochains rendez-vous.</p>}
+          </Panel>
 
-      {nextRdv && (
-        <div className={`${card} border rounded-2xl p-5 flex flex-col md:flex-row md:items-center gap-4`}>
-          <div className={`w-14 h-14 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'} flex flex-col items-center justify-center flex-shrink-0`}>
-            <span className="text-lg font-bold">{new Date(nextRdv.startsAt).getDate()}</span>
-            <span className={`text-[10px] ${sub}`}>{capitalize(new Date(nextRdv.startsAt).toLocaleDateString('fr-FR', { month: 'short' }).replace('.', ''))}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-red-600 flex-shrink-0" />
-              <h4 className="font-bold truncate">Prochain rendez-vous</h4>
-            </div>
-            <p className={`text-sm ${sub} mt-0.5`}>{nextRdv.doctorName} — {nextRdv.specialty}</p>
-            <p className={`text-xs ${sub}`}>{new Date(nextRdv.startsAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} • {nextRdv.location}</p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {nextRdv.mode === 'video' && (
-              <button onClick={() => setShowVid(true)} className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-red-700">
-                <Video className="w-3.5 h-3.5" /> Rejoindre
-              </button>
+          <Panel title="Historique médical" subtitle="Vos derniers événements de santé" action={<LinkButton onClick={() => setPage('history')}>Tout voir</LinkButton>} card={card} sub={sub}>
+            {history.length === 0 ? <Empty sub={sub}>Aucun événement enregistré.</Empty> : (
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className={`text-xs ${sub} ${darkMode ? 'bg-slate-800/60' : 'bg-red-50/60'}`}>
+                      <th className="text-left font-semibold px-3 py-2.5 rounded-l-lg">Événement</th>
+                      <th className="text-left font-semibold px-3 py-2.5">Date</th>
+                      <th className="text-left font-semibold px-3 py-2.5 rounded-r-lg">Professionnel</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.slice(0, 5).map((h) => {
+                      const Icon = HISTORY_ICONS[h.type] || FileText;
+                      return (
+                        <tr key={h.id} className={`border-b last:border-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                          <td className="px-3 py-3"><span className="flex items-center gap-2.5"><span className="w-7 h-7 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0"><Icon className="w-3.5 h-3.5" /></span><span className="font-medium">{h.title}</span></span></td>
+                          <td className={`px-3 py-3 whitespace-nowrap ${sub}`}>{fmtDay(h.occurredAt)}</td>
+                          <td className={`px-3 py-3 ${sub}`}>{h.doctorName || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
-            <button onClick={() => setPage('rdv')} className={`px-4 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
-              Voir tout
-            </button>
+          </Panel>
+        </div>
+
+        {/* Colonne de droite */}
+        <div className="space-y-5">
+          <Panel title="Mon cœur & ma santé" card={card} sub={sub}>
+            <div className="py-3"><RingGauge value={score} label="Score santé / 100" caption={scoreLabel} darkMode={darkMode} /></div>
+            <div className="grid grid-cols-3 gap-2 mt-5">
+              {[['Moyenne', heartStats?.avg], ['Minimum', heartStats?.min], ['Maximum', heartStats?.max]].map(([l, v]) => (
+                <div key={l} className={`rounded-xl p-3 ${darkMode ? 'bg-slate-800/60' : 'bg-red-50/60'}`}>
+                  <p className={`text-[11px] flex items-center gap-1 ${sub}`}><Heart className="w-3 h-3 text-red-600" /> {l}</p>
+                  <p className="text-xl font-bold mt-1">{v ?? '—'}<span className={`text-[10px] font-medium ml-0.5 ${sub}`}>bpm</span></p>
+                </div>
+              ))}
+            </div>
+            <h4 className="font-semibold text-sm mt-5">Fréquence cardiaque</h4>
+            {heartSeries.length ? <ColumnChart data={heartSeries} valueLabel="bpm" height="9.5rem" darkMode={darkMode} showValues={false} /> : <Empty sub={sub}>Aucune mesure.</Empty>}
+          </Panel>
+
+          <Panel title="Médicaments du jour" subtitle={meds.length ? `${medsLeft} prise(s) restante(s)` : undefined} action={<LinkButton onClick={() => setPage('pilulier')}>Pilulier</LinkButton>} card={card} sub={sub}>
+            {meds.length === 0 ? <Empty sub={sub}>Aucun traitement aujourd’hui.</Empty> : (
+              <ul className="space-y-2">
+                {meds.slice(0, 5).map((m) => {
+                  const taken = m.intake?.status === 'taken';
+                  return (
+                    <li key={m.id} className={`flex items-center gap-3 rounded-xl p-2.5 ${darkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
+                      <span className="w-9 h-9 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0"><Pill className="w-4 h-4" /></span>
+                      <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{m.name} <span className={`font-normal ${sub}`}>{m.dosage}</span></p><p className={`text-xs ${sub}`}>{m.time} · {m.period}</p></div>
+                      {taken ? <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" aria-label="Pris" /> : <span className="text-[11px] font-bold text-red-600 shrink-0">À prendre</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Panel>
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { I: MessageCircle, l: 'Messages', n: data?.unreadMessages ?? 0, p: 'messages' },
+              { I: FileText, l: 'Documents', n: data?.documentsCount ?? 0, p: 'documents' },
+              { I: Calendar, l: 'Rendez-vous', n: upcoming.length, p: 'rdv' },
+            ].map((q) => (
+              <button key={q.l} type="button" onClick={() => setPage(q.p)} className={`${card} border rounded-2xl p-3 text-center hover:shadow-md transition-shadow`}>
+                <span className="mx-auto w-9 h-9 rounded-full bg-red-600 text-white flex items-center justify-center"><q.I className="w-4 h-4" /></span>
+                <p className="text-lg font-bold mt-2 leading-none">{q.n}</p>
+                <p className={`text-[11px] mt-1 ${sub}`}>{q.l}</p>
+              </button>
+            ))}
           </div>
         </div>
-      )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          hasVideoRdv
-            ? {I:Video,l:'Téléconsultation',c:'from-blue-500 to-blue-600',on:() => setShowVid(true)}
-            : {I:Video,l:'Téléconsultation',c:'from-slate-400 to-slate-500',on:() => setPage('rdv'),disabled:true},
-          {I:Bell,l:`${remainingMedications} Rappel${remainingMedications > 1 ? 's' : ''}`,c:'from-orange-500 to-orange-600',on:() => setPage('pilulier')},
-          {I:MessageCircle,l:`${unreadMessages} Message${unreadMessages > 1 ? 's' : ''}`,c:'from-purple-500 to-purple-600',on:() => setPage('messages')},
-          {I:FileText,l:`${documentsCount} Document${documentsCount > 1 ? 's' : ''}`,c:'from-emerald-500 to-emerald-600',on:() => setPage('documents')}
-        ].map((a, i) => (
-          <button key={i} onClick={a.on} className={`${card} border rounded-xl p-4 min-h-[92px] flex flex-col items-start gap-3 text-left hover:scale-105 transition-transform ${a.disabled ? 'opacity-50' : ''}`}>
-            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${a.c} flex items-center justify-center text-white shadow-md`}>
-              <a.I className="w-5 h-5" />
-            </div>
-            <span className="text-sm font-semibold">{a.l}</span>
-          </button>
-        ))}
       </div>
     </div>
   );

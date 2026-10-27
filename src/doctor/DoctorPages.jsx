@@ -81,8 +81,8 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* En-tête commun (le tableau de bord a le sien) */}
+      {page !== 'dashboard' && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Cockpit Clinique</h2>
           <p className={`text-sm ${sub}`}>{doctorName} • {doctorSpec}</p>
@@ -97,7 +97,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
             <Plus className="w-4 h-4" /> Nouvelle consultation
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Toast */}
       {notice && (
@@ -110,7 +110,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {apiError[page] && !apiData[page] ? (
         <PageError message={apiError[page]} onRetry={() => loadPage(page, true)} card={card} sub={sub} />
       ) : (<>
-      {page === 'dashboard'     && <DDash     data={apiData.dashboard}     loading={apiLoading.dashboard}     {...p} />}
+      {page === 'dashboard'     && <DDash     data={apiData.dashboard}     loading={apiLoading.dashboard}     onCP={onCP} {...p} />}
       {page === 'patients'      && <DPatients data={apiData.patients}      loading={apiLoading.patients}      onReload={() => loadPage('patients', true)} {...p} />}
       {page === 'agenda'        && <DAgenda   data={apiData.agenda}        loading={apiLoading.agenda}        onReload={() => loadPage('agenda', true)}   {...p} />}
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}

@@ -321,9 +321,16 @@ export async function createConsultation(doctorId, payload) {
     status: row.status, startedAt: row.started_at,
   };
 
-  // Notifier le patient
+  // Notifier le patient et alimenter son historique médical
   const [[doc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
-  notifyPatientConsultation(payload.patientId, `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`, id).catch(() => {});
+  const doctorName = `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`.trim();
+  if (result.status !== 'draft') {
+    await pool.execute(
+      'INSERT INTO nova_medical_history (id, patient_id, type, title, occurred_at, doctor_name) VALUES (?, ?, ?, ?, ?, ?)',
+      [randomUUID(), payload.patientId, 'consultation', payload.diagnosisMain || payload.motif || 'Consultation', now, doctorName]
+    );
+  }
+  notifyPatientConsultation(payload.patientId, doctorName, id).catch(() => {});
 
   return result;
 }
