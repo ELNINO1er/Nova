@@ -93,7 +93,6 @@ function StatCard({ label, value, hint, Icon, color, card, sub }) {
 function ADash({ data, card, sub, darkMode }) {
   const k = data.kpis || {};
   const cities = data.cities || [];
-  const max = Math.max(1, ...cities.map((c) => Number(c.patients || 0)));
   const rowBorder = darkMode ? 'border-slate-800' : 'border-slate-100';
   return (
     <div className="space-y-4">
@@ -108,22 +107,7 @@ function ADash({ data, card, sub, darkMode }) {
         <StatCard label="Actions auditées (24 h)" value={k.audit24h} Icon={Lock} color="red" card={card} sub={sub} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className={`${card} border rounded-2xl p-6`}>
-          <h3 className="font-bold mb-4">Patients par ville</h3>
-          {cities.length === 0 ? <p className={`text-sm ${sub}`}>Aucun patient enregistré.</p> : (
-            <div className="space-y-3">
-              {cities.map((c) => (
-                <div key={c.city} className="grid grid-cols-[8rem_1fr_3rem] items-center gap-3 text-sm">
-                  <span className="truncate">{c.city}</span>
-                  <div className={`h-2.5 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                    <div className="h-full rounded-full bg-red-600" style={{ width: `${(Number(c.patients) / max) * 100}%` }} />
-                  </div>
-                  <span className="text-right font-semibold">{c.patients}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <CityChart cities={cities} card={card} sub={sub} darkMode={darkMode} />
         <div className={`${card} border rounded-2xl p-6`}>
           <h3 className="font-bold mb-4">Activité récente</h3>
           {(data.recentAudit || []).length === 0 ? <p className={`text-sm ${sub}`}>Aucune action enregistrée.</p> : (
@@ -141,6 +125,114 @@ function ADash({ data, card, sub, darkMode }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Graduation « propre » de l'axe : 0 / pas / 2×pas… jusqu'à couvrir le maximum (≤ 5 graduations).
+function niceTicks(max) {
+  const raw = Math.max(1, max) / 4;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((m) => m * pow).find((v) => v >= raw);
+  const top = Math.ceil(Math.max(1, max) / step) * step;
+  return Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
+}
+
+/* Patients par ville : colonnes animées (croissance au chargement), valeur au sommet,
+   info-bulle au survol (nombre + part), axe et grille discrets, tableau pour lecteurs d'écran. */
+function CityChart({ cities, card, sub, darkMode }) {
+  const [shown, setShown] = useState(false);
+  const [hover, setHover] = useState(null);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const rows = cities.map((c) => ({ city: c.city, patients: Number(c.patients || 0) }));
+  const total = rows.reduce((sum, r) => sum + r.patients, 0);
+  const ticks = niceTicks(Math.max(0, ...rows.map((r) => r.patients)));
+  const top = ticks[ticks.length - 1];
+  const share = (n) => (total ? Math.round((n / total) * 100) : 0);
+  const leader = rows[0];
+  const grid = darkMode ? 'border-slate-800' : 'border-slate-200';
+  const fill = darkMode ? 'bg-red-500' : 'bg-red-600';
+  const fade = darkMode ? 'bg-red-500/35' : 'bg-red-600/35'; // colonnes non survolées : seule la couleur s'estompe
+
+  return (
+    <div className={`${card} border rounded-2xl p-6 flex flex-col`}>
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 className="font-bold">Patients par ville</h3>
+          <p className={`text-xs mt-0.5 ${sub}`}>{total.toLocaleString('fr-FR')} patients répartis dans {rows.length} ville{rows.length > 1 ? 's' : ''}</p>
+        </div>
+        {leader && (
+          <div className="text-right">
+            <p className="text-2xl font-bold leading-none">{share(leader.patients)} %</p>
+            <p className={`text-xs mt-1 ${sub}`}>à {leader.city}</p>
+          </div>
+        )}
+      </div>
+
+      {rows.length === 0 ? <p className={`text-sm ${sub}`}>Aucun patient enregistré.</p> : (
+        <>
+          <div className="flex-1 min-h-[14rem] flex gap-3 pt-5">
+            {/* Axe des valeurs */}
+            <div className={`relative w-7 text-[11px] tabular-nums ${sub}`} aria-hidden="true">
+              {ticks.map((t) => (
+                <span key={t} className="absolute right-0 -translate-y-1/2" style={{ bottom: `${(t / top) * 100}%` }}>{t}</span>
+              ))}
+            </div>
+            <div className="relative flex-1">
+              {/* Quadrillage */}
+              {ticks.map((t) => (
+                <div key={t} className={`absolute inset-x-0 border-t ${grid}`} style={{ bottom: `${(t / top) * 100}%` }} aria-hidden="true" />
+              ))}
+              {/* Colonnes */}
+              <div className="absolute inset-0 flex items-end justify-around">
+                {rows.map((r, i) => {
+                  const pct = (r.patients / top) * 100;
+                  const active = hover === i;
+                  return (
+                    <button key={r.city} type="button"
+                      onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+                      onFocus={() => setHover(i)} onBlur={() => setHover(null)}
+                      aria-label={`${r.city} : ${r.patients} patients, ${share(r.patients)} %`}
+                      className="relative h-full flex-1 max-w-[7rem] flex flex-col items-center justify-end outline-none">
+                      {/* Valeur posée au sommet, hors du calcul de hauteur : la colonne reste à l'échelle de l'axe. */}
+                      <span
+                        className={`relative w-7 rounded-t-[4px] transition-[height,background-color] duration-700 ease-out motion-reduce:transition-none ${hover !== null && !active ? fade : fill}`}
+                        style={{ height: shown ? `${pct}%` : '0%', transitionDelay: shown ? `${i * 90}ms` : '0ms' }}
+                      >
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-sm font-semibold tabular-nums">{r.patients}</span>
+                      </span>
+                      {active && (
+                        // À côté du sommet de la colonne (jamais sur le titre) ; à gauche pour la dernière colonne.
+                        <span role="tooltip" className={`absolute z-10 translate-y-1/2 px-3 py-2 rounded-lg shadow-lg text-xs text-left whitespace-nowrap pointer-events-none ${darkMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'}`}
+                          style={{ bottom: `${Math.max(pct, 12)}%`, ...(i === rows.length - 1 ? { right: 'calc(50% + 1.25rem)' } : { left: 'calc(50% + 1.25rem)' }) }}>
+                          <span className="font-semibold">{r.city}</span><br />
+                          {r.patients} patient{r.patients > 1 ? 's' : ''} · {share(r.patients)} % du total
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          {/* Noms des villes, alignés sous les colonnes */}
+          <div className="flex gap-3 mt-2">
+            <div className="w-7" />
+            <div className="flex-1 flex justify-around">
+              {rows.map((r) => <span key={r.city} className={`flex-1 max-w-[7rem] text-center text-xs truncate ${sub}`}>{r.city}</span>)}
+            </div>
+          </div>
+          <table className="sr-only">
+            <caption>Patients par ville</caption>
+            <thead><tr><th>Ville</th><th>Patients</th><th>Part</th></tr></thead>
+            <tbody>{rows.map((r) => <tr key={r.city}><td>{r.city}</td><td>{r.patients}</td><td>{share(r.patients)} %</td></tr>)}</tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
