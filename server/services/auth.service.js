@@ -277,6 +277,21 @@ export async function startPhonePasswordLogin(phone, password) {
   return { user: toSessionUser(user) };
 }
 
+/** Changement volontaire de son propre mot de passe (utilisateur connecté). */
+export async function changeOwnPassword(userId, currentPassword, newPassword) {
+  const [[user]] = await pool.execute('SELECT id, role, password_hash FROM nova_users WHERE id = ? AND deleted_at IS NULL', [userId]);
+  if (!user) throw Object.assign(new Error('Compte introuvable.'), { status: 404 });
+  const valid = user.password_hash && await bcrypt.compare(String(currentPassword || ''), user.password_hash);
+  if (!valid) throw Object.assign(new Error('Mot de passe actuel incorrect.'), { status: 400, code: 'wrong_password' });
+  const policyError = passwordPolicyError(user.role, newPassword);
+  if (policyError) throw Object.assign(new Error(policyError), { status: 422, code: 'weak_password' });
+  await pool.execute(
+    'UPDATE nova_users SET password_hash = ?, must_change_password = 0, password_changed_at = NOW() WHERE id = ?',
+    [await bcrypt.hash(newPassword, 12), user.id]
+  );
+  return { ok: true };
+}
+
 /** Remplace le mot de passe provisoire puis ouvre la session (hors médecins, qui passent par TOTP). */
 export async function changeInitialPassword(challengeId, newPassword) {
   const pending = await getPasswordChangeChallenge(challengeId);

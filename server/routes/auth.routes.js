@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
-  changeInitialDoctorPassword, changeInitialPassword, phoneExists, sendOtp,
+  changeInitialDoctorPassword, changeInitialPassword, changeOwnPassword, phoneExists, sendOtp,
   startPhonePasswordLogin, verifyOtp,
 } from '../services/auth.service.js';
 import { verifyTotpEnrollment, verifyTotpLogin } from '../services/mfa.service.js';
@@ -238,6 +238,17 @@ router.post('/logout', async (req, res, next) => {
 });
 
 /* ── GET /api/auth/me — profil + permissions ────────────────── */
+/* Changer son mot de passe depuis les paramètres (tous rôles). */
+router.post('/password/self-change', requireAuth, async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1).max(128),
+      newPassword: z.string().min(8).max(128),
+    }).parse(req.body);
+    res.json(await changeOwnPassword(req.user.id, currentPassword, newPassword));
+  } catch (err) { next(err); }
+});
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const { pool } = await import('../db/database.js');
@@ -249,7 +260,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
       [req.user.role]
     );
 
-    const [[account]] = await pool.execute('SELECT name, avatar FROM nova_users WHERE id = ? AND deleted_at IS NULL', [req.user.id]);
+    const [[account]] = await pool.execute('SELECT name, avatar, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [req.user.id]);
     if (!account) return res.status(401).json({ error: 'account_inactive', message: 'Compte introuvable ou desactive.' });
     res.set('Cache-Control', 'no-store').json({
       id: req.user.id,
@@ -259,6 +270,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
       pharmacyId: req.user.pharmacyId,
       name: account.name,
       avatar: account.avatar,
+      phone: account.phone,
       permissions: permissions.map(p => p.code),
     });
   } catch (err) { next(err); }

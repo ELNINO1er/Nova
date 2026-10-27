@@ -15,6 +15,15 @@ export const adminApi = {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
+  changeOwnPassword: (currentPassword, newPassword) => request('/auth/password/self-change', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  }),
+  me: () => request('/auth/me'),
+  createDoctorLogin: (doctorId, phone) => request(`/admin/me/doctors/${doctorId}/account`, {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  }),
   resetPassword: (userId) => request(`/admin/me/users/${userId}/reset-password`, { method: 'POST' }),
   // Pharmacien ou gouverneur (les médecins passent par createDoctor).
   createAccount: (payload) => request('/admin/me/accounts', {

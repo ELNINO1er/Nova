@@ -16,6 +16,7 @@ import {
   createDoctorAccount,
   resetUserPassword,
   createStaffAccount,
+  createDoctorLogin,
 } from '../services/admin.service.js';
 
 const router = express.Router();
@@ -126,6 +127,21 @@ router.post(
       const result = await resetUserPassword(req.params.id);
       if (!result) return res.status(404).json({ error: 'not_found', message: 'Compte introuvable.' });
       res.set('Cache-Control', 'no-store').json(result);
+    } catch (err) { next(err); }
+  }
+);
+
+/* Créer l'accès de connexion d'un médecin enregistré sans compte. */
+router.post(
+  '/doctors/:id/account',
+  requirePermission('admin.doctors.validate'),
+  validateBody(z.object({ phone: phoneSchema })),
+  auditLog('admin.doctor.account_create', 'doctor'),
+  async (req, res, next) => {
+    try {
+      const result = await createDoctorLogin(req.params.id, req.body.phone);
+      if (!result) return res.status(404).json({ error: 'not_found', message: 'Médecin introuvable.' });
+      res.status(201).set('Cache-Control', 'no-store').json(result);
     } catch (err) { next(err); }
   }
 );

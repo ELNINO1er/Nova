@@ -153,10 +153,13 @@ export default function App() {
             <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem('nova_darkMode', next); }} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            <button className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
-            </button>
+            {/* Seul l'espace patient a une page de notifications. */}
+            {role === 'patient' && (
+              <button onClick={() => setPage('notifications')} className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
+                <Bell className="w-4 h-4" />
+                {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
+              </button>
+            )}
             <button onClick={onLogout} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</div>
               <div className="hidden lg:block text-left">

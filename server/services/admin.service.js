@@ -79,9 +79,11 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
   if (type === 'patients') {
     const countSql = `SELECT COUNT(*) AS total FROM nova_patients
       WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)`;
-    const dataSql = `SELECT id, first_name AS firstName, last_name AS lastName, cmu_number AS cmuNumber,
-        phone, email, city, birth_date AS birthDate, created_at AS createdAt
-      FROM nova_patients
+    const dataSql = `SELECT p.id, p.first_name AS firstName, p.last_name AS lastName, p.cmu_number AS cmuNumber,
+        p.phone, p.email, p.city, p.birth_date AS birthDate, p.created_at AS createdAt,
+        (SELECT u.id FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
+        (SELECT u.phone FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
+      FROM nova_patients p
       WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)
       ORDER BY COALESCE(created_at, updated_at) DESC
       ${limiter}`;
@@ -122,10 +124,12 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
 
   const countSql = `SELECT COUNT(*) AS total FROM nova_doctors
     WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)`;
-  const dataSql = `SELECT id, first_name AS firstName, last_name AS lastName, specialty, sub_specialty AS subSpecialty,
-      city, address, phone, email, rating, reviews_count AS reviewsCount, is_available AS isAvailable,
-      created_at AS createdAt
-    FROM nova_doctors
+  const dataSql = `SELECT d.id, d.first_name AS firstName, d.last_name AS lastName, d.specialty, d.sub_specialty AS subSpecialty,
+      d.city, d.address, d.phone, d.email, d.rating, d.reviews_count AS reviewsCount, d.is_available AS isAvailable,
+      d.created_at AS createdAt,
+      (SELECT u.id FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
+        (SELECT u.phone FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
+    FROM nova_doctors d
     WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)
     ORDER BY COALESCE(created_at, last_name) DESC
     ${limiter}`;
@@ -268,7 +272,7 @@ export async function createDoctorAccount(payload) {
     );
     await connection.commit();
     return {
-      doctor: { id: doctorId, firstName: payload.firstName, lastName: payload.lastName, email: payload.email },
+      doctor: { id: doctorId, firstName: payload.firstName, lastName: payload.lastName, email: payload.email, phone: payload.phone },
       provisionalPassword: password,
       message: 'Compte créé. Transmettez le mot de passe provisoire par un canal sécurisé.',
     };
@@ -320,6 +324,30 @@ function provisionalFor(role) {
 }
 
 /** Comptes créés par l'admin : pharmacien (rattaché à une pharmacie) ou gouverneur. */
+/** Crée l'accès de connexion d'un médecin déjà enregistré qui n'en a pas (ex. annuaire importé). */
+export async function createDoctorLogin(doctorId, phone) {
+  const [[doctor]] = await pool.execute('SELECT id, first_name, last_name, avatar_initials FROM nova_doctors WHERE id = ?', [doctorId]);
+  if (!doctor) return null;
+  const [[existing]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ? AND deleted_at IS NULL', [doctorId]);
+  if (existing) throw Object.assign(new Error('Ce médecin a déjà un compte de connexion.'), { status: 409 });
+  const password = provisionalFor('doctor');
+  const id = randomUUID();
+  const name = `Dr. ${doctor.first_name} ${doctor.last_name}`;
+  const now = new Date().toISOString();
+  try {
+    await pool.execute(
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, role, doctor_id, name, avatar, must_change_password, mfa_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'doctor', ?, ?, ?, 1, 0, ?, ?)`,
+      [id, phone, await bcrypt.hash(randomUUID(), 10), await bcrypt.hash(password, 12), doctor.id, name,
+       doctor.avatar_initials || `${doctor.first_name[0] || ''}${doctor.last_name[0] || ''}`.toUpperCase(), now, now]
+    );
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') throw Object.assign(new Error('Ce numéro est déjà utilisé.'), { status: 409 });
+    throw error;
+  }
+  return { user: { id, role: 'doctor', name, phone }, provisionalPassword: password };
+}
+
 export async function createStaffAccount(payload) {
   let pharmacy = null;
   if (payload.role === 'pharmacist') {

@@ -14,6 +14,12 @@ import {
 } from 'lucide-react';
 
 /* ============== SIDEBAR ============== */
+// Contact support configurable (VITE_SUPPORT_WHATSAPP prioritaire, sinon VITE_SUPPORT_EMAIL) ; carte masquée sinon.
+const SUPPORT_WHATSAPP = String(import.meta.env.VITE_SUPPORT_WHATSAPP || '').replace(/\D/g, '');
+const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || '';
+const SUPPORT_HREF = SUPPORT_WHATSAPP ? `https://wa.me/${SUPPORT_WHATSAPP}` : SUPPORT_EMAIL ? `mailto:${SUPPORT_EMAIL}` : '';
+const SUPPORT_HOURS = import.meta.env.VITE_SUPPORT_HOURS || '';
+
 export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}, darkMode, sub, border }) {
   const sec = role === 'patient' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Accueil',I:Home},{id:'profile',l:'Mon profil',I:User}]},
@@ -105,17 +111,19 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
           </div>
         ))}
       </nav>
-      <div className={`p-3 border-t ${border}`}>
-        <div className="p-3 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-400/30 rounded-full -translate-y-10 translate-x-10 blur-2xl"></div>
-          <div className="relative">
-            <Sparkles className="w-4 h-4 mb-1" />
-            <p className="text-xs font-bold">Aide & Support</p>
-            <p className="text-[10px] text-red-100 mt-1">24h/24 • 7j/7</p>
-            <button className="mt-2 w-full bg-white/20 backdrop-blur text-white text-[10px] font-bold py-1.5 rounded-lg">Contacter</button>
+      {SUPPORT_HREF && (
+        <div className={`p-3 border-t ${border}`}>
+          <div className="p-3 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-400/30 rounded-full -translate-y-10 translate-x-10 blur-2xl"></div>
+            <div className="relative">
+              <Sparkles className="w-4 h-4 mb-1" />
+              <p className="text-xs font-bold">Aide & Support</p>
+              {SUPPORT_HOURS && <p className="text-[10px] text-red-100 mt-1">{SUPPORT_HOURS}</p>}
+              <a href={SUPPORT_HREF} target="_blank" rel="noreferrer" className="mt-2 block w-full text-center bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold py-1.5 rounded-lg">Contacter</a>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }
