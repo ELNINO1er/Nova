@@ -12,10 +12,23 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
   const [msgText, setMsgText]       = useState('');
   const [sending, setSending]       = useState(false);
   const [showList, setShowList]     = useState(true); // mobile toggle
+  const [convError, setConvError]   = useState('');
   const endRef   = useRef(null);
   const inputRef = useRef(null);
+  const convListRef = useRef(convList);   // dernière liste connue, hors des updaters de state
+  const openRequestRef = useRef(0);       // ignore les réponses d'une conversation quittée entre-temps
 
   useEffect(() => { if (data) setConvList(data); }, [data]);
+  useEffect(() => { convListRef.current = convList; }, [convList]);
+
+  // Met à jour la liste puis prévient le parent, en dehors du rendu (évite le warning
+  // React « Cannot update a component while rendering a different component »).
+  const updateConvList = (transform) => {
+    const next = transform(convListRef.current);
+    convListRef.current = next;
+    setConvList(next);
+    onConversationsChange?.(next);
+  };
 
   // auto-scroll when messages change
   useEffect(() => {
@@ -29,21 +42,23 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
   const openConversation = async (id) => {
     if (id === selId && convData) return;
+    const requestId = ++openRequestRef.current;
     setSelId(id);
     setConvData(null);
+    setConvError('');
     setConvLoading(true);
     setShowList(false);
     try {
       const full = await api.conversation(id);
+      if (requestId !== openRequestRef.current) return;
       setConvData(full);
       await api.markConversationRead(id);
-      setConvList(prev => {
-        const next = prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c);
-        onConversationsChange?.(next);
-        return next;
-      });
-    } catch { /* ignore */ }
-    finally { setConvLoading(false); }
+      updateConvList(list => list.map(c => c.id === id ? { ...c, unreadCount: 0 } : c));
+    } catch (err) {
+      if (requestId === openRequestRef.current) setConvError(err.message || 'Conversation indisponible.');
+    } finally {
+      if (requestId === openRequestRef.current) setConvLoading(false);
+    }
   };
 
   const sendMessage = async () => {
@@ -53,14 +68,10 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
     setMsgText('');
     try {
       const msg = await api.sendMessage(selId, { body });
-      setConvData(prev => ({ ...prev, messages: [...(prev.messages || []), msg] }));
-      setConvList(prev => {
-        const next = prev.map(c =>
-          c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
-        );
-        onConversationsChange?.(next);
-        return next;
-      });
+      setConvData(prev => prev ? { ...prev, messages: [...(prev.messages || []), msg] } : prev);
+      updateConvList(list => list.map(c =>
+        c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
+      ));
     } catch { setMsgText(body); }
     finally { setSending(false); }
   };
@@ -191,6 +202,14 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                   {convLoading ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="animate-spin w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full" />
+                    </div>
+                  ) : convError ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center gap-2">
+                      <p className={`text-sm ${sub}`}>{convError}</p>
+                      <button onClick={() => openConversation(selId)}
+                        className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700">
+                        Réessayer
+                      </button>
                     </div>
                   ) : groupedMessages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center">

@@ -75,15 +75,7 @@ export const patientApi = {
     method: 'PATCH',
     body: JSON.stringify(payload),
   }),
-  uploadDocument: async (formData) => {
-    const r = await fetch(`${API_BASE_URL}/patient/me/documents`, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
-    return r.json();
-  },
+  uploadDocument: (formData) => request('/patient/me/documents', { method: 'POST', body: formData }),
   insurance: () => request('/patient/me/insurance'),
   payments: () => request('/patient/me/payments'),
   createPayment: (payload) => request('/patient/me/payments', {

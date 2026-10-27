@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
+import { medicalList } from './medical-profile.js';
 import { notifyDoctorConsent, notifyDoctorAppointment } from './notification.service.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 
@@ -706,12 +707,6 @@ export async function getLabResult(patientId, id) {
 
 /* ─── Profil médical ─────────────────────────────────────────── */
 
-// mysql2 renvoie déjà les colonnes JSON désérialisées ; ne parser que les chaînes.
-function safeJson(value, fallback = []) {
-  if (value == null) return fallback;
-  if (typeof value !== 'string') return value;
-  try { return JSON.parse(value); } catch { return fallback; }
-}
 
 export async function getMedicalProfile(patientId) {
   const [[row]] = await pool.execute(
@@ -719,10 +714,10 @@ export async function getMedicalProfile(patientId) {
   );
   if (!row) return { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
   return {
-    allergies:       safeJson(row.allergies),
-    chronicDiseases: safeJson(row.chronic_diseases),
-    familyHistory:   safeJson(row.family_history),
-    surgicalHistory: safeJson(row.surgical_history),
+    allergies:       medicalList(row.allergies),
+    chronicDiseases: medicalList(row.chronic_diseases),
+    familyHistory:   medicalList(row.family_history),
+    surgicalHistory: medicalList(row.surgical_history),
     updatedAt:       row.updated_at,
   };
 }
@@ -812,9 +807,9 @@ export async function getEmergencyCard(patientId) {
 
   const [[mpRow]] = await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
   const mp = mpRow ? {
-    allergies:       safeJson(mpRow.allergies),
-    chronicDiseases: safeJson(mpRow.chronic_diseases),
-    surgicalHistory: safeJson(mpRow.surgical_history),
+    allergies:       medicalList(mpRow.allergies),
+    chronicDiseases: medicalList(mpRow.chronic_diseases),
+    surgicalHistory: medicalList(mpRow.surgical_history),
   } : { allergies: [], chronicDiseases: [], surgicalHistory: [] };
 
   const [activeTreatments] = await pool.execute(
@@ -1147,8 +1142,11 @@ function getVitalStatus(vital) {
   const value = vitalToHistoryValue(vital);
   if (!Number.isFinite(value)) return 'normal';
   if (vital.type === 'blood_pressure') {
-    if (value >= 160 || value <= 90)  return 'critical';
-    if (value >= 140 || value <= 100) return 'watch';
+    // Seuils en mmHg ; la tension est souvent saisie en cmHg (« 12/8 » = 120/80).
+    const systolic = value < 30 ? value * 10 : value;
+    if (systolic >= 160 || systolic <= 90)  return 'critical';
+    if (systolic >= 140 || systolic <= 100) return 'watch';
+    return 'normal';
   }
   if (vital.type === 'blood_glucose') {
     if (value >= 1.26 || value < 0.7)  return 'critical';

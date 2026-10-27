@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Target, Plus, Check, Trash2, Activity, Droplet, Moon as MoonIcon, Brain, Heart, HeartPulse, Zap, CheckCircle2, Sparkles, Sun } from 'lucide-react';
+import { Target, Plus, Check, Trash2, Activity, Droplet, Moon as MoonIcon, Brain, Heart, HeartPulse, Zap, CheckCircle2, Sparkles, Sun, X } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 
 export default function PWell({ data, profile, onReload, notify, card, sub, border, darkMode }) {
@@ -22,7 +22,7 @@ export default function PWell({ data, profile, onReload, notify, card, sub, bord
 
   const healthTips = [
     { icon: Droplet,     title: 'Hydratation',         tip: 'Buvez au moins 2L d\'eau par jour, davantage si activité physique.',         color: 'cyan' },
-    { icon: Moon,        title: 'Sommeil',              tip: 'Dormez 7 à 9 heures par nuit pour une récupération optimale.',              color: 'indigo' },
+    { icon: MoonIcon,    title: 'Sommeil',              tip: 'Dormez 7 à 9 heures par nuit pour une récupération optimale.',              color: 'indigo' },
     { icon: Activity,    title: 'Activité physique',    tip: '30 minutes de marche rapide par jour réduisent le risque cardiaque de 35%.', color: 'blue' },
     { icon: Sun,         title: 'Exposition solaire',   tip: '15 min de soleil/jour favorisent la synthèse de vitamine D.',              color: 'amber' },
     { icon: HeartPulse,  title: 'Stress',               tip: 'Pratiquez la respiration profonde 5 minutes par jour pour réduire le stress.', color: 'rose' },

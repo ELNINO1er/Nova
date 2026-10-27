@@ -61,7 +61,7 @@ export const upload = multer({
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (ALLOWED_MIMES.includes(file.mimetype) && ALLOWED_EXTS.includes(ext)) cb(null, true);
-    else cb(new Error('Format non autorisé. Acceptés : PDF, JPG, PNG, WEBP'));
+    else cb(Object.assign(new Error('Format non autorisé. Acceptés : PDF, JPG, PNG, WEBP'), { status: 415, code: 'unsupported_file_type' }));
   },
 });
 

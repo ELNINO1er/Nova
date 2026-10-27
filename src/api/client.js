@@ -1,4 +1,10 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const REQUEST_TIMEOUT_MS = 30000;
+
+// Codes renvoyés par server/middleware/auth.js quand le jeton d'accès n'est plus
+// valable. Les autres 401 (ex. QR d'ordonnance invalide) sont des erreurs métier
+// et ne doivent ni rafraîchir la session ni déconnecter l'utilisateur.
+const SESSION_ERRORS = new Set(['unauthorized', 'invalid_token', 'token_revoked']);
 
 let refreshPromise = null;
 
@@ -17,37 +23,67 @@ async function refreshToken() {
   }
 }
 
+// Un seul refresh à la fois, partagé par toutes les requêtes en attente.
+function sharedRefresh() {
+  if (!refreshPromise) {
+    refreshPromise = refreshToken().finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+async function send(path, options) {
+  const isForm = options.body instanceof FormData;
+  const headers = isForm ? { ...options.headers } : { 'Content-Type': 'application/json', ...options.headers };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Le serveur met trop de temps à répondre. Réessayez.');
+    throw new Error('Impossible de joindre le serveur. Vérifiez votre connexion.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readBody(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/**
+ * Requête API avec cookies de session.
+ * Sur un 401 de session : un refresh puis une seule nouvelle tentative.
+ * `silent: true` évite l'événement de déconnexion globale (vérification au démarrage).
+ */
 export async function request(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const { silent = false, ...fetchOptions } = options;
+  let response = await send(path, fetchOptions);
 
-  let response = await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers });
-
-  // Auto-refresh on 401
   if (response.status === 401) {
-    if (!refreshPromise) refreshPromise = refreshToken();
-    const refreshed = await refreshPromise;
-    refreshPromise = null;
-
-    if (refreshed) {
-      response = await fetch(`${API_BASE_URL}${path}`, { ...options, credentials: 'include', headers });
-    } else {
-      // Refresh failed — force logout
-      localStorage.removeItem('nova_user');
-      window.dispatchEvent(new Event('nova:logout'));
-      throw new Error('Session expirée. Veuillez vous reconnecter.');
+    const body = await readBody(response.clone());
+    if (!body || SESSION_ERRORS.has(body.error)) {
+      if (await sharedRefresh()) {
+        response = await send(path, fetchOptions);
+      } else {
+        if (!silent) {
+          localStorage.removeItem('nova_user');
+          window.dispatchEvent(new Event('nova:logout'));
+        }
+        throw new Error('Session expirée. Veuillez vous reconnecter.');
+      }
     }
   }
 
+  const data = await readBody(response);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `API request failed: ${response.status}`);
+    const error = new Error(data?.message || `Erreur ${response.status}`);
+    error.status = response.status;
+    error.code = data?.error;
+    throw error;
   }
-
-  if (response.status === 204) return null;
-  return response.json();
+  return data;
 }
 
 export function toQuery(params) {

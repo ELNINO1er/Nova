@@ -4,13 +4,19 @@ import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatDateFull, formatShortDayMonth } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
 
+const defaultAppointmentDate = () => {
+  const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  date.setUTCHours(9, 0, 0, 0);
+  return date.toISOString().slice(0, 16);
+};
+
 export default function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [form, setForm] = useState({
-    startsAt: '2026-06-01T09:00',
+    startsAt: defaultAppointmentDate(),
     doctorId: '',
     mode: 'onsite',
   });
@@ -45,12 +51,12 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   }) : [];
   const resetRdvForm = () => {
     setEditingId(null);
-    setForm({ startsAt: '2026-06-01T09:00', doctorId: '', mode: 'onsite' });
+    setForm({ startsAt: defaultAppointmentDate(), doctorId: '', mode: 'onsite' });
   };
   const openEditRdv = (rdv) => {
     setEditingId(rdv.id);
     setForm({
-      startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : '2026-06-01T09:00',
+      startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : defaultAppointmentDate(),
       doctorId: rdv.doctorId || '',
       mode: rdv.mode || (rdv.v ? 'video' : 'onsite'),
     });
@@ -195,4 +201,3 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
     </div>
   );
 }
-

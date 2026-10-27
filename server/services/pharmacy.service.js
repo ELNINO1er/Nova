@@ -3,6 +3,9 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 
+// Une ordonnance partiellement délivrée doit pouvoir être complétée.
+const DISPENSABLE_STATUSES = ['active', 'partial'];
+
 /* ─── Dashboard pharmacie ─────────────────────────────────────── */
 
 export async function getPharmacyDashboard(pharmacyId) {
@@ -53,7 +56,9 @@ export async function verifyPrescriptionQR(qrToken) {
     decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
   } catch {
     const err = new Error('QR ordonnance invalide ou expiré.');
-    err.status = 401;
+    // 422 et non 401 : le pharmacien est bien authentifié, c'est le QR qui est refusé.
+    err.status = 422;
+    err.code = 'invalid_qr';
     throw err;
   }
   if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
@@ -101,7 +106,7 @@ export async function verifyPrescriptionQR(qrToken) {
       authentic: true,
       expired: isExpired,
       alreadyFull: dispense?.status === 'full',
-      canDispense: !isExpired && dispense?.status !== 'full' && rx.status === 'active',
+      canDispense: !isExpired && dispense?.status !== 'full' && DISPENSABLE_STATUSES.includes(rx.status),
     },
   };
 }
@@ -176,7 +181,7 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
     throw err;
   }
   const isExpired = rxStatus.valid_until && new Date(rxStatus.valid_until) < new Date();
-  if (isExpired || rxStatus.last_dispense_status === 'full' || rxStatus.status !== 'active') {
+  if (isExpired || rxStatus.last_dispense_status === 'full' || !DISPENSABLE_STATUSES.includes(rxStatus.status)) {
     const err = new Error(
       isExpired ? 'Ordonnance expiree.'
       : rxStatus.last_dispense_status === 'full' ? 'Ordonnance deja entierement delivree.'

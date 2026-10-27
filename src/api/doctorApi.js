@@ -63,14 +63,7 @@ export const doctorApi = {
   // Documents
   documents: () => request('/doctor/me/documents'),
   deleteDocument: (id) => request(`/doctor/me/documents/${id}`, { method: 'DELETE' }),
-  uploadDocument: async (formData) => {
-    const API = import.meta.env.VITE_API_BASE_URL || '/api';
-    const r = await fetch(`${API}/doctor/me/documents`, {
-      method: 'POST', body: formData, credentials: 'include',
-    });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
-    return r.json();
-  },
+  uploadDocument: (formData) => request('/doctor/me/documents', { method: 'POST', body: formData }),
   // Settings
   settings: () => request('/doctor/me/settings'),
   updateSettings: (payload) => request('/doctor/me/settings', { method: 'PATCH', body: JSON.stringify(payload) }),

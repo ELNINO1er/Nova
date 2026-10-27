@@ -33,7 +33,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   const p = { card, sub, border, darkMode };
   const [apiData, setApiData] = useState({});
   const [apiLoading, setApiLoading] = useState({});
-  const [apiError, setApiError] = useState('');
+  const [apiError, setApiError] = useState({}); // erreur de chargement par page
   const [notice, setNotice] = useState(null);
 
   const notify = (message, type = 'success') => {
@@ -83,10 +83,10 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
           ? raw.data
           : raw;
         setApiData((current) => ({ ...current, [pageKey]: data }));
-        setApiError('');
+        setApiError((current) => ({ ...current, [pageKey]: null }));
       })
       .catch((error) => {
-        setApiError(error.message);
+        setApiError((current) => ({ ...current, [pageKey]: error.message }));
       })
       .finally(() => {
         setApiLoading((current) => ({ ...current, [pageKey]: false }));
@@ -116,7 +116,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     setApiData((current) => ({ ...current, [key]: value, dashboard: undefined }));
   };
   const refreshDashboard = () => loadPage('dashboard', true);
-  const retryCurrentPage = () => { setApiError(''); loadPage(page, true); };
+  const retryCurrentPage = () => loadPage(page, true);
 
   const map = {
     dashboard: <PDash data={apiData.dashboard} loading={apiLoading.dashboard} onRefresh={refreshDashboard} setPage={setPage} setShowQR={setShowQR} setShowVid={setShowVid} {...p} />,
@@ -156,11 +156,11 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
 
   return (
     <>
-      {apiError && (
+      {apiError[page] && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <span>API indisponible — {apiError}</span>
+            <span>Chargement impossible — {apiError[page]}</span>
           </div>
           <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 flex-shrink-0">
             Réessayer

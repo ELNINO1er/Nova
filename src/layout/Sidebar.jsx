@@ -54,6 +54,8 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
     { t: 'GESTION', i: [{id:'finances',l:'Finances',I:TrendingUp},{id:'reputation',l:'Réputation & Avis',I:Award},{id:'signature',l:'Signature électronique',I:Edit3}]},
     { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},{id:'documents',l:'Documents',I:FileText}]},
     { t: 'COMPTE', i: [{id:'profile',l:'Mon profil',I:User},{id:'settings',l:'Paramètres',I:Settings}]}
+  ] : role === 'governor' ? [
+    { t: 'STATISTIQUES', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3}]}
   ] : role === 'pharmacist' ? [
     { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:Home},{id:'scan',l:'Scanner ordonnance',I:Search}]},
     { t: 'ACTIVITÉ', i: [{id:'history',l:'Historique délivrances',I:ClipboardList}]},

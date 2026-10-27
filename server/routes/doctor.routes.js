@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { phoneSchema } from '../services/phone.js';
 import { requireDoctor, requirePermission } from '../middleware/auth.js';
 import {
   getDoctorDashboard,
@@ -67,7 +68,8 @@ router.get('/patients', requirePermission('doctor.patients'), wrap(async (req, r
 router.post('/patients', requirePermission('doctor.patients.create'), validateBody(z.object({
   firstName:             z.string().min(1),
   lastName:              z.string().min(1),
-  phone:                 z.string().min(8),
+  phone:                 phoneSchema,
+  password:              z.string().min(8).max(128).optional(),
   cmuNumber:             z.string().optional(),
   birthDate:             z.string().optional(),
   sex:                   z.enum(['M', 'F']).optional(),

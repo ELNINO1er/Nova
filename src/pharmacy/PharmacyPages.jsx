@@ -5,10 +5,12 @@ import {
   ShieldCheck, Stethoscope, User, X, Camera, Scan
 } from 'lucide-react';
 import { pharmacyApi } from '../api/pharmacyApi.js';
+import PageError from '../components/PageError.jsx';
 
 export default function PharmacyPages({ page, setPage, card, sub, border, darkMode }) {
   const [apiData, setApiData] = useState({});
   const [apiLoading, setApiLoading] = useState({});
+  const [apiError, setApiError] = useState({});
   const [notice, setNotice] = useState(null);
   const p = { card, sub, border, darkMode };
 
@@ -26,9 +28,10 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
     const load = loaders[key];
     if (!load || (!force && apiData[key])) return;
     setApiLoading(c => ({ ...c, [key]: true }));
+    setApiError(c => ({ ...c, [key]: null }));
     load()
       .then(data => setApiData(c => ({ ...c, [key]: data })))
-      .catch(err => notify(err.message, 'error'))
+      .catch(err => { setApiError(c => ({ ...c, [key]: err.message })); notify(err.message, 'error'); })
       .finally(() => setApiLoading(c => ({ ...c, [key]: false })));
   };
 
@@ -43,10 +46,14 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
         </div>
       )}
 
+      {apiError[page] && !apiData[page] ? (
+        <PageError message={apiError[page]} onRetry={() => loadPage(page, true)} card={card} sub={sub} />
+      ) : (<>
       {page === 'dashboard' && <PhDashboard data={apiData.dashboard} loading={apiLoading.dashboard} setPage={setPage} notify={notify} {...p} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
       {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} {...p} />}
+      </>)}
     </div>
   );
 }

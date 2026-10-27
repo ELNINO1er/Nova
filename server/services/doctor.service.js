@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
-import { sendOtp } from './auth.service.js';
+import { medicalList } from './medical-profile.js';
+import { generateProvisionalPassword, passwordPolicyError } from './auth.service.js';
 import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral } from './notification.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
@@ -93,10 +94,10 @@ export async function getDoctorPatient(doctorId, patientId) {
   );
 
   const mpData = mp ? {
-    allergies:       safeJson(mp.allergies),
-    chronicDiseases: safeJson(mp.chronic_diseases),
-    familyHistory:   safeJson(mp.family_history),
-    surgicalHistory: safeJson(mp.surgical_history),
+    allergies:       medicalList(mp.allergies),
+    chronicDiseases: medicalList(mp.chronic_diseases),
+    familyHistory:   medicalList(mp.family_history),
+    surgicalHistory: medicalList(mp.surgical_history),
   } : { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
 
   return {
@@ -174,6 +175,12 @@ export async function getDoctorConsultations(doctorId) {
 /* ─── Créer un patient depuis l'espace médecin ───────────────── */
 
 export async function createPatientByDoctor(doctorId, payload) {
+  // Mot de passe choisi par le médecin, ou généré ; le patient le change à sa première connexion.
+  const provisionalPassword = payload.password || generateProvisionalPassword();
+  const policyError = passwordPolicyError('patient', provisionalPassword);
+  if (policyError) throw Object.assign(new Error(`Mot de passe : ${policyError}`), { status: 422, code: 'weak_password' });
+  const passwordHash = await bcrypt.hash(provisionalPassword, 12);
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -215,16 +222,15 @@ export async function createPatientByDoctor(doctorId, payload) {
        now]
     );
 
-    // 4. Créer le user avec un code temporaire (sera remplacé par OTP)
+    // 4. Créer le compte de connexion (téléphone + mot de passe provisoire)
     const userId = randomUUID();
-    const tempCode = String(Math.floor(1000 + Math.random() * 9000));
-    const codeHash = await bcrypt.hash(tempCode, 10);
+    const unusableLegacyHash = await bcrypt.hash(randomUUID(), 10);
     const avatar = `${(payload.firstName?.[0] || '').toUpperCase()}${(payload.lastName?.[0] || '').toUpperCase()}`;
 
     await conn.execute(
-      `INSERT INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at)
-       VALUES (?, ?, ?, 'patient', ?, ?, ?, ?)`,
-      [userId, phone, codeHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, must_change_password, role, patient_id, name, avatar, created_at)
+       VALUES (?, ?, ?, ?, 1, 'patient', ?, ?, ?, ?)`,
+      [userId, phone, unusableLegacyHash, passwordHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
     );
 
     // 5. Créer un RDV initial pour lier docteur ↔ patient
@@ -240,17 +246,14 @@ export async function createPatientByDoctor(doctorId, payload) {
 
     await conn.commit();
 
-    // 6. Envoyer OTP pour activation (hors transaction)
-    const otpResult = await sendOtp(phone).catch(() => null);
-
     return {
       patientId,
       userId,
       cmuNumber,
       name: `${payload.firstName} ${payload.lastName}`,
       phone,
-      otpSent: !!otpResult,
-      ...(otpResult?.devCode ? { devCode: otpResult.devCode } : {}),
+      // Affiché une seule fois au médecin, qui le remet au patient.
+      provisionalPassword,
     };
   } catch (err) {
     await conn.rollback();
@@ -471,10 +474,6 @@ function mapPatientFull(r) {
   };
 }
 
-function safeJson(val) {
-  if (!val) return [];
-  try { return JSON.parse(val); } catch { return []; }
-}
 
 /* ─── Ordonnances (médecin) ──────────────────────────────────── */
 
@@ -614,7 +613,7 @@ export async function getChronicPatients(doctorId) {
     const birth = r.birth_date ? new Date(r.birth_date) : null;
     const today = new Date();
   const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
-    const chronic = safeJson(r.chronic_diseases);
+    const chronic = medicalList(r.chronic_diseases);
     const daysSince = r.last_consult
       ? Math.floor((Date.now() - new Date(r.last_consult).getTime()) / 86400000)
       : null;
@@ -631,7 +630,7 @@ export async function getChronicPatients(doctorId) {
       age,
       bloodType:    r.blood_type,
       chronicDiseases: chronic,
-      allergies:    safeJson(r.allergies),
+      allergies:    medicalList(r.allergies),
       lastConsult:  r.last_consult || null,
       lastDiagnosis:r.last_diagnosis || null,
       daysSince,

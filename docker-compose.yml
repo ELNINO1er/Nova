@@ -1,21 +1,23 @@
-version: '3.8'
-
 services:
   db:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-nova_root_pass}
-      MYSQL_DATABASE: ${DB_NAME:-sika_sante}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${DB_NAME:-nova}
+      MYSQL_USER: ${DB_USER:-nova_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    # Accessible uniquement depuis la machine (outils d'admin, sauvegardes), jamais depuis Internet.
     ports:
-      - "3307:3306"
+      - "127.0.0.1:${DB_HOST_PORT:-3308}:3306"
     volumes:
       - nova_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   api:
     build: .
@@ -23,22 +25,31 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Exposée en local seulement : le trafic public passe par Caddy (HTTPS).
     ports:
-      - "${API_PORT:-4001}:4001"
+      - "127.0.0.1:${API_PORT:-4001}:4001"
     environment:
       API_PORT: 4001
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD:-nova_root_pass}
-      DB_NAME: ${DB_NAME:-sika_sante}
+      DB_USER: ${DB_USER:-nova_app}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-nova}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
       NODE_ENV: production
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
-      # Validation : SEED_DEMO=true + SMS_PROVIDER=demo → comptes démo + code OTP affiché à l'écran.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Connexion : numéro + mot de passe. SEED_DEMO=true crée les comptes de démo (DEMO_PASSWORD requis).
       SEED_DEMO: ${SEED_DEMO:-false}
-      SMS_PROVIDER: ${SMS_PROVIDER:?SMS_PROVIDER is required}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      ALLOW_INSECURE_DEMO: ${ALLOW_INSECURE_DEMO:-false}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      DEMO_DOCTOR_PASSWORD: ${DEMO_DOCTOR_PASSWORD:-}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
+      # Connexion par SMS désactivée par défaut (OTP_LOGIN_ENABLED=true + SMS_PROVIDER=twilio|webhook pour l'activer).
+      OTP_LOGIN_ENABLED: ${OTP_LOGIN_ENABLED:-false}
+      SMS_PROVIDER: ${SMS_PROVIDER:-}
       SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
       SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
@@ -46,7 +57,51 @@ services:
       TWILIO_FROM: ${TWILIO_FROM:-}
     volumes:
       - nova_uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # HTTPS gratuit : Caddy obtient et renouvelle seul le certificat Let's Encrypt pour ${DOMAIN}.
+  # Prérequis : le nom de domaine pointe vers le serveur, ports 80 et 443 ouverts.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required (ex. nova.mondomaine.ci)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Sauvegarde quotidienne : base MySQL + documents envoyés, conservés ${BACKUP_RETENTION_DAYS:-14} jours dans ./backups.
+  # Copiez régulièrement ./backups hors du serveur (voir docs/MISE_EN_PRODUCTION_TEST.md).
+  backup:
+    image: mysql:8.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:-nova}
+      MYSQL_PWD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+      - nova_uploads:/uploads:ro
+    entrypoint: ["sh", "/backup.sh"]
 
 volumes:
   nova_mysql:
   nova_uploads:
+  caddy_data:
+  caddy_config:

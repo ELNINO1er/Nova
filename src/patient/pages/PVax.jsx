@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Syringe, Check, Clock, AlertTriangle, ChevronRight, Search, QrCode, Shield, ShieldCheck } from 'lucide-react';
+import { Syringe, Check, Clock, AlertTriangle, ChevronRight, Search, QrCode, Shield, ShieldCheck, X } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
 import { patientApi } from '../../api/patientApi.js';
 

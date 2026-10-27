@@ -197,9 +197,21 @@ export function ConsModal({ onClose, darkMode, sub, border }) {
   );
 }
 
+// Mot de passe provisoire lisible (sans 0/O, 1/l/I) : lettres et chiffres.
+function generatePassword(length = 10) {
+  const letters = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const all = letters + digits;
+  const values = crypto.getRandomValues(new Uint32Array(length));
+  const chars = Array.from(values, (v) => all[v % all.length]);
+  chars[values[0] % length] = digits[values[1] % digits.length];
+  chars[(values[0] + 1) % length] = letters[values[2] % letters.length];
+  return chars.join('');
+}
+
 export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, border }) {
   const [step, setStep] = useState(1);
-  const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
+  const [d, setD] = useState({ fn: '', ln: '', p: '', pw: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
@@ -208,6 +220,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
     firstName: d.fn.trim(),
     lastName: d.ln.trim(),
     phone: d.p.trim(),
+    password: d.pw || undefined, // vide : le serveur génère un mot de passe provisoire
     cmuNumber: d.cmu.trim() || undefined,
     sex: d.sex,
     birthDate: d.bd || undefined,
@@ -218,7 +231,8 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
 
   const validateStep = () => {
     if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate)) return 'Renseignez le prénom, le nom et la date de naissance.';
-    if (step === 2 && payload.phone.replace(/\D/g, '').length < 8) return 'Renseignez un numéro de téléphone valide.';
+    if (step === 2 && payload.phone.replace(/\D/g, '').length !== 10) return 'Numéro à 10 chiffres requis : il servira d’identifiant de connexion.';
+    if (step === 2 && d.pw && (d.pw.length < 8 || !/[A-Za-z]/.test(d.pw) || !/\d/.test(d.pw))) return 'Mot de passe : 8 caractères minimum, avec une lettre et un chiffre.';
     return '';
   };
 
@@ -270,10 +284,22 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
             </div>
           )}
           {created && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-              <p className="font-bold">Patient créé : {created.name}</p>
-              <p>CMU : {created.cmuNumber}</p>
-              {created.devCode && <p>Code OTP dev : <strong>{created.devCode}</strong></p>}
+            <div className="space-y-3">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                <p className="font-bold">Patient créé : {created.name}</p>
+                <p>CMU : {created.cmuNumber}</p>
+                <p className="mt-1">Remettez ces identifiants au patient. Le mot de passe ne sera plus affiché ; le patient devra le changer à sa première connexion.</p>
+              </div>
+              <div className="rounded-xl bg-slate-950 text-white p-4 space-y-1">
+                <p className="text-xs text-slate-400">Numéro</p>
+                <p className="font-mono font-bold">{created.phone}</p>
+                <p className="text-xs text-slate-400 pt-2">Mot de passe provisoire</p>
+                <code className="text-lg font-bold break-all select-all">{created.provisionalPassword}</code>
+              </div>
+              <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${created.phone}\nMot de passe : ${created.provisionalPassword}`)}
+                className={`w-full px-4 py-2 rounded-lg border font-semibold text-sm ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+                Copier les identifiants
+              </button>
             </div>
           )}
           {step === 1 && (
@@ -289,13 +315,21 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
           )}
           {step === 2 && (
             <>
-              <h4 className="font-bold">Contact</h4>
+              <h4 className="font-bold">Contact et accès</h4>
               <div>
                 <label className={`text-xs ${sub}`}>Téléphone *</label>
                 <div className={`mt-1 flex items-center gap-2 p-2 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                   <span className="text-xs font-bold pr-2 border-r">🇨🇮 +225</span>
                   <input type="tel" value={d.p} onChange={(e) => setD({...d, p: e.target.value})} placeholder="07 89 45 23 11" className="flex-1 outline-none bg-transparent text-sm" />
                 </div>
+              </div>
+              <div>
+                <label className={`text-xs ${sub}`}>Mot de passe provisoire</label>
+                <div className="mt-1 flex gap-2">
+                  <input type="text" value={d.pw} onChange={(e) => setD({...d, pw: e.target.value})} placeholder="Laisser vide pour le générer" autoComplete="off" className={`flex-1 px-3 py-2 rounded-lg border text-sm font-mono ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+                  <button type="button" onClick={() => setD({...d, pw: generatePassword()})} className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Générer</button>
+                </div>
+                <p className={`text-[11px] ${sub} mt-1`}>8 caractères minimum avec une lettre et un chiffre. Le patient le changera à sa première connexion.</p>
               </div>
               <div><label className={`text-xs ${sub}`}>Adresse</label><input type="text" value={d.addr} onChange={(e) => setD({...d, addr: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
               <div><label className={`text-xs ${sub}`}>Ville</label><input type="text" value={d.city} onChange={(e) => setD({...d, city: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
@@ -310,7 +344,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-emerald-900">Le patient recevra un SMS pour activer son compte avec le numéro fourni.</p>
+                <p className="text-xs text-emerald-900">Le patient se connectera avec son numéro et le mot de passe provisoire, affiché après la création.</p>
               </div>
             </>
           )}

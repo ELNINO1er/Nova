@@ -1,49 +1,25 @@
-import React, { Component, lazy, Suspense, useEffect, useState } from 'react';
-import { Bell, Bot, HeartPulse, Menu, Moon, Pill, Shield, Stethoscope, Sun, User } from 'lucide-react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import { BarChart3, Bell, Bot, HeartPulse, Menu, Moon, Pill, Shield, Stethoscope, Sun, User } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
 const AdminPages = lazy(() => import('./admin/AdminPages.jsx'));
 const PharmacyPages = lazy(() => import('./pharmacy/PharmacyPages.jsx'));
+const GovernorPages = lazy(() => import('./governor/GovernorPages.jsx'));
 
 const ROLE_META = {
   patient:    { label: 'Espace patient',    Icon: User,        color: 'text-blue-700 bg-blue-50 border-blue-200' },
   doctor:     { label: 'Espace docteur',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
+  governor:   { label: 'Espace gouverneur', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
 };
-
-class ErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidUpdate(prevProps) {
-    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
-      this.setState({ hasError: false });
-    }
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center p-8">
-          <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center">
-            <HeartPulse className="w-8 h-8 text-red-600" />
-          </div>
-          <h2 className="text-lg font-bold">Une erreur est survenue</h2>
-          <p className="text-sm text-slate-500 max-w-sm">Rechargez la page pour continuer.</p>
-          <button onClick={() => this.setState({ hasError: false })} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
-            Réessayer
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function PageFallback({ darkMode }) {
   const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
@@ -211,15 +187,17 @@ export default function App() {
                 {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
                 {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
                 {role === 'admin' && <AdminPages page={page} {...props} />}
+                {role === 'governor' && <GovernorPages page={page} {...props} />}
               </Suspense>
             </ErrorBoundary>
           </div>
         </main>
       </div>
 
-      {showQR && <QRModal onClose={() => setShowQR(false)} />}
-      {showCP && <CreatePatientModal onClose={() => setShowCP(false)} onCreated={() => setPatientCreatedTick(t => t + 1)} role={role} {...props} />}
-      {showVid && <VideoModal onClose={() => setShowVid(false)} />}
+      {/* Une modale qui plante se ferme au lieu de faire tomber l'application. */}
+      {showQR && <ErrorBoundary fallback={null} onError={() => setShowQR(false)}><QRModal onClose={() => setShowQR(false)} /></ErrorBoundary>}
+      {showCP && <ErrorBoundary fallback={null} onError={() => setShowCP(false)}><CreatePatientModal onClose={() => setShowCP(false)} onCreated={() => setPatientCreatedTick(t => t + 1)} role={role} {...props} /></ErrorBoundary>}
+      {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal onClose={() => setShowVid(false)} /></ErrorBoundary>}
 
       {role === 'patient' && page !== 'assistant' && (
         <button onClick={() => setPage('assistant')} className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">

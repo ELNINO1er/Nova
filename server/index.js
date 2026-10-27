@@ -15,6 +15,7 @@ import doctorRoutes  from './routes/doctor.routes.js';
 import authRoutes     from './routes/auth.routes.js';
 import pharmacyRoutes from './routes/pharmacy.routes.js';
 import adminRoutes    from './routes/admin.routes.js';
+import governorRoutes from './routes/governor.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 
@@ -23,7 +24,24 @@ const port = Number(process.env.API_PORT || 4001);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
 
-if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+const isProduction = process.env.NODE_ENV === 'production';
+// Le code SMS de démo n'est exposé que si la connexion par SMS est réactivée.
+const isDemoMode = process.env.SEED_DEMO === 'true'
+  || (process.env.OTP_LOGIN_ENABLED === 'true' && (process.env.SMS_PROVIDER || 'demo').toLowerCase() === 'demo');
+if (isProduction && isDemoMode && process.env.ALLOW_INSECURE_DEMO !== 'true') {
+  throw new Error(
+    'Configuration refusée : le mode démo est interdit en production. '
+    + 'Utilisez un environnement de staging ou définissez explicitement ALLOW_INSECURE_DEMO=true pour un pilote privé.'
+  );
+}
+if (isProduction && (!process.env.MFA_ENCRYPTION_KEY || process.env.MFA_ENCRYPTION_KEY.length < 32)) {
+  throw new Error('MFA_ENCRYPTION_KEY doit contenir au moins 32 caractères en production.');
+}
+if (isProduction && process.env.COOKIE_SECURE === 'false' && process.env.ALLOW_INSECURE_DEMO !== 'true') {
+  throw new Error('COOKIE_SECURE=false est réservé aux pilotes privés explicitement autorisés.');
+}
+
+if (isProduction) app.set('trust proxy', 1);
 
 app.use(compression());
 app.use(helmet());
@@ -39,7 +57,8 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
-if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
+// Journal d'accès : format standard en production (lisible via `docker compose logs api`).
+app.use(morgan(isProduction ? 'combined' : 'dev'));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -56,25 +75,32 @@ const authLimiter = rateLimit({
   },
 });
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'nova-api' });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, service: 'nova-api', database: 'up' });
+  } catch {
+    res.status(503).json({ ok: false, service: 'nova-api', database: 'down' });
+  }
 });
 
-app.get('/api/openapi.json', (_req, res) => {
-  res.json(openApiSpec);
-});
-
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
-  customSiteTitle: 'NOVA API Docs',
-}));
+if (!isProduction || process.env.ENABLE_API_DOCS === 'true') {
+  app.get('/api/openapi.json', (_req, res) => {
+    res.json(openApiSpec);
+  });
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+    customSiteTitle: 'NOVA API Docs',
+  }));
+}
 
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/patient/me',  patientRoutes);
 app.use('/api/doctor/me',   doctorRoutes);
 app.use('/api/pharmacy/me', pharmacyRoutes);
 app.use('/api/admin/me',    adminRoutes);
+app.use('/api/governor/me', governorRoutes);
 
-if (process.env.NODE_ENV === 'production') {
+if (isProduction) {
   app.use(express.static(distDir, { index: false, maxAge: '1h' }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
@@ -85,11 +111,16 @@ if (process.env.NODE_ENV === 'production') {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+// Filet de sécurité : une promesse rejetée non gérée ne doit pas arrêter l'API.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
 initDb()
   .then(() => {
     const server = app.listen(port, () => {
       console.log(`NOVA API running on http://localhost:${port}`);
-      console.log(`Base de données : MySQL (sika_sante)`);
+      console.log(`Base de données : MySQL (${process.env.DB_NAME || 'nova'})`);
     });
 
     const shutdown = async () => {
