@@ -78,7 +78,7 @@ export default function DAgenda({ data, loading, onReload, notify, setShowVid, c
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${st.cls}`}>{st.label}</span>
                     {a.mode === 'video' && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 flex items-center gap-1"><Video className="w-2.5 h-2.5" />Vidéo</span>}
                   </div>
-                  <p className={`text-xs ${sub}`}>{a.cmuNumber} • {a.age} ans</p>
+                  <p className={`text-xs ${sub}`}>{a.recordShared === false ? 'Dossier partagé dès que vous acceptez la demande' : `${a.cmuNumber || '—'} • ${a.age ?? '—'} ans`}</p>
                   <p className={`text-xs ${sub}`}>{a.specialty} • {a.location}</p>
                 </div>
                 {/* Actions */}

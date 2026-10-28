@@ -66,7 +66,7 @@ export const patientApi = {
   doctors: (params = {}) => request(`/patient/me/doctors${toQuery(params)}`),
   doctor: (id) => request(`/patient/me/doctors/${id}`),
   doctorSlots: (id, params = {}) => request(`/patient/me/doctors/${id}/slots${toQuery(params)}`),
-  bookSlot: (doctorId, slotId) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST' }),
+  bookSlot: (doctorId, slotId, shareRecord) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST', body: JSON.stringify({ shareRecord }) }),
   notifications: () => request('/patient/me/notifications'),
   markNotificationRead: (id) => request(`/patient/me/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: () => request('/patient/me/notifications/read-all', { method: 'PATCH' }),

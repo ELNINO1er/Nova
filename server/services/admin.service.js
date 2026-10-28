@@ -306,13 +306,80 @@ export async function setPharmacyOpen(id, isOpen) {
 /**
  * Génère un nouveau mot de passe provisoire (à changer à la prochaine connexion)
  * et débloque le compte. Le mot de passe n'est renvoyé qu'une seule fois.
+ *
+ * Médecins, admins et gouverneurs déjà actifs : la réinitialisation remplace aussi leur
+ * Authenticator à la connexion suivante. Elle exige donc l'accord d'un second administrateur
+ * (demande en attente, puis approveResetRequest par un autre compte admin).
  */
-export async function resetUserPassword(userId) {
+const RESET_REQUEST_HOURS = 24;
+
+export async function resetUserPassword(userId, requestedBy) {
   const [[user]] = await pool.execute(
-    'SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [userId]
+    'SELECT id, role, name, phone, password_hash IS NOT NULL AS has_password FROM nova_users WHERE id = ? AND deleted_at IS NULL', [userId]
   );
   if (!user) return null;
   if(user.role==='patient')throw Object.assign(new Error('Réinitialisation des patients désactivée : un canal de récupération vérifiant leur identité est nécessaire.'),{status:409});
+  if (STRONG_PASSWORD_ROLES.includes(user.role) && Number(user.has_password)) {
+    const [[pending]] = await pool.execute(
+      "SELECT id FROM nova_reset_requests WHERE target_user_id = ? AND status = 'pending' AND expires_at > NOW()", [user.id]
+    );
+    if (pending) throw Object.assign(new Error('Une demande de réinitialisation attend déjà la validation d’un second administrateur.'), { status: 409 });
+    const id = randomUUID();
+    await pool.execute(
+      'INSERT INTO nova_reset_requests (id, target_user_id, requested_by, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? HOUR))',
+      [id, user.id, requestedBy, RESET_REQUEST_HOURS]
+    );
+    return { pending: true, requestId: id, user: { id: user.id, role: user.role, name: user.name, phone: user.phone } };
+  }
+  return applyPasswordReset(user);
+}
+
+export async function listResetRequests() {
+  const [rows] = await pool.execute(
+    `SELECT r.id, r.requested_by, r.requested_at, r.expires_at, t.id AS user_id, t.name, t.role, t.phone, q.name AS requested_by_name
+     FROM nova_reset_requests r
+     JOIN nova_users t ON t.id = r.target_user_id
+     LEFT JOIN nova_users q ON q.id = r.requested_by
+     WHERE r.status = 'pending' AND r.expires_at > NOW()
+     ORDER BY r.requested_at ASC`
+  );
+  return rows.map((r) => ({
+    id: r.id, requestedAt: r.requested_at, expiresAt: r.expires_at, requestedBy: r.requested_by,
+    requestedByName: r.requested_by_name, user: { id: r.user_id, name: r.name, role: r.role, phone: r.phone },
+  }));
+}
+
+/* Le second administrateur approuve ou refuse ; le demandeur ne peut pas valider sa propre demande. */
+export async function decideResetRequest(requestId, adminUserId, approve) {
+  const conn = await pool.getConnection();
+  let user;
+  try {
+    await conn.beginTransaction();
+    const [[request]] = await conn.execute(
+      "SELECT * FROM nova_reset_requests WHERE id = ? AND status = 'pending' AND expires_at > NOW() FOR UPDATE", [requestId]
+    );
+    if (!request) { await conn.rollback(); return null; }
+    if (request.requested_by === adminUserId) {
+      throw Object.assign(new Error('Un second administrateur doit valider cette réinitialisation.'), { status: 403, code: 'same_admin' });
+    }
+    await conn.execute(
+      'UPDATE nova_reset_requests SET status = ?, decided_by = ?, decided_at = NOW(3) WHERE id = ?',
+      [approve ? 'approved' : 'rejected', adminUserId, requestId]
+    );
+    [[user]] = await conn.execute('SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [request.target_user_id]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  if (!approve) return { rejected: true };
+  if (!user) return null;
+  return applyPasswordReset(user);
+}
+
+async function applyPasswordReset(user) {
   const password = provisionalFor(user.role);
   const passwordHash = await bcrypt.hash(password, 12);
   await pool.execute(

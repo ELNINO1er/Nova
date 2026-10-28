@@ -11,6 +11,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
   const [slots, setSlots]     = useState(null);
   const [loadingSlots, setLS] = useState(false);
   const [booking, setBooking] = useState(null);
+  const [shareRecord, setShareRecord] = useState(false);
 
   const specialties = [...new Set((data ?? []).map(d => d.specialty))].sort();
 
@@ -26,6 +27,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
 
   const openDoctor = async (doc) => {
     setSelected(doc);
+    setShareRecord(false);
     setSlots(null);
     setLS(true);
     try {
@@ -39,9 +41,14 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
   };
 
   const handleBook = async (slot) => {
+    if (booking) return;
+    if (!shareRecord) {
+      notify?.('Acceptez le partage de votre dossier avec ce médecin pour réserver.', 'error');
+      return;
+    }
     setBooking(slot.id);
     try {
-      await patientApi.bookSlot(selected.id, slot.id);
+      await patientApi.bookSlot(selected.id, slot.id, true);
       notify?.(`RDV confirmé le ${slot.date} à ${slot.time} avec ${selected.fullName}`);
       setSelected(null);
       onBooked?.();
@@ -112,6 +119,10 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
             {/* Slots */}
             <div className="p-5">
               <p className="font-bold text-sm mb-3">Créneaux disponibles</p>
+              <label className="flex items-start gap-2 text-xs mb-3">
+                <input type="checkbox" className="mt-0.5" checked={shareRecord} onChange={(e) => setShareRecord(e.target.checked)} />
+                <span>J’accepte que {selected.fullName} consulte mon dossier pour ce rendez-vous. <span className={sub}>Révocable à tout moment dans « Accès au dossier ».</span></span>
+              </label>
               {loadingSlots ? (
                 <div className={`animate-pulse h-20 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
               ) : Object.keys(slotsByDate).length === 0 ? (

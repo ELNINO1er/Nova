@@ -252,6 +252,52 @@ function IssuedCredentials({ issued, onClose }) {
   );
 }
 
+const PENDING_RESET_NOTICE = 'Demande enregistrée : un second administrateur doit la valider avant l’émission du mot de passe.';
+
+function currentUserId() {
+  try { return JSON.parse(localStorage.getItem('nova_user') || 'null')?.id || null; } catch { return null; }
+}
+
+/* Réinitialisations de comptes sensibles : le demandeur ne peut pas valider sa propre demande. */
+function ResetApprovals({ refreshKey, onIssued, sub, darkMode }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const me = currentUserId();
+  const load = () => adminApi.resetRequests().then((r) => setRows(Array.isArray(r) ? r : [])).catch((err) => setError(err.message || 'Demandes indisponibles.'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [refreshKey]);
+  const decide = async (r, approve) => {
+    if (!approve && !window.confirm(`Refuser la réinitialisation de ${r.user.name} ?`)) return;
+    setBusy(r.id); setError('');
+    try {
+      const res = await adminApi.decideReset(r.id, approve);
+      if (approve && res?.provisionalPassword) onIssued({ title: 'Mot de passe réinitialisé', name: res.user.name, phone: res.user.phone, password: res.provisionalPassword });
+      await load();
+    } catch (err) { setError(err.message || 'Décision impossible.'); }
+    finally { setBusy(''); }
+  };
+  if (!rows.length && !error) return null;
+  return (
+    <div className={`rounded-xl border p-4 space-y-2 ${darkMode ? 'border-amber-800 bg-amber-950/30' : 'border-amber-200 bg-amber-50'}`}>
+      <p className="font-bold text-sm flex items-center gap-2"><KeyRound className="w-4 h-4" /> Réinitialisations à valider</p>
+      <p className={`text-xs ${sub}`}>Elles remplacent le mot de passe et l’Authenticator du compte : un second administrateur doit confirmer l’identité de la personne avant d’approuver.</p>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {rows.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="flex-1 min-w-[200px]"><strong>{r.user.name}</strong> ({ROLE_LABELS[r.user.role] || r.user.role}) — demandé par {r.requestedBy === me ? 'vous' : r.requestedByName || 'un administrateur'}</span>
+          {r.requestedBy === me
+            ? <span className={`text-xs ${sub}`}>En attente d’un second administrateur</span>
+            : <>
+              <button type="button" disabled={busy === r.id} onClick={() => decide(r, true)} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold disabled:opacity-50">Approuver</button>
+              <button type="button" disabled={busy === r.id} onClick={() => decide(r, false)} className="px-3 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-50">Refuser</button>
+            </>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'doctors', label: 'Médecins', Icon: Stethoscope },
   { id: 'patients', label: 'Patients', Icon: User },
@@ -268,6 +314,7 @@ function AUsers({ card, sub, darkMode }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [issued, setIssued] = useState(null);
+  const [resetTick, setResetTick] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [credentials, setCredentials] = useState(null);
@@ -299,6 +346,7 @@ function AUsers({ card, sub, darkMode }) {
     if (!window.confirm(`Générer un nouveau mot de passe provisoire pour ${name} ?`)) return;
     try {
       const res = await adminApi.resetPassword(userId);
+      if (res.pending) { setNotice(PENDING_RESET_NOTICE); setResetTick((t) => t + 1); return; }
       setIssued({ title: 'Mot de passe réinitialisé', name: res.user.name, phone: res.user.phone, password: res.provisionalPassword });
     } catch (err) { setError(err.message || 'Réinitialisation impossible.'); }
   };
@@ -362,7 +410,9 @@ function AUsers({ card, sub, darkMode }) {
         )}
       </div>
 
-      {tab === 'accounts' ? <AAccounts card={card} sub={sub} darkMode={darkMode} /> : <>
+      <ResetApprovals refreshKey={resetTick} onIssued={setIssued} sub={sub} darkMode={darkMode} />
+      {tab === 'accounts' && <IssuedCredentials issued={issued} onClose={() => setIssued(null)} />}
+      {tab === 'accounts' ? <AAccounts card={card} sub={sub} darkMode={darkMode} onPending={() => setResetTick((t) => t + 1)} /> : <>
         <form onSubmit={(e) => { e.preventDefault(); load(); }} className="flex gap-2 max-w-xl">
           <div className="relative flex-1">
             <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${sub}`} />
@@ -498,7 +548,7 @@ function AUsers({ card, sub, darkMode }) {
 const ROLE_LABELS = { patient: 'Patient', doctor: 'Médecin', pharmacist: 'Pharmacien', admin: 'Admin', governor: 'Gouverneur' };
 
 /* Comptes de connexion : réinitialisation de mot de passe, création des pharmaciens et gouverneurs. */
-function AAccounts({ sub, darkMode }) {
+function AAccounts({ sub, darkMode, onPending }) {
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -526,6 +576,7 @@ function AAccounts({ sub, darkMode }) {
     setBusy(u.id); setError('');
     try {
       const res = await adminApi.resetPassword(u.id);
+      if (res.pending) { setError(''); onPending?.(); window.alert(PENDING_RESET_NOTICE); return; }
       setIssued({ title: 'Mot de passe réinitialisé', name: res.user.name, phone: res.user.phone, password: res.provisionalPassword });
       await load();
     } catch (err) { setError(err.message || 'Réinitialisation impossible.'); }

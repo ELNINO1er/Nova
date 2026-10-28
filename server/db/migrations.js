@@ -48,6 +48,17 @@ export async function migrate(conn) {
       ['20261028_05_consent_history',async()=>{
         await conn.query('ALTER TABLE nova_consents MODIFY requested_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3), MODIFY responded_at DATETIME(3) NULL');
       }],
+      ['20261028_06_reset_approvals',async()=>{
+        await conn.query(`CREATE TABLE IF NOT EXISTS nova_reset_requests (
+          id VARCHAR(36) PRIMARY KEY, target_user_id VARCHAR(36) NOT NULL, requested_by VARCHAR(36) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending', decided_by VARCHAR(36) NULL,
+          requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), decided_at DATETIME(3) NULL,
+          expires_at DATETIME(3) NOT NULL, INDEX(status), INDEX(target_user_id))`);
+      }],
+      ['20261028_07_booking_consent',async()=>{
+        // Accord de partage donné par le patient en réservant (prend effet à la confirmation).
+        await column(conn,'nova_appointments','record_shared_at','DATETIME(3) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

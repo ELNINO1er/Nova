@@ -15,6 +15,8 @@ import {
   setPharmacyOpen,
   createDoctorAccount,
   resetUserPassword,
+  listResetRequests,
+  decideResetRequest,
   createStaffAccount,
   createDoctorLogin,
 } from '../services/admin.service.js';
@@ -124,12 +126,32 @@ router.post(
   auditLog('admin.user.password_reset', 'user'),
   async (req, res, next) => {
     try {
-      const result = await resetUserPassword(req.params.id);
+      const result = await resetUserPassword(req.params.id, req.user.id);
       if (!result) return res.status(404).json({ error: 'not_found', message: 'Compte introuvable.' });
-      res.set('Cache-Control', 'no-store').json(result);
+      res.set('Cache-Control', 'no-store').status(result.pending ? 202 : 200).json(result);
     } catch (err) { next(err); }
   }
 );
+
+/* Double validation : réinitialisations de comptes sensibles en attente d'un second administrateur. */
+router.get('/reset-requests', requirePermission('admin.users'), async (_req, res, next) => {
+  try { res.json(await listResetRequests()); } catch (err) { next(err); }
+});
+
+for (const [action, approve] of [['approve', true], ['reject', false]]) {
+  router.post(
+    `/reset-requests/:id/${action}`,
+    requirePermission('admin.users'),
+    auditLog(`admin.user.password_reset_${action}`, 'reset_request'),
+    async (req, res, next) => {
+      try {
+        const result = await decideResetRequest(req.params.id, req.user.id, approve);
+        if (!result) return res.status(404).json({ error: 'not_found', message: 'Demande introuvable ou expirée.' });
+        res.set('Cache-Control', 'no-store').json(result);
+      } catch (err) { next(err); }
+    }
+  );
+}
 
 /* Créer l'accès de connexion d'un médecin enregistré sans compte. */
 router.post(

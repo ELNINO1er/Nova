@@ -19,9 +19,10 @@ export async function getDoctorDashboard(doctorId) {
   const [[doctor]]         = await pool.execute(`SELECT * FROM nova_doctors WHERE id = ?`, [doctorId]);
   const [todayAppts]       = await pool.execute(
     `SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type
+     , (${currentAccess.sql}) AS has_access
      FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? AND ${currentAccess.sql} AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
-    [doctorId, ...currentAccess.params, `${todayStr}%`]
+     WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${currentAccess.sql}) AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
+    [...currentAccess.params, doctorId, ...currentAccess.params, `${todayStr}%`]
   );
   const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
@@ -119,10 +120,12 @@ export async function getDoctorPatient(doctorId, patientId) {
 export async function getDoctorAppointments(doctorId, query = {}) {
   const access = doctorAccessClause(doctorId, 'p.id');
   let sql = `
-    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone
+    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone,
+           (${access.sql}) AS has_access
     FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-    WHERE a.doctor_id = ? AND ${access.sql}`;
-  const args = [doctorId, ...access.params];
+    WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${access.sql})`;
+  // Une demande reste visible pour être acceptée ou refusée, mais sans ouvrir le dossier.
+  const args = [...access.params, doctorId, ...access.params];
   if (query.date)   { sql += ' AND a.starts_at LIKE ?'; args.push(`${query.date}%`); }
   if (query.status) { sql += ' AND a.status = ?'; args.push(query.status); }
   sql += ' ORDER BY a.starts_at DESC';
@@ -134,8 +137,9 @@ export async function updateDoctorAppointment(doctorId,id,changes){
   const result=await withDoctorSchedule(doctorId,async(conn)=>{
     const [[row]]=await conn.execute('SELECT * FROM nova_appointments WHERE id=? AND doctor_id=? FOR UPDATE',[id,doctorId]);
     if(!row) return null;
-    await assertDoctorPatientAccess(doctorId,row.patient_id);
     if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'doctor');
+    // Répondre à une demande ne nécessite pas d'accès : c'est l'acceptation qui ouvre le dossier.
+    if(row.status!=='requested') await assertDoctorPatientAccess(doctorId,row.patient_id);
     let startsAt=row.starts_at;
     if(changes.startsAt&&new Date(changes.startsAt).toISOString()!==row.starts_at){
       startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);await assertDoctorSlotFree(doctorId,startsAt,id,conn);
@@ -408,6 +412,12 @@ function mapDoctorProfile(r) {
 }
 
 function mapApptWithPatient(r) {
+  // Demande non encore acceptée : identité minimale, aucune donnée médicale.
+  if (r.has_access !== undefined && !Number(r.has_access)) {
+    return { id: r.id, startsAt: r.starts_at, patientId: r.patient_id, patientName: `${r.first_name} ${r.last_name}`,
+      cmuNumber: null, bloodType: null, age: null, phone: null, specialty: r.specialty, location: r.location,
+      mode: r.mode, status: r.status, recordShared: false };
+  }
   const birth = r.birth_date ? new Date(r.birth_date) : null;
   const today = new Date();
   const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
@@ -424,6 +434,7 @@ function mapApptWithPatient(r) {
     location:    r.location,
     mode:        r.mode,
     status:      r.status,
+    recordShared: true,
   };
 }
 

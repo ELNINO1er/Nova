@@ -206,7 +206,7 @@ export async function createAppointment(patientId, payload) {
     if(!doctor.is_available) throw Object.assign(new Error('Medecin indisponible.'),{status:409});
     await assertDoctorSlotFree(doctor.id,startsAt,null,conn);
     await reserveMatchingSlot(conn,doctor.id,startsAt,patientId);
-    await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString()]);
+    await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at,record_shared_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString(),payload.shareRecord?new Date():null]);
   });
   notifyDoctorAppointment(payload.doctorId,'Votre patient',frDate(startsAt)).catch(()=>{});
   return getAppointment(patientId,id);
@@ -528,7 +528,7 @@ export async function getDoctorSlots(doctorId, query = {}) {
   }));
 }
 
-export async function bookSlot(patientId, slotId, doctorId) {
+export async function bookSlot(patientId, slotId, doctorId, shareRecord = false) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -553,11 +553,11 @@ export async function bookSlot(patientId, slotId, doctorId) {
     const startsAt = startsCheck;
 
     await conn.execute(
-      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?)`,
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, record_shared_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?)`,
       [apptId, patientId, startsAt,
        `Dr. ${doctor.first_name} ${doctor.last_name}`,
-       doctor.specialty, doctor.city, doctorId]
+       doctor.specialty, doctor.city, doctorId, shareRecord ? new Date() : null]
     );
 
     await conn.commit();

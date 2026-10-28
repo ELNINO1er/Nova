@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['server/__tests__/**/*.test.js'],
+    include: ['server/__tests__/**/*.test.js', 'src/__tests__/**/*.test.js'],
     testTimeout: 10000,
     // Initialisation d'une base vide (tables + données de démo hachées) : plus longue qu'un test.
     hookTimeout: 60000,

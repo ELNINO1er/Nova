@@ -25,6 +25,9 @@ export const adminApi = {
     body: JSON.stringify({ phone }),
   }),
   resetPassword: (userId) => request(`/admin/me/users/${userId}/reset-password`, { method: 'POST' }),
+  // Double validation des réinitialisations de comptes sensibles (médecin, admin, santé publique).
+  resetRequests: () => request('/admin/me/reset-requests'),
+  decideReset: (requestId, approve) => request(`/admin/me/reset-requests/${requestId}/${approve ? 'approve' : 'reject'}`, { method: 'POST' }),
   // Pharmacien ou gouverneur (les médecins passent par createDoctor).
   createAccount: (payload) => request('/admin/me/accounts', {
     method: 'POST',

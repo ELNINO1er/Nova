@@ -1,7 +1,8 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, LogOut, Menu, Moon, Pill, Settings, Shield, Stethoscope, Sun, User, X } from 'lucide-react';
+import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOut, Menu, Moon, Pill, Settings, Shield, Siren, Stethoscope, Sun, User, X } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
+import SpaceTabs from './layout/SpaceTabs.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
@@ -25,8 +26,24 @@ const ROLE_META = {
   governor:   { label: 'Santé publique', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
 };
 
+// Raccourcis du menu de compte par rôle (pages existantes).
+const ACCOUNT_LINKS = {
+  patient: [
+    { page: 'profile', label: 'Identité et coordonnées', Icon: User },
+    { page: 'privacy', label: 'Accès à mon dossier', Icon: Lock },
+    { page: 'settings', label: 'Paramètres et export', Icon: Settings },
+  ],
+  doctor: [
+    { page: 'profile', label: 'Profil et disponibilités', Icon: User },
+    { page: 'settings', label: 'Paramètres', Icon: Settings },
+  ],
+  pharmacist: [{ page: 'settings', label: 'Paramètres', Icon: Settings }],
+  admin: [{ page: 'settings', label: 'Paramètres', Icon: Settings }],
+  governor: [],
+};
+
 /* Menu de compte (tous écrans) : identité, paramètres et déconnexion explicite. */
-function AccountMenu({ user, roleLabel, hasSettings, onSettings, onLogout, loggingOut, darkMode, sub, border }) {
+function AccountMenu({ user, roleLabel, links, onNavigate, onLogout, loggingOut, darkMode, sub, border }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -55,11 +72,11 @@ function AccountMenu({ user, roleLabel, hasSettings, onSettings, onLogout, loggi
             <p className="text-sm font-semibold truncate">{user?.name || 'Utilisateur'}</p>
             <p className={`text-xs ${sub}`}>{roleLabel}</p>
           </div>
-          {hasSettings && (
-            <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onSettings(); }}>
-              <Settings className="w-4 h-4" /> Paramètres du compte
+          {links.map((l) => (
+            <button key={l.page} type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onNavigate(l.page); }}>
+              <l.Icon className="w-4 h-4" /> {l.label}
             </button>
-          )}
+          ))}
           <button type="button" role="menuitem" disabled={loggingOut} className={`${item} text-red-600 disabled:opacity-60`} onClick={() => { setOpen(false); onLogout(); }}>
             <LogOut className="w-4 h-4" /> {loggingOut ? 'Déconnexion…' : 'Se déconnecter'}
           </button>
@@ -238,6 +255,12 @@ export default function App() {
             <span>{roleLabel}</span>
           </div>
           <div className="flex items-center gap-1.5">
+            {role === 'patient' && (
+              <button type="button" onClick={() => setPage('urgence')} aria-label="SOS urgence"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold ${page === 'urgence' ? 'bg-red-700 text-white' : 'bg-red-600 text-white hover:bg-red-700'}`}>
+                <Siren className="w-4 h-4" /><span className="hidden sm:inline">SOS</span>
+              </button>
+            )}
             <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem('nova_darkMode', next); }} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -248,7 +271,7 @@ export default function App() {
                 {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
               </button>
             )}
-            <AccountMenu user={user} roleLabel={roleLabel} hasSettings={role !== 'governor'} onSettings={() => setPage('settings')}
+            <AccountMenu user={user} roleLabel={roleLabel} links={ACCOUNT_LINKS[role] || []} onNavigate={setPage}
               onLogout={onLogout} loggingOut={loggingOut} darkMode={darkMode} sub={sub} border={border} />
           </div>
         </div>
@@ -269,6 +292,7 @@ export default function App() {
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+            <SpaceTabs role={role} page={page} setPage={setPage} badges={badges} darkMode={darkMode} />
             <ErrorBoundary resetKey={page}>
               <Suspense fallback={<PageFallback darkMode={darkMode} />}>
                 {role === 'patient' && <PatientPages key={user?.id} page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
@@ -294,9 +318,8 @@ export default function App() {
       {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal onClose={() => setShowVid(false)} /></ErrorBoundary>}
 
       {role === 'patient' && page !== 'assistant' && (
-        <button onClick={() => setPage('assistant')} className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">
+        <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">
           <Bot className="w-6 h-6" />
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white animate-pulse"></span>
         </button>
       )}
     </div>

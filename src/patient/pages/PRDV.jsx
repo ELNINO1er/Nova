@@ -25,7 +25,9 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
     startsAt: defaultAppointmentDate(),
     doctorId: '',
     mode: 'onsite',
+    shareRecord: false,
   });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -57,7 +59,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   }) : [];
   const resetRdvForm = () => {
     setEditingId(null);
-    setForm({ startsAt: defaultAppointmentDate(), doctorId: '', mode: 'onsite' });
+    setForm({ startsAt: defaultAppointmentDate(), doctorId: '', mode: 'onsite', shareRecord: false });
   };
   const openEditRdv = (rdv) => {
     setEditingId(rdv.id);
@@ -65,6 +67,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : defaultAppointmentDate(),
       doctorId: rdv.doctorId || '',
       mode: rdv.mode || (rdv.v ? 'video' : 'onsite'),
+      shareRecord: true,
     });
     setShowForm(true);
   };
@@ -73,11 +76,18 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       notify?.('Veuillez sélectionner un médecin', 'error');
       return;
     }
+    if (!editingId && !form.shareRecord) {
+      notify?.('Acceptez le partage de votre dossier avec ce médecin pour envoyer la demande.', 'error');
+      return;
+    }
+    if (saving) return;
     const payload = {
       startsAt: new Date(form.startsAt).toISOString(),
       doctorId: form.doctorId,
       mode: form.mode,
+      ...(editingId ? {} : { shareRecord: true }),
     };
+    setSaving(true);
     try {
       if (editingId) await patientApi.updateAppointment(editingId, payload);
       else await patientApi.createAppointment(payload);
@@ -87,6 +97,8 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       resetRdvForm();
     } catch (error) {
       notify?.(error.message || 'Erreur rendez-vous', 'error');
+    } finally {
+      setSaving(false);
     }
   };
   const deleteRdv = async (id) => {
@@ -135,8 +147,14 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
                 <option value="onsite">Présentiel</option>
                 <option value="video" disabled>Téléconsultation indisponible</option>
               </select>
+              {!editingId && (
+                <label className="md:col-span-3 flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={form.shareRecord} onChange={(e) => setForm({...form, shareRecord: e.target.checked})} />
+                  <span>J’accepte que ce médecin consulte mon dossier <strong>une fois le rendez-vous confirmé</strong>. <span className={sub}>Je peux retirer cet accès à tout moment dans « Accès au dossier ».</span></span>
+                </label>
+              )}
               <div className="flex gap-2 md:col-span-2">
-                <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">{editingId ? 'Modifier' : 'Créer'}</button>
+                <button onClick={saveRdv} disabled={saving} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold disabled:opacity-60">{saving ? 'Envoi…' : editingId ? 'Modifier' : 'Créer'}</button>
                 <button onClick={() => { setShowForm(false); resetRdvForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
               </div>
             </div>

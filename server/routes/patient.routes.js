@@ -180,6 +180,9 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 
 /* ─── Rendez-vous ────────────────────────────────────────────── */
 
+// Réserver = accepter que ce médecin consulte le dossier une fois le rendez-vous confirmé (révocable).
+const SHARE_RECORD = z.literal(true, { error: 'Acceptez le partage de votre dossier avec ce médecin pour réserver.' });
+
 router.get('/appointments', wrap(async (req, res) => {
   res.json(await getAppointments(req.user.patientId));
 }));
@@ -190,6 +193,7 @@ router.post('/appointments', validateBody(z.object({
   specialty:  z.string().default('Médecine générale'),
   location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
+  shareRecord: SHARE_RECORD,
 })), auditLog('appointment.request', 'appointment'), wrap(async (req, res) => {
   res.status(201).json(await createAppointment(req.user.patientId, req.body));
 }));
@@ -316,8 +320,8 @@ router.get('/doctors/:id/slots', wrap(async (req, res) => {
   res.json(await getDoctorSlots(req.params.id, req.query));
 }));
 
-router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
-  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id);
+router.post('/doctors/:id/slots/:slotId/book', validateBody(z.object({ shareRecord: SHARE_RECORD })), wrap(async (req, res) => {
+  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id, req.body.shareRecord);
   if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
   res.status(201).json(result);
 }));
