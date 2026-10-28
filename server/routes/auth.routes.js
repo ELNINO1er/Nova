@@ -216,7 +216,19 @@ router.post('/refresh', async (req, res, next) => {
     // Blacklist the old refresh token (rotation)
     await blacklistToken(refreshToken);
 
-    const tokenPayload = { id: payload.id, role: payload.role, patientId: payload.patientId, doctorId: payload.doctorId, pharmacyId: payload.pharmacyId || null };
+    // Le compte est relu en base : un compte supprimé perd l'accès, et un changement de rôle
+    // ou d'officine s'applique au prochain renouvellement (au plus 30 min), pas 7 jours plus tard.
+    const { pool } = await import('../db/database.js');
+    const [[account]] = await pool.execute(
+      'SELECT id, role, patient_id, doctor_id, pharmacy_id FROM nova_users WHERE id = ? AND deleted_at IS NULL',
+      [payload.id]
+    );
+    if (!account) {
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'account_inactive', message: 'Compte introuvable ou désactivé.' });
+    }
+
+    const tokenPayload = { id: account.id, role: account.role, patientId: account.patient_id || null, doctorId: account.doctor_id || null, pharmacyId: account.pharmacy_id || null };
     const newToken = signAccessToken(tokenPayload);
     const newRefreshToken = signRefreshToken(tokenPayload);
     setAuthCookies(res, newToken, newRefreshToken);

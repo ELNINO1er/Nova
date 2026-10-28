@@ -52,6 +52,8 @@ export async function initDb() {
     }
     await seedRbac(conn);
     await seedGovernorRole(conn);
+    await restrictAdminPermissions(conn);
+    await repairNotificationLinks(conn);
     await createOperationalTables(conn);
     await addForeignKeys(conn);
   } finally {
@@ -573,6 +575,9 @@ async function createTables(conn) {
 
   /* ── Phase 5B : Ordonnances médecin ─────────────────────────── */
   await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`);
+  // Décisions de consentement horodatées à la milliseconde : la plus récente fait foi (révocation / accord).
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY responded_at DATETIME(3) NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`);
   await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`);
 
   /* ── Phase 5C : Suivi chroniques + Urgences ──────────────────── */
@@ -1448,7 +1453,8 @@ async function seedRbac(conn) {
     'role-patient':    permissions.filter(p => p[3] === 'patient').map(p => p[0]),
     'role-doctor':     permissions.filter(p => p[3] === 'doctor').map(p => p[0]),
     'role-pharmacist': permissions.filter(p => p[3] === 'pharmacy').map(p => p[0]),
-    'role-admin':      permissions.map(p => p[0]), // Admin a TOUTES les permissions
+    // Administrateur technique : uniquement l'administration (aucun accès médical implicite).
+    'role-admin':      permissions.filter(p => p[3] === 'admin').map(p => p[0]),
   };
   for (const [roleId, permIds] of Object.entries(rolePerms)) {
     for (const permId of permIds) {
@@ -1465,9 +1471,24 @@ async function seedRbac(conn) {
 async function seedGovernorRole(conn) {
   await conn.query(`INSERT IGNORE INTO nova_roles (id, name, description) VALUES ('role-governor', 'governor', 'Statistiques agrégées en lecture seule')`);
   await conn.query(`INSERT IGNORE INTO nova_permissions (id, code, description, module) VALUES ('perm-g-stats', 'governor.stats', 'Voir statistiques agrégées', 'governor')`);
-  for (const roleId of ['role-governor', 'role-admin']) {
-    await conn.query('INSERT IGNORE INTO nova_role_permissions (role_id, permission_id) VALUES (?, ?)', [roleId, 'perm-g-stats']);
-  }
+  await conn.query('INSERT IGNORE INTO nova_role_permissions (role_id, permission_id) VALUES (?, ?)', ['role-governor', 'perm-g-stats']);
+}
+
+// Liens de notification hérités : page « consents » inexistante → « privacy » ;
+// les adressages entre médecins ne doivent pas apparaître dans les notifications du patient.
+async function repairNotificationLinks(conn) {
+  await conn.query(`UPDATE nova_notifications SET link_page = 'privacy' WHERE link_page = 'consents'`);
+  await conn.query(`UPDATE nova_notifications SET patient_id = '' WHERE type = 'referral' AND target_role = 'doctor' AND patient_id <> ''`);
+}
+
+// Séparation des rôles sur les bases existantes : l'administrateur technique ne garde que
+// les permissions du module « admin » (plus de permissions patient, médecin, pharmacie ni santé publique).
+async function restrictAdminPermissions(conn) {
+  await conn.query(
+    `DELETE rp FROM nova_role_permissions rp
+     JOIN nova_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = 'role-admin' AND p.module <> 'admin'`
+  );
 }
 
 async function addForeignKeys(conn) {

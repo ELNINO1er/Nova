@@ -57,6 +57,9 @@ import {
   deleteNote,
   getConsents,
   grantConsent,
+  getCareTeam,
+  grantDoctorAccess,
+  revokeDoctorAccess,
   revokeConsent,
   getAccessLogs,
   getFamilyMembers,
@@ -67,6 +70,7 @@ import {
 } from '../services/patient.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
+import { auditLog } from '../middleware/audit.js';
 import { cacheFor } from '../middleware/cache.js';
 import { answerPatientAssistant } from '../services/ai.service.js';
 import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
@@ -184,22 +188,26 @@ router.post('/appointments', validateBody(z.object({
   specialty:  z.string().default('Médecine générale'),
   location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).default('requested'),
-})), wrap(async (req, res) => {
+})), auditLog('appointment.request', 'appointment'), wrap(async (req, res) => {
   res.status(201).json(await createAppointment(req.user.patientId, req.body));
 }));
 
 router.patch('/appointments/:id', validateBody(z.object({
   startsAt:   z.string().datetime().optional(),
   mode:       z.enum(['onsite', 'video']).optional(),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).optional(),
-})), wrap(async (req, res) => {
-  res.json(await updateAppointment(req.user.patientId, req.params.id, req.body));
+  // Le patient ne peut qu'annuler ; la confirmation appartient au médecin.
+  status:     z.enum(['cancelled']).optional(),
+})), auditLog('appointment.update', 'appointment'), wrap(async (req, res) => {
+  const appt = await updateAppointment(req.user.patientId, req.params.id, req.body);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
-router.delete('/appointments/:id', wrap(async (req, res) => {
-  await deleteAppointment(req.user.patientId, req.params.id);
-  res.status(204).send();
+// « Supprimer » = annuler : le rendez-vous reste dans l'historique.
+router.delete('/appointments/:id', auditLog('appointment.cancel', 'appointment'), wrap(async (req, res) => {
+  const appt = await deleteAppointment(req.user.patientId, req.params.id);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
 /* ─── Vaccinations ───────────────────────────────────────────── */
@@ -387,24 +395,33 @@ router.get('/emergency-card', wrap(async (req, res) => {
 }));
 
 router.get('/emergency-card/qr', wrap(async (req, res) => {
+  const settings = await getSettings(req.user.patientId);
+  if (settings?.privacy?.emergencyQr === false) {
+    return res.status(403).json({ error: 'emergency_qr_disabled', message: 'QR d’urgence désactivé dans vos paramètres.' });
+  }
   const card = await getEmergencyCard(req.user.patientId);
   if (!card) return res.status(404).json({ error: 'not_found' });
 
-  const jwt = (await import('jsonwebtoken')).default;
-  const token = jwt.sign(
-    { type: 'emergency_card', patientId: req.user.patientId },
-    process.env.JWT_SECRET,
-    { expiresIn: '15m' }
-  );
+  // Contenu en clair : un secouriste le lit avec n'importe quel téléphone, sans compte NOVA.
+  const lines = [
+    'NOVA - FICHE D URGENCE',
+    `${card.firstName} ${card.lastName}`,
+    card.birthDate ? `Né(e) le ${String(card.birthDate).slice(0, 10)}` : null,
+    `Groupe sanguin : ${card.bloodType || 'non renseigné'}`,
+    `Allergies : ${card.allergies?.length ? card.allergies.join(', ') : 'aucune renseignée'}`,
+    card.chronicDiseases?.length ? `Maladies chroniques : ${card.chronicDiseases.join(', ')}` : null,
+    card.currentMedications?.length ? `Traitements : ${card.currentMedications.map((m) => `${m.name} ${m.dosage || ''}`.trim()).join(', ')}` : null,
+    card.emergencyContact?.phone ? `Contact : ${card.emergencyContact.name || ''} ${card.emergencyContact.phone}`.trim() : null,
+  ].filter(Boolean);
 
-  const dataUrl = await QRCode.toDataURL(token, {
+  const dataUrl = await QRCode.toDataURL(lines.join('\n'), {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 300,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  res.json({ qr: dataUrl, expiresIn: 900 });
+  res.json({ qr: dataUrl, content: lines });
 }));
 
 /* ─── Wellness Goals ─────────────────────────────────────────── */
@@ -515,6 +532,20 @@ router.post('/consents/:id/grant', requirePermission('patient.consents'), wrap(a
 
 router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await revokeConsent(req.user.patientId, req.params.id));
+}));
+
+/* ─── Équipe de soins : qui a accès à mon dossier, révocation / rétablissement ─── */
+
+router.get('/care-team', requirePermission('patient.consents'), wrap(async (req, res) => {
+  res.json(await getCareTeam(req.user.patientId));
+}));
+
+router.post('/care-team/:doctorId/revoke', requirePermission('patient.consents'), auditLog('patient.access.revoke', 'doctor'), wrap(async (req, res) => {
+  res.json(await revokeDoctorAccess(req.user.patientId, req.params.doctorId));
+}));
+
+router.post('/care-team/:doctorId/grant', requirePermission('patient.consents'), auditLog('patient.access.grant', 'doctor'), wrap(async (req, res) => {
+  res.json(await grantDoctorAccess(req.user.patientId, req.params.doctorId));
 }));
 
 /* ─── Access Logs ────────────────────────────────────────────── */

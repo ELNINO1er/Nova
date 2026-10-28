@@ -7,6 +7,19 @@ const REQUEST_TIMEOUT_MS = 30000;
 const SESSION_ERRORS = new Set(['unauthorized', 'invalid_token', 'token_revoked']);
 
 let refreshPromise = null;
+// Pendant une déconnexion, aucun renouvellement de session ne doit recréer les cookies.
+let sessionClosing = false;
+
+/** À appeler avant /auth/logout : bloque les renouvellements et attend celui éventuellement en cours. */
+export async function prepareLogout() {
+  sessionClosing = true;
+  if (refreshPromise) await refreshPromise.catch(() => {});
+}
+
+/** À appeler après une connexion réussie (ou une déconnexion échouée). */
+export function sessionOpened() {
+  sessionClosing = false;
+}
 
 async function refreshToken() {
   try {
@@ -64,7 +77,7 @@ export async function request(path, options = {}) {
   if (response.status === 401) {
     const body = await readBody(response.clone());
     if (!body || SESSION_ERRORS.has(body.error)) {
-      if (await sharedRefresh()) {
+      if (!sessionClosing && await sharedRefresh()) {
         response = await send(path, fetchOptions);
       } else {
         if (!silent) {

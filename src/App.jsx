@@ -1,11 +1,12 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { BarChart3, Bell, Bot, HeartPulse, Menu, Moon, Pill, Shield, Stethoscope, Sun, User } from 'lucide-react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, LogOut, Menu, Moon, Pill, Settings, Shield, Stethoscope, Sun, User, X } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
@@ -20,6 +21,50 @@ const ROLE_META = {
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
   governor:   { label: 'Espace gouverneur', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
 };
+
+/* Menu de compte (tous écrans) : identité, paramètres et déconnexion explicite. */
+function AccountMenu({ user, roleLabel, hasSettings, onSettings, onLogout, loggingOut, darkMode, sub, border }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); ref.current?.querySelector('button')?.focus(); } };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const item = `w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`;
+  return (
+    <div ref={ref} className={`relative pl-2 sm:pl-3 border-l ${border}`}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Menu du compte"
+        className={`flex items-center gap-2 rounded-xl p-1 ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+        <span className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</span>
+        <span className="hidden lg:block text-left">
+          <span className="block text-xs font-semibold leading-tight">{user?.name || 'Utilisateur'}</span>
+          <span className={`block text-[10px] ${sub}`}>{roleLabel}</span>
+        </span>
+        <ChevronDown className={`w-4 h-4 hidden sm:block ${sub}`} />
+      </button>
+      {open && (
+        <div role="menu" className={`absolute right-0 top-full mt-2 z-[60] w-64 rounded-xl border shadow-xl p-1.5 ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <div className={`px-3 py-2.5 border-b mb-1 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+            <p className="text-sm font-semibold truncate">{user?.name || 'Utilisateur'}</p>
+            <p className={`text-xs ${sub}`}>{roleLabel}</p>
+          </div>
+          {hasSettings && (
+            <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onSettings(); }}>
+              <Settings className="w-4 h-4" /> Paramètres du compte
+            </button>
+          )}
+          <button type="button" role="menuitem" disabled={loggingOut} className={`${item} text-red-600 disabled:opacity-60`} onClick={() => { setOpen(false); onLogout(); }}>
+            <LogOut className="w-4 h-4" /> {loggingOut ? 'Déconnexion…' : 'Se déconnecter'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PageFallback({ darkMode }) {
   const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
@@ -52,6 +97,8 @@ export default function App() {
   const [badges, setBadges] = useState({});
   const [pills, setPills] = useState({});
   const [sbOpen, setSbOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const role = user?.role || 'patient';
 
   useEffect(() => {
@@ -73,30 +120,55 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-logout si le refresh token échoue
-  useEffect(() => {
-    const handleLogout = () => {
-      setUser(null);
-      setAuth('login');
-    };
-    window.addEventListener('nova:logout', handleLogout);
-    return () => window.removeEventListener('nova:logout', handleLogout);
-  }, []);
-
-  const onLogin = (u) => {
-    localStorage.setItem('nova_user', JSON.stringify(u));
-    setUser(u);
-    setBadges({});
-    setPage('dashboard');
-    setAuth('ok');
-  };
-
-  const onLogout = () => {
-    authApi.logout().catch?.(() => {});
+  // Remise à zéro de tout l'état propre à l'utilisateur (aucune donnée d'un compte ne survit au suivant).
+  const resetSession = () => {
     localStorage.removeItem('nova_user');
     setUser(null);
     setBadges({});
+    setPills({});
+    setPage('dashboard');
+    setShowQR(false); setShowCP(false); setShowVid(false);
+    setLogoutError('');
     setAuth('login');
+  };
+
+  // Session expirée (refresh refusé) ou déconnexion/changement de compte dans un autre onglet.
+  useEffect(() => {
+    const handleLogout = () => resetSession();
+    window.addEventListener('nova:logout', handleLogout);
+    const stop = onAuthBroadcast((evt) => {
+      if (evt?.type === 'logout') resetSession();
+      if (evt?.type === 'login' && evt.userId !== user?.id) window.location.reload();
+    });
+    return () => { window.removeEventListener('nova:logout', handleLogout); stop(); };
+    // resetSession ne lit que des setters stables.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const onLogin = (u) => {
+    authApi.sessionOpened();
+    localStorage.setItem('nova_user', JSON.stringify(u));
+    setUser(u);
+    setBadges({});
+    setPills({});
+    setPage('dashboard');
+    setAuth('ok');
+    broadcastAuth({ type: 'login', userId: u.id });
+  };
+
+  // Déconnexion annoncée seulement après confirmation du serveur (jetons révoqués).
+  const onLogout = async () => {
+    setLoggingOut(true);
+    setLogoutError('');
+    try {
+      await authApi.logout();
+      broadcastAuth({ type: 'logout' });
+      resetSession();
+    } catch (err) {
+      setLogoutError(`La déconnexion n’a pas pu être confirmée (${err.message}). Vous êtes toujours connecté : vérifiez votre connexion puis réessayez.`);
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   useEffect(() => {
@@ -160,15 +232,18 @@ export default function App() {
                 {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
               </button>
             )}
-            <button onClick={onLogout} className={`hidden sm:flex items-center gap-2 pl-3 border-l ${border}`}>
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</div>
-              <div className="hidden lg:block text-left">
-                <p className="text-xs font-semibold leading-tight">{user?.name || 'Utilisateur'}</p>
-                <p className={`text-[10px] ${sub}`}>Se déconnecter</p>
-              </div>
-            </button>
+            <AccountMenu user={user} roleLabel={roleLabel} hasSettings={role !== 'governor'} onSettings={() => setPage('settings')}
+              onLogout={onLogout} loggingOut={loggingOut} darkMode={darkMode} sub={sub} border={border} />
           </div>
         </div>
+        {logoutError && (
+          <div role="alert" className="border-t border-red-200 bg-red-50 text-red-800 px-4 py-2.5 text-sm flex items-center gap-3">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{logoutError}</span>
+            <button type="button" onClick={onLogout} disabled={loggingOut} className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-semibold disabled:opacity-60">Réessayer</button>
+            <button type="button" onClick={() => setLogoutError('')} aria-label="Fermer le message" className="p-1"><X className="w-4 h-4" /></button>
+          </div>
+        )}
       </header>
 
       <div className="flex-1 flex">
@@ -180,17 +255,17 @@ export default function App() {
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
             <ErrorBoundary resetKey={page}>
               <Suspense fallback={<PageFallback darkMode={darkMode} />}>
-                {role === 'patient' && <PatientPages page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
+                {role === 'patient' && <PatientPages key={user?.id} page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
                   onBadgesChange={(nextBadges) => setBadges((current) => ({ ...current, ...nextBadges }))}
                   onProfileSaved={(profile) => {
                     const updated = { ...user, name: `${profile.firstName} ${profile.lastName}`, avatar: `${profile.firstName?.[0] || ''}${profile.lastName?.[0] || ''}`.toUpperCase() };
                     setUser(updated);
                     localStorage.setItem('nova_user', JSON.stringify(updated));
                   }} {...props} />}
-                {role === 'doctor' && <DoctorPages page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
-                {role === 'pharmacist' && <PharmacyPages page={page} setPage={setPage} {...props} />}
-                {role === 'admin' && <AdminPages page={page} {...props} />}
-                {role === 'governor' && <GovernorPages page={page} {...props} />}
+                {role === 'doctor' && <DoctorPages key={user?.id} page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
+                {role === 'pharmacist' && <PharmacyPages key={user?.id} page={page} setPage={setPage} {...props} />}
+                {role === 'admin' && <AdminPages key={user?.id} page={page} {...props} />}
+                {role === 'governor' && <GovernorPages key={user?.id} page={page} {...props} />}
               </Suspense>
             </ErrorBoundary>
           </div>

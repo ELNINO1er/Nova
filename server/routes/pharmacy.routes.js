@@ -5,6 +5,7 @@ import { wrap, validateBody } from '../middleware/helpers.js';
 import { auditLog } from '../middleware/audit.js';
 import {
   verifyPrescriptionQR,
+  assertQrMatches,
   getPrescriptionForPharmacy,
   dispensePrescription,
   getDispenseHistory,
@@ -28,8 +29,9 @@ router.post('/verify-prescription', requirePermission('pharmacy.verify'), valida
   res.json(result);
 }));
 
-/* ─── Voir détail ordonnance ──────────────────────────────────── */
+/* ─── Voir détail ordonnance : uniquement avec le QR présenté par le patient ─── */
 router.get('/prescription/:id', requirePermission('pharmacy.verify'), wrap(async (req, res) => {
+  assertQrMatches(String(req.get('x-prescription-qr') || ''), req.params.id);
   const data = await getPrescriptionForPharmacy(req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found', message: 'Ordonnance introuvable.' });
   res.json(data);
@@ -38,6 +40,7 @@ router.get('/prescription/:id', requirePermission('pharmacy.verify'), wrap(async
 /* ─── Délivrer ordonnance ─────────────────────────────────────── */
 router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.object({
   prescriptionId: z.string().min(1),
+  qrToken:        z.string().min(1),
   status:         z.enum(['full', 'partial', 'refused']),
   items:          z.array(z.object({
     prescriptionItemId: z.string().min(1),
@@ -48,6 +51,7 @@ router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.
   })).min(1),
   notes: z.string().max(1000).optional(),
 })), auditLog('prescription.dispense', 'dispense'), wrap(async (req, res) => {
+  assertQrMatches(req.body.qrToken, req.body.prescriptionId);
   res.status(201).json(await dispensePrescription(
     req.user.pharmacyId,
     req.user.id,

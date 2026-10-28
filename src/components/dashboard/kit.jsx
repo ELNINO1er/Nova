@@ -368,7 +368,7 @@ export function LineChart({ data, valueLabel = '', format = (v) => v, height = 2
 export function RingGauge({ value, max = 100, label, caption, darkMode }) {
   const shown = useMounted();
   const r = 52; const c = 2 * Math.PI * r;
-  const pct = Math.max(0, Math.min(1, (value || 0) / max));
+  const pct = Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value) / max)) : 0;
   return (
     <div className="relative w-44 h-44 mx-auto">
       <div className={`absolute -inset-3 rounded-full ${darkMode ? 'bg-red-950/40' : 'bg-red-50'} animate-[pulse_3s_ease-in-out_infinite] motion-reduce:animate-none`} aria-hidden="true" />

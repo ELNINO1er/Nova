@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
 import { medicalList } from './medical-profile.js';
+import { assertDoctorPatientAccess, doctorAccessClause, hasDoctorPatientAccess } from './access.js';
+import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor } from './workflow.js';
 import { generateProvisionalPassword, passwordPolicyError } from './auth.service.js';
-import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral } from './notification.service.js';
+import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral, notifyPatientAppointmentStatus } from './notification.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
@@ -18,8 +20,9 @@ export async function getDoctorDashboard(doctorId) {
      WHERE a.doctor_id = ? AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
     [doctorId, `${todayStr}%`]
   );
+  const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
-    `SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM nova_appointments WHERE doctor_id = ?`, [doctorId]
+    `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ monthCons }]] = await pool.execute(
     `SELECT COUNT(*) AS monthCons FROM nova_consultations WHERE doctor_id = ? AND started_at LIKE ?`,
@@ -55,12 +58,12 @@ export async function getDoctorDashboard(doctorId) {
 /* ─── Patients ───────────────────────────────────────────────── */
 
 export async function getDoctorPatients(doctorId, query = {}) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   let sql = `
-    SELECT DISTINCT p.*
+    SELECT p.*
     FROM nova_patients p
-    JOIN nova_appointments a ON a.patient_id = p.id
-    WHERE a.doctor_id = ?`;
-  const args = [doctorId];
+    WHERE p.deleted_at IS NULL AND ${access.sql}`;
+  const args = [...access.params];
   if (query.search) {
     sql += ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.cmu_number LIKE ? OR p.phone LIKE ?)`;
     const s = `%${query.search}%`;
@@ -130,10 +133,15 @@ export async function getDoctorAppointments(doctorId, query = {}) {
 
 export async function updateDoctorAppointment(doctorId, id, changes) {
   const [[existing]] = await pool.execute(
-    `SELECT id FROM nova_appointments WHERE id = ? AND doctor_id = ?`, [id, doctorId]
+    `SELECT * FROM nova_appointments WHERE id = ? AND doctor_id = ?`, [id, doctorId]
   );
   if (!existing) return null;
-  const sets = []; const vals = [];
+  if (changes.status) assertTransition(APPOINTMENT_TRANSITIONS, existing.status, changes.status, 'doctor', 'rendez-vous');
+  if (changes.startsAt && changes.startsAt !== existing.starts_at) {
+    assertFuture(changes.startsAt);
+    await assertDoctorSlotFree(doctorId, changes.startsAt, id);
+  }
+  const sets = ['updated_at = ?']; const vals = [new Date().toISOString()];
   if (changes.status)   { sets.push('status = ?');    vals.push(changes.status); }
   if (changes.startsAt) { sets.push('starts_at = ?'); vals.push(changes.startsAt); }
   if (changes.location) { sets.push('location = ?');  vals.push(changes.location); }
@@ -141,6 +149,12 @@ export async function updateDoctorAppointment(doctorId, id, changes) {
   vals.push(id);
   vals.push(doctorId);
   await pool.execute(`UPDATE nova_appointments SET ${sets.join(', ')} WHERE id = ? AND doctor_id = ?`, vals);
+  if (changes.status === 'cancelled' && existing.status !== 'cancelled') await releaseSlotFor(existing);
+  if (changes.status && changes.status !== existing.status) {
+    const [[doc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+    const when = new Date(changes.startsAt || existing.starts_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
+    notifyPatientAppointmentStatus(existing.patient_id, `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`.trim(), changes.status, when).catch(() => {});
+  }
   const [[row]] = await pool.execute(
     `SELECT a.*, p.first_name, p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id WHERE a.id = ? AND a.doctor_id = ?`, [id, doctorId]
   );
@@ -233,7 +247,15 @@ export async function createPatientByDoctor(doctorId, payload) {
       [userId, phone, unusableLegacyHash, passwordHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
     );
 
-    // 5. Créer un RDV initial pour lier docteur ↔ patient
+    // 5. Consentement explicite : le médecin qui inscrit le patient a accès à son dossier
+    //    (le patient pourra le révoquer depuis « Vie privée »).
+    await conn.execute(
+      `INSERT INTO nova_consents (id, patient_id, doctor_id, status, scope, requested_at, responded_at, expires_at)
+       VALUES (?, ?, ?, 'granted', ?, NOW(3), NOW(3), DATE_ADD(NOW(), INTERVAL 1 YEAR))`,
+      [randomUUID(), patientId, doctorId, JSON.stringify(['profile', 'vitals', 'consultations', 'prescriptions'])]
+    );
+
+    // 6. Créer un RDV initial pour lier docteur ↔ patient
     const apptId = randomUUID();
     const [[doctor]] = await conn.execute('SELECT first_name, last_name, specialty, city FROM nova_doctors WHERE id = ?', [doctorId]);
     const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Dr.';
@@ -263,39 +285,8 @@ export async function createPatientByDoctor(doctorId, payload) {
   }
 }
 
-async function verifyDoctorPatientRelation(doctorId, patientId) {
-  const access = await hasDoctorPatientAccess(doctorId, patientId);
-  if (!access) {
-    const err = new Error('Aucune relation avec ce patient.');
-    err.status = 403;
-    throw err;
-  }
-}
-
-async function hasDoctorPatientAccess(doctorId, patientId) {
-  const [[consent]] = await pool.execute(
-    `SELECT id FROM nova_consents
-     WHERE doctor_id = ? AND patient_id = ? AND status = 'granted'
-       AND (expires_at IS NULL OR expires_at > NOW())
-     LIMIT 1`,
-    [doctorId, patientId]
-  );
-  if (consent) return true;
-
-  const [[clinicalRelation]] = await pool.execute(
-    `SELECT id FROM (
-       SELECT id FROM nova_consultations WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_prescriptions WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_lab_requests WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? AND status <> 'cancelled'
-     ) rel LIMIT 1`,
-    [doctorId, patientId, doctorId, patientId, doctorId, patientId, doctorId, patientId]
-  );
-  return !!clinicalRelation;
-}
+// Règle d'accès centralisée (services/access.js) : la révocation par le patient prime.
+const verifyDoctorPatientRelation = assertDoctorPatientAccess;
 
 export async function createConsultation(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
@@ -355,8 +346,9 @@ export async function updateConsultation(doctorId, id, changes) {
 /* ─── Statistiques ───────────────────────────────────────────── */
 
 export async function getDoctorStats(doctorId) {
+  const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
-    `SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM nova_appointments WHERE doctor_id = ?`, [doctorId]
+    `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ totalConsultations }]] = await pool.execute(
     `SELECT COUNT(*) AS totalConsultations FROM nova_consultations WHERE doctor_id = ?`, [doctorId]
@@ -604,17 +596,18 @@ export async function getDoctorLabRequests(doctorId) {
 /* ─── Suivi chroniques ───────────────────────────────────────── */
 
 export async function getChronicPatients(doctorId) {
-  // Patients avec maladies chroniques dans leur profil médical
+  // Patients avec maladies chroniques, limités aux dossiers accessibles
+  const chronicAccess = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
     `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies,
             (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
             (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
      FROM nova_patients p
-     JOIN nova_appointments a ON a.patient_id = p.id AND a.doctor_id = ?
      LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
-     WHERE mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
+     WHERE p.deleted_at IS NULL AND ${chronicAccess.sql}
+       AND mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
      ORDER BY last_consult ASC`,
-    [doctorId, doctorId, doctorId]
+    [doctorId, doctorId, ...chronicAccess.params]
   );
   return rows.map(r => {
     const birth = r.birth_date ? new Date(r.birth_date) : null;
@@ -796,6 +789,13 @@ export async function saveDoctorSignatureData(doctorId, signatureData) {
 
 export async function createDoctorLabRequest(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  if (payload.consultationId) {
+    const [[cons]] = await pool.execute(
+      'SELECT id FROM nova_consultations WHERE id = ? AND doctor_id = ? AND patient_id = ?',
+      [payload.consultationId, doctorId, payload.patientId]
+    );
+    if (!cons) throw Object.assign(new Error('Consultation introuvable pour ce patient.'), { status: 404 });
+  }
   const id  = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
@@ -887,6 +887,9 @@ export async function deletePrescriptionTemplate(doctorId, templateId) {
 
 export async function createReferral(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  if (payload.toDoctorId === doctorId) throw Object.assign(new Error('Impossible de s’adresser un patient à soi-même.'), { status: 422 });
+  const [[target]] = await pool.execute('SELECT id FROM nova_doctors WHERE id = ? AND is_available = 1', [payload.toDoctorId]);
+  if (!target) throw Object.assign(new Error('Médecin destinataire introuvable ou indisponible.'), { status: 404 });
 
   const id = randomUUID();
   const sharedData = payload.sharedData || ['profile', 'vitals', 'consultations'];
@@ -904,8 +907,8 @@ export async function createReferral(doctorId, payload) {
   if (toDocUser) {
     await pool.execute(
       `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, created_at)
-       VALUES (?, ?, ?, 'doctor', 'referral', ?, ?, 'patients', NOW())`,
-      [randomUUID(), payload.patientId, toDocUser.id,
+       VALUES (?, '', ?, 'doctor', 'referral', ?, ?, 'patients', NOW())`,
+      [randomUUID(), toDocUser.id,
        'Transfert de patient',
        `Dr. ${fromDoc?.first_name || ''} ${fromDoc?.last_name || ''} vous transfère un patient. Motif : ${payload.reason}`]
     );
@@ -1033,9 +1036,10 @@ export async function getDoctorConversation(doctorId, convId) {
 
 export async function createDoctorMessage(doctorId, convId, { body }) {
   const [[conv]] = await pool.execute(
-    'SELECT id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
+    'SELECT id, patient_id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
   );
   if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  await verifyDoctorPatientRelation(doctorId, conv.patient_id);
   const id = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(

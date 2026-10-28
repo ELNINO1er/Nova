@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AlertCircle, CheckCircle2, Edit3, Save, Shield, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 
-export default function DSignature({ data, loading, onSave, notify, card, sub, border, darkMode }) {
+export default function DSignature({ data, loading, onSave, notify, doctorName, doctorSpec, card, sub, border, darkMode }) {
   const canvasRef = useRef(null);
   const [drawing,      setDrawing]      = useState(false);
   const [saving,       setSaving]       = useState(false);
@@ -87,7 +87,7 @@ export default function DSignature({ data, loading, onSave, notify, card, sub, b
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-bold flex items-center gap-2"><Edit3 className="w-6 h-6 text-indigo-600" /> Signature électronique</h2>
-        <p className={`text-sm ${sub}`}>Votre signature sera apposée automatiquement sur les ordonnances imprimées</p>
+        <p className={`text-sm ${sub}`}>Image de votre signature manuscrite, enregistrée sur votre compte</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -127,8 +127,8 @@ export default function DSignature({ data, loading, onSave, notify, card, sub, b
           <div className={`rounded-xl border p-4 space-y-3 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} text-sm`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="font-bold">Dr. Aïcha Touré</p>
-                <p className={`text-xs ${sub}`}>Cardiologie • Abidjan</p>
+                <p className="font-bold">{doctorName || 'Votre nom'}</p>
+                <p className={`text-xs ${sub}`}>{doctorSpec || 'Spécialité'}</p>
               </div>
               <div className="text-right">
                 <p className="font-black text-red-600 tracking-widest text-base">ORDONNANCE</p>
@@ -137,10 +137,9 @@ export default function DSignature({ data, loading, onSave, notify, card, sub, b
             </div>
             <div className={`h-px ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
             <div className={`text-xs ${sub} space-y-0.5`}>
-              <p><strong>Patient :</strong> Kouamé Bamba</p>
+              <p><strong>Patient :</strong> (exemple)</p>
               <p className="mt-2 font-semibold">Prescriptions :</p>
-              <p>1. Amlodipine 5mg — 1cp/j — 30 jours</p>
-              <p>2. Ramipril 5mg — 1cp matin — 30 jours</p>
+              <p>1. Médicament — posologie — durée</p>
             </div>
             <div className="flex justify-end pt-2">
               <div className="w-36 text-right">
@@ -169,12 +168,12 @@ export default function DSignature({ data, loading, onSave, notify, card, sub, b
 
       {/* Infos légales */}
       <div className={`${card} border rounded-2xl p-4`}>
-        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-blue-600" /> Valeur légale & Sécurité</h3>
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-blue-600" /> Ce que fait (et ne fait pas) cette signature</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
-            { icon: '🔒', t: 'Sécurisée', d: 'Stockée chiffrée côté serveur, liée à votre compte uniquement' },
-            { icon: '📋', t: 'Ordonnances', d: 'Apposée automatiquement sur toutes les ordonnances imprimées' },
-            { icon: '✅', t: 'Conforme ANAM', d: 'Conforme aux exigences de l\'Autorité Nationale d\'Accréditation et de Médecine' },
+            { icon: '🖊️', t: 'Image enregistrée', d: 'Votre tracé est conservé sur votre compte, accessible à vous seul.' },
+            { icon: '📋', t: 'Ordonnances', d: 'Pas encore apposée automatiquement sur les ordonnances imprimées.' },
+            { icon: '⚠️', t: 'Pas une signature certifiée', d: 'Ce n’est pas une signature électronique qualifiée : elle n’a pas, seule, de valeur légale.' },
           ].map((item, i) => (
             <div key={i} className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
               <p className="text-2xl mb-1">{item.icon}</p>

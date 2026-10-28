@@ -76,8 +76,8 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
 
   const doctorName = apiData.dashboard?.doctor
     ? `Dr. ${apiData.dashboard.doctor.firstName} ${apiData.dashboard.doctor.lastName}`
-    : 'Dr. Aïcha Touré';
-  const doctorSpec = apiData.dashboard?.doctor?.specialty || 'Cardiologie';
+    : '';
+  const doctorSpec = apiData.dashboard?.doctor?.specialty || '';
 
   return (
     <div className="space-y-5">
@@ -85,7 +85,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page !== 'dashboard' && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Cockpit Clinique</h2>
-          <p className={`text-sm ${sub}`}>{doctorName} • {doctorSpec}</p>
+          <p className={`text-sm ${sub}`}>{[doctorName, doctorSpec].filter(Boolean).join(' • ')}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={onCP}
@@ -125,7 +125,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'assistant-ia'       && <DAssistantIA     chronicData={apiData['chronic-patients']} consultData={apiData.consultations} statsData={apiData.stats} loadChronic={() => loadPage('chronic-patients')} loadConsult={() => loadPage('consultations')} loadStats={() => loadPage('stats')} {...p} />}
       {page === 'finances'    && <DFinances   data={apiData.finances}   loading={apiLoading.finances}   {...p} />}
       {page === 'reputation'  && <DReputation data={apiData.reputation} loading={apiLoading.reputation} {...p} />}
-      {page === 'signature'   && <DSignature  data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
+      {page === 'signature'   && <DSignature  doctorName={doctorName} doctorSpec={doctorSpec} data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
       {page === 'settings'    && <SettingsPage data={apiData.settings} api={doctorApi} {...p} />}
       </>)}
     </div>

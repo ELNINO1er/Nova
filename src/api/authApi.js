@@ -1,4 +1,4 @@
-import { request } from './client.js';
+import { prepareLogout, request, sessionOpened } from './client.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -43,8 +43,20 @@ export const authApi = {
   // Passe par request() pour tenter un refresh si le jeton d'accès (30 min) a expiré.
   me: () => request('/auth/me', { silent: true }),
 
+  /**
+   * Déconnexion confirmée par le serveur (révocation des jetons). En cas d'échec, l'erreur est
+   * remontée : l'interface ne doit pas annoncer une déconnexion qui n'a pas eu lieu.
+   */
   logout: async () => {
-    await authRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+    await prepareLogout();
+    try {
+      await authRequest('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      sessionOpened();
+      throw new Error(err instanceof TypeError ? 'Serveur injoignable.' : err.message);
+    }
     localStorage.removeItem('nova_user');
   },
+
+  sessionOpened,
 };

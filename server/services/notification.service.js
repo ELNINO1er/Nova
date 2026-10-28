@@ -14,7 +14,23 @@ import { pool } from '../db/database.js';
  * @param {string} opts.sourceUserId — qui a déclenché
  * @param {string} opts.sourceRole — rôle source
  */
+// Catégories que le patient peut couper dans ses paramètres ; les notifications médicales
+// (consultation, ordonnance, résultat, délivrance, consentement) ne sont jamais filtrées.
+const PATIENT_PREFERENCE = { appointment: 'appointments', medication: 'medications', message: 'messages' };
+
+async function patientMutedCategory(patientId, type) {
+  const key = PATIENT_PREFERENCE[type];
+  if (!key || !patientId) return false;
+  const [[row]] = await pool.execute('SELECT settings_json FROM nova_patient_settings WHERE patient_id = ?', [patientId]);
+  if (!row) return false;
+  try {
+    const settings = typeof row.settings_json === 'string' ? JSON.parse(row.settings_json) : row.settings_json;
+    return settings?.notifications?.[key] === false;
+  } catch { return false; }
+}
+
 export async function createNotification(opts) {
+  if (opts.targetRole === 'patient' && await patientMutedCategory(opts.patientId, opts.type)) return null;
   const id = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
@@ -105,6 +121,36 @@ export async function notifyDoctorAppointment(doctorId, patientName, date) {
     type: 'appointment',
     title: 'Nouveau rendez-vous',
     body: `${patientName} a pris rendez-vous pour le ${date}.`,
+    linkPage: 'agenda',
+  });
+}
+
+/** Notification → patient : rendez-vous confirmé ou annulé par le médecin. */
+export async function notifyPatientAppointmentStatus(patientId, doctorName, status, dateStr) {
+  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ? AND deleted_at IS NULL', [patientId]);
+  return createNotification({
+    patientId,
+    userId: user?.id,
+    targetRole: 'patient',
+    type: 'appointment',
+    title: status === 'confirmed' ? 'Rendez-vous confirmé' : 'Rendez-vous annulé',
+    body: `${doctorName} a ${status === 'confirmed' ? 'confirmé' : 'annulé'} votre rendez-vous du ${dateStr}.`,
+    linkPage: 'rdv',
+  });
+}
+
+/** Notification → médecin : rendez-vous annulé ou déplacé par le patient. */
+export async function notifyDoctorAppointmentChange(doctorId, patientName, change, dateStr) {
+  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ? AND deleted_at IS NULL', [doctorId]);
+  if (!user) return;
+  return createNotification({
+    userId: user.id,
+    targetRole: 'doctor',
+    type: 'appointment',
+    title: change === 'cancelled' ? 'Rendez-vous annulé' : 'Rendez-vous à reconfirmer',
+    body: change === 'cancelled'
+      ? `${patientName} a annulé son rendez-vous du ${dateStr}.`
+      : `${patientName} a déplacé son rendez-vous au ${dateStr} : il est à reconfirmer.`,
     linkPage: 'agenda',
   });
 }

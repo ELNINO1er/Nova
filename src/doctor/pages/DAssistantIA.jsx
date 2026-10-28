@@ -54,8 +54,8 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-2xl font-bold flex items-center gap-2"><Brain className="w-6 h-6 text-purple-600" /> Assistant IA Nova</h2>
-        <p className={`text-sm ${sub}`}>Analyse clinique intelligente • Alertes prédictives</p>
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Brain className="w-6 h-6 text-red-600" /> Aide-mémoire clinique</h2>
+        <p className={`text-sm ${sub}`}>Réponses issues d’une base de connaissances locale et rappels de suivi calculés par règles simples. Ne valide ni diagnostic ni prescription : la décision reste celle du médecin.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -98,7 +98,7 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
         <div className="space-y-3">
           <div className={`${card} border rounded-2xl p-4`}>
             <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-500" /> Alertes prédictives
+              <Zap className="w-4 h-4 text-amber-500" /> Rappels de suivi (règles)
               <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-bold ${aiAlerts.filter(a => a.level === 'critical').length > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                 {aiAlerts.filter(a => a.level === 'critical').length} critique{aiAlerts.filter(a => a.level === 'critical').length > 1 ? 's' : ''}
               </span>

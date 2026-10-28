@@ -4,7 +4,7 @@ import { patientApi } from '../../api/patientApi.js';
 
 export default function PAssistant({ patientData, card, sub, border, darkMode }) {
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: `Bonjour ! Je suis Nova, votre assistant santé personnel. Comment puis-je vous aider aujourd'hui ?`, ts: new Date() }
+    { role: 'assistant', text: `Bonjour ! Je suis l’aide de NOVA. Je vous oriente dans l’application et je donne des informations de santé générales. Je ne lis pas votre dossier et je ne remplace pas un médecin.`, ts: new Date() }
   ]);
   const [input, setInput]   = useState('');
   const [typing, setTyping] = useState(false);
@@ -13,12 +13,12 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
   const suggestions = [
-    "Quels médicaments je dois prendre ce soir ?",
-    "Mon prochain rendez-vous c'est quand ?",
-    "Que signifie une glycémie de 1.10 g/L ?",
+    "Où voir les médicaments à prendre aujourd'hui ?",
+    "Comment prendre un rendez-vous ?",
+    "Que signifie une glycémie à jeun de 1.10 g/L ?",
     "Quels aliments éviter avec l'hypertension ?",
-    "Comment améliorer mon score de santé ?",
-    "Dois-je m'inquiéter pour mes résultats d'analyse ?",
+    "Comment retirer l'accès d'un médecin à mon dossier ?",
+    "Où trouver mes résultats d'analyse ?",
   ];
 
   const simulateResponse = (userMsg) => {
@@ -74,8 +74,8 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
           <Bot className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold">Assistant IA Nova</h2>
-          <p className={`text-xs ${sub}`}>IA Santé · Informations générales uniquement</p>
+          <h2 className="text-2xl font-bold">Aide NOVA</h2>
+          <p className={`text-xs ${sub}`}>Aide à la navigation et informations générales · ne consulte pas votre dossier · en cas d’urgence, appelez le 185 (SAMU)</p>
         </div>
         <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> En ligne

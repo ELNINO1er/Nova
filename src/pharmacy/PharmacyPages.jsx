@@ -207,7 +207,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
       const v = await pharmacyApi.verifyPrescription(prescriptionId.trim());
       setVerification(v);
       if (v.verification.canDispense) {
-        const d = await pharmacyApi.prescription(v.id);
+        const d = await pharmacyApi.prescription(v.id, prescriptionId.trim());
         setDetail(d);
         setDispenseItems(d.items.map(i => ({ prescriptionItemId: i.id, quantityDispensed: 1, substituted: false, name: i.name })));
       }
@@ -223,6 +223,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
     try {
       await pharmacyApi.dispense({
         prescriptionId: verification?.id,
+        qrToken: prescriptionId.trim(),
         status,
         items: dispenseItems.map(({ name, ...rest }) => rest),
       });

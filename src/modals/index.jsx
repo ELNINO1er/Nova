@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart, Activity, Pill, Calendar, FileText, User, Stethoscope,
   Shield, Search, AlertTriangle, Plus, Check, Clock, Download, X,
@@ -13,39 +13,50 @@ import {
   HelpCircle, BookOpen, Pencil, HardDrive, Wifi
 } from 'lucide-react';
 import { doctorApi } from '../api/doctorApi.js';
+import { patientApi } from '../api/patientApi.js';
 
 /* ============== MODALS ============== */
 export function QRModal({ onClose }) {
-  const cells = [];
-  for (let i = 0; i < 25; i++) for (let j = 0; j < 25; j++) {
-    const isC = (i < 7 && j < 7) || (i < 7 && j > 17) || (i > 17 && j < 7);
-    const cI = (i >= 1 && i <= 5 && j >= 1 && j <= 5) || (i >= 1 && i <= 5 && j >= 19 && j <= 23) || (i >= 19 && i <= 23 && j >= 1 && j <= 5);
-    const cC = (i >= 2 && i <= 4 && j >= 2 && j <= 4) || (i >= 2 && i <= 4 && j >= 20 && j <= 22) || (i >= 20 && i <= 22 && j >= 2 && j <= 4);
-    if ((isC && !cI) || cC || (!isC && Math.random() > 0.55)) cells.push(<rect key={`${i}-${j}`} x={i*4} y={j*4} width="4" height="4" fill="#000" />);
-  }
+  // Pass Santé d'urgence : vraies données du patient et QR lisible par tout téléphone (texte de la fiche).
+  const [card, setCard] = useState(null);
+  const [qr, setQr] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    Promise.all([patientApi.emergencyCard(), patientApi.emergencyCardQr()])
+      .then(([c, q]) => { if (alive) { setCard(c); setQr(q); } })
+      .catch((e) => { if (alive) setError(e.message || 'Fiche indisponible.'); });
+    return () => { alive = false; };
+  }, []);
+  const age = card?.birthDate ? Math.floor((Date.now() - new Date(card.birthDate)) / (365.25 * 86400000)) : null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'Urgence">
-      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'urgence">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2"><Siren className="w-5 h-5 text-red-600" /><h3 className="font-bold text-slate-900">Pass Santé d'Urgence</h3></div>
+          <div className="flex items-center gap-2"><Siren className="w-5 h-5 text-red-600" /><h3 className="font-bold">Pass Santé d’urgence</h3></div>
           <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
-        <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white">
-          <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
-          <h4 className="text-2xl font-bold mt-1">Kouamé Bamba</h4>
-          <p className="text-xs text-red-100">CI-2024-0847-3692</p>
-          <div className="bg-white rounded-xl p-4 my-4 flex items-center justify-center">
-            <svg viewBox="0 0 100 100" className="w-40 h-40">{cells}</svg>
+        {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}
+        {!error && !card && <p className="text-sm text-slate-500 py-8 text-center">Chargement de votre fiche…</p>}
+        {card && (
+          <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white">
+            <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
+            <h4 className="text-2xl font-bold mt-1">{card.firstName} {card.lastName}</h4>
+            <p className="text-xs text-red-100">CMU {card.cmuNumber || '—'}</p>
+            <div className="bg-white rounded-xl p-3 my-4 flex items-center justify-center">
+              {qr?.qr ? <img src={qr.qr} alt="QR de la fiche d’urgence" className="w-44 h-44" /> : <p className="text-xs text-slate-500 py-10">QR indisponible</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-white/10 rounded-lg p-3"><p className="text-[10px] text-red-100">GROUPE</p><p className="text-xl font-bold">{card.bloodType || '—'}</p></div>
+              <div className="bg-white/10 rounded-lg p-3"><p className="text-[10px] text-red-100">ÂGE</p><p className="text-xl font-bold">{age != null ? `${age} ans` : '—'}</p></div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 mt-3">
+              <p className="text-[10px] text-red-100 mb-1">ALLERGIES</p>
+              <p className="text-sm font-semibold">{card.allergies?.length ? card.allergies.join(', ') : 'Aucune allergie renseignée'}</p>
+            </div>
+            <p className="text-[11px] text-red-100 mt-3">Le QR contient ces informations en clair, lisibles par l’appareil photo d’un secouriste. Vous pouvez le désactiver dans vos paramètres.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-white/10 backdrop-blur rounded-lg p-3"><p className="text-[10px] text-red-100">GROUPE</p><p className="text-xl font-bold">O+</p></div>
-            <div className="bg-white/10 backdrop-blur rounded-lg p-3"><p className="text-[10px] text-red-100">ÂGE</p><p className="text-xl font-bold">52 ans</p></div>
-          </div>
-          <div className="bg-white/10 backdrop-blur rounded-lg p-3 mt-3">
-            <p className="text-[10px] text-red-100 mb-1">⚠️ ALLERGIES</p>
-            <p className="text-sm font-semibold">Pénicilline, Arachides</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -91,39 +102,17 @@ export function AyaChat({ onClose }) {
 }
 
 export function VideoModal({ onClose }) {
+  // Aucun service vidéo n'est intégré : on l'indique clairement au lieu de simuler un appel.
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
-      <div className="flex-1 relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center text-4xl font-bold mx-auto mb-4 shadow-2xl">AT</div>
-            <p className="text-white text-2xl font-bold">Dr. Aïcha Touré</p>
-            <p className="text-slate-400 text-sm mt-2">Cardiologie • CHU Treichville</p>
-            <div className="flex items-center gap-2 justify-center mt-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-emerald-400 text-xs font-bold">EN APPEL • 03:24</span>
-            </div>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Téléconsultation">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2"><Video className="w-5 h-5 text-red-600" /><h3 className="font-bold">Téléconsultation</h3></div>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
-        <div className="absolute top-4 right-4 w-32 h-44 bg-gradient-to-br from-slate-700 to-slate-900 rounded-xl border-2 border-white/20 flex items-center justify-center shadow-2xl">
-          <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm mx-auto mb-2">KB</div>
-            <p className="text-white text-xs font-semibold">Vous</p>
-          </div>
-        </div>
-        <div className="absolute top-4 left-4">
-          <span className="px-3 py-1.5 rounded-full bg-black/40 backdrop-blur text-white text-xs font-bold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> HD • Sécurisé
-          </span>
-        </div>
-      </div>
-      <div className="bg-slate-900 p-6 flex items-center justify-center gap-4">
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><Mic className="w-6 h-6" /></button>
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><Video className="w-6 h-6" /></button>
-        <button onClick={onClose} className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg shadow-red-600/40">
-          <Phone className="w-7 h-7 rotate-[135deg]" />
-        </button>
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><MessageCircle className="w-6 h-6" /></button>
+        <p className="text-sm">La vidéo n’est pas encore disponible dans NOVA.</p>
+        <p className="text-sm text-slate-600 mt-2">Pour un rendez-vous en téléconsultation, le médecin vous indique comment le joindre (téléphone ou application de son choix). Vous pouvez aussi lui écrire depuis la messagerie.</p>
+        <button type="button" onClick={onClose} className="mt-5 w-full min-h-11 rounded-xl bg-red-600 text-white font-semibold">J’ai compris</button>
       </div>
     </div>
   );

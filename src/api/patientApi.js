@@ -100,6 +100,9 @@ export const patientApi = {
   revokeConsent: (id) => request(`/patient/me/consents/${id}/revoke`, { method: 'POST' }),
   // Access logs
   accessLogs: () => request('/patient/me/access-logs'),
+  careTeam: () => request('/patient/me/care-team'),
+  revokeDoctorAccess: (doctorId) => request(`/patient/me/care-team/${doctorId}/revoke`, { method: 'POST' }),
+  grantDoctorAccess: (doctorId) => request(`/patient/me/care-team/${doctorId}/grant`, { method: 'POST' }),
   // Famille
   familyMembers: () => request('/patient/me/family'),
   createFamilyMember: (payload) => request('/patient/me/family', { method: 'POST', body: JSON.stringify(payload) }),

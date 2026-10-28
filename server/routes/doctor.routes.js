@@ -278,8 +278,8 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
   const [[doctor]] = await pool.execute('SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?', [req.user.doctorId]);
   const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Un médecin';
   await pool.execute(
-    `INSERT INTO nova_notifications (id, patient_id, type, title, body, link_page, created_at)
-     VALUES (?, ?, 'consent', ?, ?, 'consents', NOW())`,
+    `INSERT INTO nova_notifications (id, patient_id, target_role, type, title, body, link_page, created_at)
+     VALUES (?, ?, 'patient', 'consent', ?, ?, 'privacy', NOW())`,
     [randomUUID(), req.params.patientId, 'Demande d\'accès à votre dossier',
      `${doctorName} (${doctor?.specialty || ''}) demande l'accès à votre dossier médical.`]
   );

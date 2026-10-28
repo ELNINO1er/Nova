@@ -65,8 +65,8 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       pharmacy: patientApi.pharmacies,
       family: patientApi.familyMembers,
       privacy: async () => {
-        const [consents, accessLogs] = await Promise.all([patientApi.consents(), patientApi.accessLogs()]);
-        return { consents, accessLogs };
+        const [consents, accessLogs, careTeam] = await Promise.all([patientApi.consents(), patientApi.accessLogs(), patientApi.careTeam()]);
+        return { consents, accessLogs, careTeam };
       },
       settings: patientApi.settings,
     };
@@ -151,7 +151,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} {...p} />,
     family: <PFamily data={apiData.family} onReload={(v) => replacePageData('family', v)} notify={notify} {...p} />,
     privacy: <PPrivacy data={apiData.privacy} onReload={(v) => replacePageData('privacy', v)} notify={notify} {...p} />,
-    settings: <SettingsPage data={apiData.settings} {...p} />
+    settings: <SettingsPage data={apiData.settings} setPage={setPage} {...p} />
   };
 
   return (

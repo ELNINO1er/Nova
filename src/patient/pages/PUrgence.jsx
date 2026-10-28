@@ -9,10 +9,10 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
   const [loadQR, setLoadQR]   = useState(false);
 
   const urgenceNumbers = [
-    { label: 'SAMU',     number: '15', color: 'red',    icon: PhoneCall },
-    { label: 'Police',   number: '17', color: 'blue',   icon: Shield },
-    { label: 'Pompiers', number: '18', color: 'orange', icon: Siren },
-    { label: 'CHU Abidjan', number: '+225 27 21 27 03 33', color: 'purple', icon: Stethoscope },
+    // Numéros d'urgence de Côte d'Ivoire.
+    { label: 'SAMU',     number: '185', color: 'red',    icon: PhoneCall },
+    { label: 'Police',   number: '170', color: 'blue',   icon: Shield },
+    { label: 'Pompiers', number: '180', color: 'orange', icon: Siren },
   ];
 
   const colorMap = {
@@ -103,7 +103,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
       </div>
 
       {/* Numéros urgence */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {urgenceNumbers.map(({ label, number, color, icon: Icon }) => (
           <a key={label} href={`tel:${number}`}
             className={`${colorMap[color]} text-white rounded-2xl p-4 flex flex-col items-center gap-2 transition-transform hover:scale-105 active:scale-95`}>

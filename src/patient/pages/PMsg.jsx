@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Send, Phone, Video, Search, ChevronLeft, Paperclip, MoreVertical, Clock } from 'lucide-react';
+import { MessageCircle, Send, Search, ChevronLeft, Clock } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate, initials } from '../../utils/format.js';
 
@@ -187,14 +187,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                     <p className="font-bold text-sm truncate">{activeConv.doctorName}</p>
                     {activeConv.doctorSpecialty && <p className={`text-xs ${sub}`}>{activeConv.doctorSpecialty}</p>}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`} title="Appel audio">
-                      <Phone className="w-4 h-4 text-emerald-600" />
-                    </button>
-                    <button onClick={() => setShowVid?.(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`} title="Vidéo">
-                      <Video className="w-4 h-4 text-blue-600" />
-                    </button>
-                  </div>
+
                 </div>
 
                 {/* Messages */}
@@ -257,9 +250,6 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                 {/* Input */}
                 <div className={`p-3 border-t ${border}`}>
                   <div className={`flex items-end gap-2 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} px-3 py-2`}>
-                    <button className={`p-1 rounded-lg ${sub} hover:text-red-600 shrink-0 mb-0.5`} title="Joindre un fichier">
-                      <Paperclip className="w-4 h-4" />
-                    </button>
                     <textarea
                       ref={inputRef}
                       value={msgText}

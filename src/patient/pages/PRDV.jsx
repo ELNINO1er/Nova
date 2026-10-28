@@ -10,6 +10,12 @@ const defaultAppointmentDate = () => {
   return date.toISOString().slice(0, 16);
 };
 
+const STATUS_STYLE = {
+  requested: ['En attente de confirmation', 'bg-amber-100 text-amber-700'],
+  confirmed: ['Confirmé', 'bg-emerald-100 text-emerald-700'],
+  cancelled: ['Annulé', 'bg-slate-200 text-slate-600'],
+};
+
 export default function PRDV({ data, onReload, notify, card, sub, darkMode, setShowVid }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -71,13 +77,12 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       startsAt: new Date(form.startsAt).toISOString(),
       doctorId: form.doctorId,
       mode: form.mode,
-      status: 'requested',
     };
     try {
       if (editingId) await patientApi.updateAppointment(editingId, payload);
       else await patientApi.createAppointment(payload);
       onReload?.(await patientApi.appointments());
-      notify?.(editingId ? 'Rendez-vous modifié' : 'Rendez-vous créé');
+      notify?.(editingId ? 'Rendez-vous déplacé : il est à reconfirmer par le médecin.' : 'Demande envoyée : le médecin doit la confirmer.');
       setShowForm(false);
       resetRdvForm();
     } catch (error) {
@@ -89,7 +94,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
     try {
       await patientApi.deleteAppointment(id);
       onReload?.(await patientApi.appointments());
-      notify?.('Rendez-vous supprimé');
+      notify?.('Rendez-vous annulé. Le médecin a été prévenu.');
       setPendingDelete(null);
     } catch (error) {
       notify?.(error.message || 'Erreur suppression', 'error');
@@ -150,36 +155,36 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
                 <div className="flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div><h4 className="font-bold">{r.dr}</h4><p className={`text-xs ${sub}`}>{r.sp}</p></div>
-                    {i === 0 && <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">J-{r.dl}</span>}
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${STATUS_STYLE[r.status]?.[1] || 'bg-slate-100 text-slate-600'}`}>{STATUS_STYLE[r.status]?.[0] || r.status}</span>
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
                     <span className={`flex items-center gap-1 ${sub}`}><Clock className="w-3 h-3" /> {r.t}</span>
                     <span className={`flex items-center gap-1 ${sub}`}>{r.v ? <Video className="w-3 h-3" /> : <MapPin className="w-3 h-3" />} {r.l}</span>
                   </div>
-                  <div className="flex gap-2 mt-3">
+                  {r.status !== 'cancelled' && <div className="flex gap-2 mt-3 flex-wrap">
                     {r.v ? (
-                      <button onClick={() => setShowVid(true)} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-red-700">
-                        <Video className="w-3 h-3" /> Rejoindre
-                      </button>
+                      <span className={`px-3 py-1.5 rounded-lg text-xs ${sub} border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                        Téléconsultation : le médecin vous indiquera comment le joindre
+                      </span>
                     ) : (
                       <button onClick={() => { if (r.l) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.l)}`, '_blank'); }} className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold flex items-center gap-1`}><MapPin className="w-3 h-3" /> Itinéraire</button>
                     )}
                     {r.id && (
                       <>
                         <button onClick={() => openEditRdv(r)} className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold flex items-center gap-1`}><Edit3 className="w-3 h-3" /> Modifier</button>
-                        <button onClick={() => setPendingDelete(r.id)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1"><Trash2 className="w-3 h-3" /> Suppr.</button>
+                        <button onClick={() => setPendingDelete(r.id)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1"><Trash2 className="w-3 h-3" /> Annuler</button>
                       </>
                     )}
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>
           ))}
         </div>
         <div className={`${card} border rounded-2xl p-5`}>
-          <div className="flex items-center gap-2 mb-3"><Brain className="w-5 h-5 text-purple-600" /><h3 className="font-bold text-sm">Préparation IA</h3></div>
+          <div className="flex items-center gap-2 mb-3"><Brain className="w-5 h-5 text-red-600" /><h3 className="font-bold text-sm">Préparer mon rendez-vous</h3></div>
           <div className="space-y-2">
-            {['Palpitations matinales','Tension élevée 18/04','Effets Amlodipine ?'].map((s, i) => (
+            {['Notez vos symptômes et depuis quand ils durent', 'Apportez vos ordonnances et résultats récents', 'Listez vos questions pour le médecin', 'Mesurez votre tension si vous êtes suivi pour l’hypertension'].map((s, i) => (
               <div key={i} className={`flex items-start gap-2 p-2 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-white'} border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                 <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs">{s}</p>
@@ -190,8 +195,8 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       </div>
       {pendingDelete && (
         <ConfirmDialog
-          title="Supprimer le rendez-vous"
-          message="Cette action retirera le rendez-vous du planning patient."
+          title="Annuler le rendez-vous"
+          message="Le rendez-vous sera annulé et le médecin prévenu. Il restera visible dans votre historique."
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => deleteRdv(pendingDelete)}
           card={card}

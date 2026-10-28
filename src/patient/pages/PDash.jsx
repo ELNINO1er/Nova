@@ -54,8 +54,9 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
     full: fmtDay(p.measuredAt),
     value: Number(p.value),
   }));
-  const score = data?.healthScore ?? 0;
-  const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'À surveiller' : 'Critique';
+  // null = données insuffisantes : aucune appréciation n'est affichée.
+  const score = data?.healthScore ?? null;
+  const scoreLabel = score == null ? 'Données insuffisantes' : score >= 80 ? 'Bon suivi' : score >= 60 ? 'À surveiller' : 'Points d’attention';
   const meds = data?.todayMedications || [];
   const medsLeft = meds.filter((m) => m.intake?.status !== 'taken').length;
   const stripStart = new Date(); stripStart.setDate(stripStart.getDate() - 2);
@@ -140,7 +141,12 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
         {/* Colonne de droite */}
         <div className="space-y-5">
           <Panel title="Mon cœur & ma santé" card={card} sub={sub}>
-            <div className="py-3"><RingGauge value={score} label="Score santé / 100" caption={scoreLabel} darkMode={darkMode} /></div>
+            <div className="py-3"><RingGauge value={score ?? '—'} label={score == null ? 'Indicateur de suivi' : 'Indicateur de suivi / 100'} caption={scoreLabel} darkMode={darkMode} /></div>
+            <p className={`text-[11px] text-center ${sub}`}>
+              {score == null
+                ? 'Mesurez au moins deux constantes (tension, glycémie, pouls…) pour obtenir cet indicateur.'
+                : 'Indicateur interne calculé à partir de vos constantes, prises et vaccins. Ce n’est pas un avis médical.'}
+            </p>
             <div className="grid grid-cols-3 gap-2 mt-5">
               {[['Moyenne', heartStats?.avg], ['Minimum', heartStats?.min], ['Maximum', heartStats?.max]].map(([l, v]) => (
                 <div key={l} className={`rounded-xl p-3 ${darkMode ? 'bg-slate-800/60' : 'bg-red-50/60'}`}>

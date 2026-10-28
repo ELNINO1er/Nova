@@ -50,6 +50,27 @@ export async function getPharmacyDashboard(pharmacyId) {
 
 /* ─── Vérifier ordonnance via QR / ID ─────────────────────────── */
 
+/** Décode le QR d'une ordonnance et renvoie son identifiant (lève 422 si invalide ou expiré). */
+export function decodePrescriptionQr(qrToken) {
+  let decoded;
+  try {
+    decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+  } catch {
+    throw Object.assign(new Error('QR ordonnance invalide ou expiré.'), { status: 422, code: 'invalid_qr' });
+  }
+  if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
+    throw Object.assign(new Error('QR ordonnance invalide.'), { status: 422, code: 'invalid_qr' });
+  }
+  return decoded.prescriptionId;
+}
+
+/** Le pharmacien n'agit sur une ordonnance que s'il présente son QR (remis par le patient). */
+export function assertQrMatches(qrToken, prescriptionId) {
+  if (decodePrescriptionQr(qrToken) !== prescriptionId) {
+    throw Object.assign(new Error('Le QR présenté ne correspond pas à cette ordonnance.'), { status: 422, code: 'invalid_qr' });
+  }
+}
+
 export async function verifyPrescriptionQR(qrToken) {
   let decoded;
   try {
