@@ -89,7 +89,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   if (!data) {
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Famille</h2>
+        <h2 className="text-2xl font-bold">Contacts familiaux</h2>
         {[0, 1, 2].map(i => (
           <div key={i} className={`${card} border rounded-2xl p-5`}>
             <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-lg`}></div>
@@ -103,8 +103,8 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-2xl font-bold">Famille</h2>
-          <p className={`text-sm ${sub}`}>{members.length} membre{members.length > 1 ? 's' : ''}</p>
+          <h2 className="text-2xl font-bold">Contacts familiaux</h2>
+          <p className={`text-sm ${sub}`}>Ces contacts n’accordent aucun accès à leur dossier. La délégation médicale n’est pas disponible.</p><p className={`text-sm ${sub}`}>{members.length} membre{members.length > 1 ? 's' : ''}</p>
         </div>
         <button onClick={() => { resetForm(); setShowForm(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
           <Plus className="w-4 h-4" /> Ajouter un membre

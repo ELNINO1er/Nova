@@ -1,6 +1,7 @@
 import { request, toQuery } from './client.js';
 
 export const doctorApi = {
+  recordLabResult:(id,payload)=>request(`/doctor/me/lab-requests/${id}/result`,{method:'POST',body:JSON.stringify(payload)}),
   dashboard:    ()        => request('/doctor/me/dashboard'),
   assistant:    (question, context = {}) => request('/doctor/me/assistant', {
     method: 'POST',
@@ -14,10 +15,15 @@ export const doctorApi = {
   createConsultation: (payload) => request('/doctor/me/consultations', { method: 'POST', body: JSON.stringify(payload) }),
   updateConsultation: (id, payload) => request(`/doctor/me/consultations/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   stats:        ()        => request('/doctor/me/stats'),
+  updateProfile:p=>request('/doctor/me/profile',{method:'PATCH',body:JSON.stringify(p)}),
+  slots:()=>request('/doctor/me/slots'),
+  addSlot:p=>request('/doctor/me/slots',{method:'POST',body:JSON.stringify(p)}),
+  deleteSlot:id=>request(`/doctor/me/slots/${id}`,{method:'DELETE'}),
   profile:      ()        => request('/doctor/me/profile'),
   prescriptions:       ()        => request('/doctor/me/prescriptions'),
   prescription:        (id)      => request(`/doctor/me/prescriptions/${id}`),
   createPrescription:  (payload) => request('/doctor/me/prescriptions', { method: 'POST', body: JSON.stringify(payload) }),
+  labResult:id=>request(`/doctor/me/lab-results/${id}`),
   labRequests:         ()        => request('/doctor/me/lab-requests'),
   createLabRequest:    (payload) => request('/doctor/me/lab-requests', { method: 'POST', body: JSON.stringify(payload) }),
   chronicPatients:     ()        => request('/doctor/me/chronic-patients'),
@@ -56,6 +62,7 @@ export const doctorApi = {
   markNotificationRead: (id) => request(`/doctor/me/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: () => request('/doctor/me/notifications/read-all', { method: 'PATCH' }),
   // Messages
+  startConversation:p=>request('/doctor/me/conversations',{method:'POST',body:JSON.stringify(p)}),
   conversations: () => request('/doctor/me/conversations'),
   conversation: (id) => request(`/doctor/me/conversations/${id}`),
   sendMessage: (id, payload) => request(`/doctor/me/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(payload) }),

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import {hasUnsavedData} from '../unsaved.js';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserPlus, Plus } from 'lucide-react';
 import { doctorApi } from '../api/doctorApi.js';
 
@@ -16,12 +17,14 @@ import DAssistantIA from './pages/DAssistantIA.jsx';
 import DFinances from './pages/DFinances.jsx';
 import DReputation from './pages/DReputation.jsx';
 import DSignature from './pages/DSignature.jsx';
+import PNotifications from '../patient/pages/PNotifications.jsx';
 import PMsg from '../patient/pages/PMsg.jsx';
 import PDocs from '../patient/pages/PDocs.jsx';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
 import PageError from '../components/PageError.jsx';
 
 export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedTick, setShowVid, card, sub, border, darkMode }) {
+  const generations=useRef({});
   const [apiData,    setApiData]    = useState({});
   const [apiLoading, setApiLoading] = useState({});
   const [apiError,   setApiError]   = useState({});
@@ -55,15 +58,17 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
     };
     const load = loaders[pageKey];
     if (!load || (!force && apiData[pageKey])) return;
+    const generation=(generations.current[pageKey]||0)+1;generations.current[pageKey]=generation;
     setApiLoading(c => ({ ...c, [pageKey]: true }));
     setApiError(c => ({ ...c, [pageKey]: null }));
     load()
-      .then(data => setApiData(c => ({ ...c, [pageKey]: data })))
-      .catch(err  => { setApiError(c => ({ ...c, [pageKey]: err.message })); notify(err.message, 'error'); })
-      .finally(() => setApiLoading(c => ({ ...c, [pageKey]: false })));
+      .then(data => {if(generations.current[pageKey]===generation)setApiData(c => ({ ...c, [pageKey]: data }));})
+      .catch(err  => { if(generations.current[pageKey]!==generation)return;setApiError(c => ({ ...c, [pageKey]: err.message })); notify(err.message, 'error'); })
+      .finally(() => {if(generations.current[pageKey]===generation)setApiLoading(c => ({ ...c, [pageKey]: false }));});
   };
 
-  useEffect(() => { loadPage(page); }, [page]);
+  useEffect(() => { loadPage(page,true); }, [page]);
+  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData({});loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   useEffect(() => {
     if (!patientCreatedTick) return;
@@ -115,6 +120,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'agenda'        && <DAgenda   data={apiData.agenda}        loading={apiLoading.agenda}        onReload={() => loadPage('agenda', true)}   {...p} />}
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'stats'         && <DStats    data={apiData.stats}         loading={apiLoading.stats}         {...p} />}
+      {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>setApiData(c=>({...c,notifications:v}))} {...p} />}
       {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} {...p} />}
       {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}

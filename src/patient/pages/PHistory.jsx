@@ -1,8 +1,11 @@
-import React from 'react';
+import React,{useEffect,useState} from 'react';
+import {patientApi} from '../../api/patientApi.js';
 import { Clock, ClipboardList } from 'lucide-react';
 import { formatDate, historyTypeLabel } from '../../utils/format.js';
 
 export default function PHistory({ data, card, sub, darkMode }) {
+  const [consultations,setConsultations]=useState([]);const [error,setError]=useState('');
+  useEffect(()=>{let alive=true;patientApi.consultations().then(r=>alive&&setConsultations(r)).catch(e=>alive&&setError(e.message));return()=>{alive=false;};},[data]);
   if (!data) {
     return (
       <div className="space-y-4">
@@ -21,6 +24,9 @@ export default function PHistory({ data, card, sub, darkMode }) {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Historique médical</h2>
+      {error&&<p role="alert" className="text-red-700">{error}</p>}
+      {consultations.map(c=><details key={c.id} className={`${card} border rounded-xl p-4`}><summary>Compte rendu du {formatDate(c.started_at)} — {c.doctor_name}</summary><dl className="space-y-2 mt-3">{[['Motif',c.motif],['Conclusion',c.diagnosis_main],['Observations',c.notes],['Suivi',c.recommendations]].map(([label,value])=><div key={label}><dt className="font-semibold">{label}</dt><dd className="whitespace-pre-wrap">{value||'Non renseigné'}</dd></div>)}</dl>{c.amendments?.map((a,i)=><div key={i} className="mt-3 border-t pt-2"><p>Correction tracée : {a.reason}</p>{Object.entries(typeof a.content==='string'?JSON.parse(a.content):a.content).filter(([k])=>!['amendmentReason','status'].includes(k)).map(([k,v])=><p key={k}>{k} : {String(v)}</p>)}</div>)}</details>)}
+
       {cs.length === 0 ? (
         <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
           <ClipboardList className={`w-12 h-12 ${sub} mb-4`} />

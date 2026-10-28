@@ -110,7 +110,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                 <p className={`text-xs ${sub}`}>{[m.specialty, m.city].filter(Boolean).join(' · ')}</p>
                 <p className="text-xs mt-1">
                   {m.reason === 'revoked' && <span className="font-semibold text-red-700">Accès révoqué par vous</span>}
-                  {m.reason === 'consent' && <span className="font-semibold text-emerald-700">Accès autorisé par vous</span>}
+                  {m.reason === 'consent' && <span className="font-semibold text-emerald-700">Accès accordé</span>}
                   {m.reason === 'care' && <span className="font-semibold text-blue-700">Accès lié à votre suivi en cours</span>}
                   {m.reason === 'none' && <span className={sub}>Pas d’accès actuellement</span>}
                 </p>
@@ -149,7 +149,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <div>
                           <h4 className="font-bold">{c.doctorName || 'Medecin'}</h4>
-                          <p className={`text-xs ${sub} mt-0.5`}>{c.scope || 'Acces au dossier medical'}</p>
+                          <p className={`text-xs ${sub} mt-0.5`}>Accès au dossier clinique, révocable. Le partage par rubrique n’est pas proposé.</p>
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${darkMode ? st.dark : st.bg}`}>
                           <StIcon className="w-3 h-3" /> {st.label}

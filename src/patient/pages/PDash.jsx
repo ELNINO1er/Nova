@@ -23,14 +23,16 @@ const HISTORY_ICONS = { consultation: Stethoscope, lab: FileText, vaccine: Syrin
 export default function PDash({ data, loading, onRefresh, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
   const [appointments, setAppointments] = useState([]);
   const [history, setHistory] = useState([]);
+  const [error,setError]=useState('');
   const [selected, setSelected] = useState(dayKey(new Date()));
 
   useEffect(() => {
     let alive = true;
-    patientApi.appointments().then((r) => alive && setAppointments(Array.isArray(r) ? r : r?.data || [])).catch(() => {});
-    patientApi.history().then((r) => alive && setHistory(Array.isArray(r) ? r : r?.data || [])).catch(() => {});
+    setError('');
+    patientApi.appointments().then((r) => alive && setAppointments(Array.isArray(r) ? r : r?.data || [])).catch(e => alive && setError(e.message));
+    patientApi.history().then((r) => alive && setHistory(Array.isArray(r) ? r : r?.data || [])).catch(e => alive && setError(e.message));
     return () => { alive = false; };
-  }, []);
+  }, [data]);
 
   const upcoming = useMemo(() => appointments
     .filter((a) => a.status !== 'cancelled' && new Date(a.startsAt) >= new Date(new Date().setHours(0, 0, 0, 0)))
@@ -63,6 +65,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
 
   return (
     <div className="space-y-5">
+      {error && <p role="alert" className="text-red-700">Certaines données ne sont pas disponibles : {error}</p>}
       <DashHeader
         title={`Bonjour${firstName ? `, ${firstName}` : ''}`}
         subtitle={profile ? `Voici le résumé de votre santé · CMU ${profile.cmuNumber}` : 'Voici le résumé de votre santé'}

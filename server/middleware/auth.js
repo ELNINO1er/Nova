@@ -77,6 +77,11 @@ async function verifyToken(req, res) {
       return null;
     }
     const payload = jwt.verify(token, JWT_SECRET);
+    const [[account]] = await pool.execute('SELECT role, session_version FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [payload.id || '']);
+    if (!account || account.role !== payload.role || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
+      res.status(401).json({ error: 'token_revoked', message: 'Session révoquée. Reconnectez-vous.' });
+      return null;
+    }
     req.token = token; // Store for potential blacklisting on logout
     return payload;
   } catch (error) {

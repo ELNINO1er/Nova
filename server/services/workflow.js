@@ -26,14 +26,14 @@ export async function releaseSlotFor(appointment, conn = pool) {
   const time = String(appointment.starts_at).slice(11, 16);
   await conn.execute(
     `UPDATE nova_doctor_slots SET status = 'available', patient_id = NULL
-     WHERE doctor_id = ? AND slot_date = ? AND slot_time = ? AND patient_id = ? AND status = 'booked'`,
+     WHERE doctor_id = ? AND slot_date = ? AND LEFT(slot_time,5) = ? AND patient_id = ? AND status = 'booked'`,
     [appointment.doctor_id, date, time, appointment.patient_id]
   );
 }
 
 /** Un médecin ne peut pas avoir deux rendez-vous actifs au même horaire. */
-export async function assertDoctorSlotFree(doctorId, startsAt, exceptId = null) {
-  const [[clash]] = await pool.execute(
+export async function assertDoctorSlotFree(doctorId, startsAt, exceptId = null, conn = pool) {
+  const [[clash]] = await conn.execute(
     `SELECT id FROM nova_appointments
      WHERE doctor_id = ? AND starts_at = ? AND status <> 'cancelled' AND (? IS NULL OR id <> ?) LIMIT 1`,
     [doctorId, startsAt, exceptId, exceptId]
@@ -42,7 +42,26 @@ export async function assertDoctorSlotFree(doctorId, startsAt, exceptId = null) 
 }
 
 export function assertFuture(startsAt) {
-  if (new Date(startsAt).getTime() < Date.now() - 60000) {
+  if (!Number.isFinite(new Date(startsAt).getTime()) || new Date(startsAt).getTime() < Date.now() - 60000) {
     throw Object.assign(new Error('La date du rendez-vous doit être dans le futur.'), { status: 422, code: 'past_date' });
   }
+}
+
+// Tous les points d'entrée prennent ce même verrou avant de modifier l'agenda.
+export async function withDoctorSchedule(doctorId, operation) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[doctor]] = await conn.execute('SELECT * FROM nova_doctors WHERE id=? FOR UPDATE', [doctorId]);
+    if (!doctor) throw Object.assign(new Error('Médecin introuvable.'), {status:404});
+    const result = await operation(conn, doctor);
+    await conn.commit();
+    return result;
+  } catch (err) { await conn.rollback(); throw err; } finally {conn.release();}
+}
+
+export async function reserveMatchingSlot(conn, doctorId, startsAt, patientId) {
+  const [rows] = await conn.execute('SELECT * FROM nova_doctor_slots WHERE doctor_id=? AND slot_date=? AND LEFT(slot_time,5)=? FOR UPDATE', [doctorId,startsAt.slice(0,10),startsAt.slice(11,16)]);
+  if (rows.some(r=>r.status!=='available')) throw Object.assign(new Error('Créneau indisponible.'),{status:409});
+  if(rows.length) await conn.execute("UPDATE nova_doctor_slots SET status='booked',patient_id=? WHERE id=?",[patientId,rows[0].id]);
 }

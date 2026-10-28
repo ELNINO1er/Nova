@@ -99,6 +99,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
               </div>
               <button onClick={() => setSelected(null)}><X className="w-5 h-5" /></button>
             </div>
+            <div className="p-4"><button type="button" className="text-red-700 font-semibold" onClick={async()=>{if(!window.confirm(`Autoriser ${selected.fullName} à consulter votre dossier clinique ? Vous pourrez révoquer cet accès depuis Mon compte.`))return;try{await patientApi.grantDoctorAccess(selected.id);notify?.('Accès accordé au médecin.');}catch(e){notify?.(e.message,'error');}}}>Autoriser l’accès à mon dossier</button><p className={`text-xs ${sub}`}>Accès au dossier clinique complet ; aucun partage par rubrique.</p></div>
             {/* Bio */}
             {selected.bio && <div className={`px-5 py-3 border-b ${border}`}><p className={`text-sm ${sub}`}>{selected.bio}</p></div>}
             {/* Info */}

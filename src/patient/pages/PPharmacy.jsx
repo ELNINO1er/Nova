@@ -61,7 +61,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify })
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-bold">Pharmacie Connectée</h2>
-        <p className={`text-sm ${sub}`}>Trouvez une pharmacie et commandez vos médicaments</p>
+        <p className={`text-sm ${sub}`}>Annuaire des pharmacies ; stock et distance non vérifiés</p>
       </div>
 
       {/* Tabs */}
@@ -122,14 +122,14 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify })
                     </span>
                   </div>
                   <p className={`text-xs ${sub}`}>{ph.address}</p>
-                  <p className={`text-xs ${sub}`}>{ph.city} · {ph.distanceKm} km</p>
+                  <p className={`text-xs ${sub}`}>{ph.city} · Distance non calculée</p>
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     <a href={`tel:${ph.phone}`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700">
                       <Phone className="w-3 h-3" />{ph.phone}
                     </a>
-                    <button onClick={() => { setSelectedPh(ph); setShowOrderModal(true); }}
+                    <button disabled title="Transmission aux officines non intégrée"
                       className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700">
-                      <Pill className="w-3 h-3" /> Commander
+                      <Pill className="w-3 h-3" /> Commande indisponible
                     </button>
                   </div>
                 </div>
@@ -182,7 +182,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify })
             <div className={`p-3 rounded-xl mb-4 ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
               <p className="font-semibold">{selectedPh.name}</p>
               <p className={`text-xs ${sub}`}>{selectedPh.address}</p>
-              <p className={`text-xs ${sub}`}>{selectedPh.distanceKm} km · {selectedPh.phone}</p>
+              <p className={`text-xs ${sub}`}>Distance non calculée · {selectedPh.phone}</p>
             </div>
             <p className={`text-xs ${sub} mb-4`}>La pharmacie recevra votre demande et préparera vos médicaments. Vous serez notifié quand la commande sera prête.</p>
             <button onClick={() => submitOrder(selectedPh.id)} disabled={orderLoading}

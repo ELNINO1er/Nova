@@ -1,3 +1,5 @@
+import {startConversation} from '../services/messaging.service.js';
+import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
@@ -218,6 +220,8 @@ router.get('/vaccinations', wrap(async (req, res) => {
 
 /* ─── Historique ─────────────────────────────────────────────── */
 
+router.get('/consultations',wrap(async(req,res)=>res.json(await patientConsultations(req.user.patientId))));
+
 router.get('/history', wrap(async (req, res) => {
   res.json(await getHistory(req.user.patientId, req.query));
 }));
@@ -249,11 +253,14 @@ router.delete('/documents/:id', requirePermission('patient.documents'), wrap(asy
 router.get('/documents/:id/download', requirePermission('patient.documents'), wrap(async (req, res) => {
   const file = await getDocumentFile(req.user.patientId, req.params.id);
   if (!file) return res.status(404).json({ error: 'not_found', message: 'Document introuvable' });
+  res.set('Cache-Control','no-store');
   res.type(file.mimeType);
   res.download(file.path, file.filename);
 }));
 
 /* ─── Conversations & Messages ───────────────────────────────── */
+
+router.post('/conversations',validateBody(z.object({doctorId:z.string().min(1)})),auditLog('conversation.create','conversation'),wrap(async(req,res)=>res.status(201).json(await startConversation(req.body.doctorId,req.user.patientId))));
 
 router.get('/conversations', wrap(async (req, res) => {
   res.json(await getConversations(req.user.patientId));
@@ -266,6 +273,7 @@ router.get('/conversations/:id', wrap(async (req, res) => {
 }));
 
 router.post('/conversations/:id/messages', validateBody(z.object({
+  requestKey:z.string().min(8).max(100).optional(),
   body:           z.string().min(1).max(2000),
   attachmentName: z.string().optional(),
 })), wrap(async (req, res) => {
@@ -480,7 +488,20 @@ router.post('/payments', validateBody(z.object({
   res.status(201).json(await createPatientPayment(req.user.patientId, req.body));
 }));
 
-router.get('/export/pdf', wrap(async (req, res) => {
+router.get('/export/json',auditLog('patient.export','patient'),wrap(async(req,res)=>{
+ const {pool}=await import('../db/database.js');
+ const tables=['nova_patients','nova_medical_profile','nova_medical_declarations','nova_vitals','nova_consultations','nova_prescriptions','nova_treatments','nova_medication_schedules','nova_medication_intakes','nova_appointments','nova_lab_results','nova_vaccinations','nova_documents','nova_consents','nova_medical_history','nova_notes','nova_lab_requests','nova_notifications','nova_pharmacy_orders','nova_payments','nova_patient_settings','nova_wellness_goals','nova_insurance','nova_access_logs','nova_conversations'];
+ const data={};
+ for(const table of tables){const [rows]=await pool.execute(`SELECT * FROM ${table} WHERE ${table==='nova_patients'?'id':'patient_id'}=?${table==='nova_consultations'?" AND status='completed' AND deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;}
+ for(const [table,parent,fk] of [['nova_medications','nova_treatments','treatment_id'],['nova_prescription_items','nova_prescriptions','prescription_id'],['nova_lab_result_items','nova_lab_results','lab_result_id'],['nova_consultation_amendments','nova_consultations','consultation_id'],['nova_messages','nova_conversations','conversation_id']]){
+  const [rows]=await pool.execute(`SELECT c.* FROM ${table} c JOIN ${parent} p ON p.id=c.${fk} WHERE p.patient_id=?${parent==='nova_consultations'?" AND p.status='completed' AND p.deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;
+ }
+ const [family]=await pool.execute('SELECT * FROM nova_family_members WHERE owner_patient_id=?',[req.user.patientId]);data.nova_family_members=family;
+ for(const row of data.nova_documents) delete row.file_path;
+ res.set('Cache-Control','no-store').set('Content-Disposition','attachment; filename="nova-dossier.json"').json({exportedAt:new Date().toISOString(),data});
+}));
+
+router.get('/export/pdf',auditLog('patient.export','patient'), wrap(async (req, res) => {
   const pdf = await buildPatientSummaryPdf(req.user.patientId);
   if (!pdf) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
   res.setHeader('Content-Type', 'application/pdf');

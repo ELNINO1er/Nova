@@ -99,8 +99,9 @@ export default function SettingsPage({ data, card, sub, darkMode, setPage, api: 
 
         {isPatient && (
           <Section Icon={FileDown} title="Mes données">
+            <button type="button" onClick={exportData} className={`${row} w-full text-left`}><div><p className="font-semibold text-sm">Exporter mes données (JSON)</p><p className={`text-xs ${sub}`}>Dossier et lignes détaillées, sans limite de pagination</p></div><FileDown className="w-5 h-5 text-red-600" /></button>
             <a href={patientApi.exportPdfUrl()} target="_blank" rel="noreferrer" className={`${row} hover:opacity-90`}>
-              <div><p className="font-semibold text-sm">Télécharger mon dossier (PDF)</p><p className={`text-xs ${sub}`}>Identité, rendez-vous et ordonnances récents</p></div>
+              <div><p className="font-semibold text-sm">Télécharger un résumé (PDF)</p><p className={`text-xs ${sub}`}>Identité, rendez-vous et ordonnances récents</p></div>
               <FileDown className="w-5 h-5 text-red-600" />
             </a>
             <div className={row}>
@@ -128,7 +129,8 @@ function PasswordSection({ card, sub, darkMode, strong }) {
     try {
       await request('/auth/password/self-change', { method: 'POST', body: JSON.stringify({ currentPassword: form.current, newPassword: form.next }) });
       setForm({ current: '', next: '', confirm: '' });
-      setState({ saving: false, error: '', ok: 'Mot de passe modifié.' });
+      setState({ saving: false, error: '', ok: 'Mot de passe modifié. Reconnexion nécessaire.' });
+        window.dispatchEvent(new Event('nova:logout'));
     } catch (err) {
       setState({ saving: false, error: err.message || 'Modification impossible.', ok: '' });
     }

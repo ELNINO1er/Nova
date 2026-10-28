@@ -10,17 +10,19 @@ export default function DDash({ data, loading, setPage, onCP, setShowVid, card, 
   const [appointments, setAppointments] = useState([]);
   const [consultations, setConsultations] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [error,setError]=useState('');
   const [selected, setSelected] = useState(dayKey(new Date()));
   const [period, setPeriod] = useState('half');
 
   useEffect(() => {
     let alive = true;
+    setError('');
     const list = (r) => (Array.isArray(r) ? r : r?.data || []);
-    doctorApi.appointments().then((r) => alive && setAppointments(list(r))).catch(() => {});
-    doctorApi.consultations().then((r) => alive && setConsultations(list(r))).catch(() => {});
-    doctorApi.alerts().then((r) => alive && setAlerts(list(r))).catch(() => {});
+    doctorApi.appointments().then((r) => alive && setAppointments(list(r))).catch(e=>alive&&setError(e.message));
+    doctorApi.consultations().then((r) => alive && setConsultations(list(r))).catch(e=>alive&&setError(e.message));
+    doctorApi.alerts().then((r) => alive && setAlerts(list(r))).catch(e=>alive&&setError(e.message));
     return () => { alive = false; };
-  }, []);
+  }, [data]);
 
   // Consultations regroupées selon la période choisie.
   const series = useMemo(() => bucketize(consultations.filter((c) => c.startedAt).map((c) => c.startedAt), period), [consultations, period]);
@@ -38,6 +40,7 @@ export default function DDash({ data, loading, setPage, onCP, setShowVid, card, 
 
   return (
     <div className="space-y-5">
+      {error&&<p role="alert" className="text-red-700">Certaines données ne sont pas disponibles : {error}</p>}
       <DashHeader
         title={`Bonjour, Dr. ${doctor?.lastName || ''}`.trim()}
         subtitle={`${doctor?.specialty || 'Médecin'} · voici ce qui se passe aujourd’hui`}

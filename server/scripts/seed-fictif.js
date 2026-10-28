@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 // Données fictives pour tester NOVA : médecins, pharmaciens, gouverneur, patients et leur suivi
 // (constantes, consultations, ordonnances, délivrances, examens, rendez-vous, messages, vaccins).
 // Passe par les services de l'application pour garder des données cohérentes.
@@ -14,7 +15,7 @@ import { createDoctorAccount, createStaffAccount } from '../services/admin.servi
 import {
   createConsultation, createDoctorLabRequest, createDoctorPrescription, createPatientByDoctor,
 } from '../services/doctor.service.js';
-import { updateMedicalProfile } from '../services/patient.service.js';
+import { updateMedicalProfile,grantDoctorAccess } from '../services/patient.service.js';
 import { dispensePrescription } from '../services/pharmacy.service.js';
 
 if (process.env.NODE_ENV === 'production' && process.env.ALLOW_FICTIF_SEED !== 'true') {
@@ -155,6 +156,7 @@ async function main() {
         emergencyPhone: `0750000${String(i + 1).padStart(3, '0')}`,
       });
       const patientId = created.patientId;
+      await grantDoctorAccess(patientId,doctor.id); // Consentement fictif, uniquement pour le jeu de démonstration.
       await setTestPassword(conn, created.userId);
       await updateMedicalProfile(patientId, {
         allergies: profile.allergies, chronicDiseases: profile.chronic,
@@ -172,7 +174,7 @@ async function main() {
 
         const rx = await createDoctorPrescription(doctor.id, {
           patientId, validDays: 180, notes: visit.reco,
-          items: visit.meds.map(([name, dosage, frequency, duration]) => ({ name, dosage, frequency, duration, instructions: 'Pendant les repas' })),
+          items: visit.meds.map(([name, dosage, frequency, duration]) => ({ name, dosage, frequency, duration, quantityPrescribed:2,quantityUnit:'unité', instructions: 'Pendant les repas' })),
         });
         await pool.execute('UPDATE nova_prescriptions SET issued_at = ?, valid_until = ? WHERE id = ?',
           [daysAgo(ago, 11), new Date(Date.now() + (180 - ago) * 86400000).toISOString().slice(0, 10), rx.id]);
@@ -185,7 +187,7 @@ async function main() {
           const [items] = await pool.execute('SELECT id FROM nova_prescription_items WHERE prescription_id = ?', [rx.id]);
           const status = rand() > 0.3 ? 'full' : 'partial';
           await dispensePrescription(ph.pharmacyId, ph.userId, {
-            prescriptionId: rx.id, status, notes: status === 'partial' ? 'Rupture partielle de stock' : null,
+            prescriptionId: rx.id, qrToken:jwt.sign({type:'prescription',prescriptionId:rx.id},process.env.JWT_SECRET),requestKey:`demo-${rx.id}`, status, notes: status === 'partial' ? 'Rupture partielle de stock' : null,
             items: items.map((it) => ({ prescriptionItemId: it.id, quantityDispensed: status === 'full' ? 2 : 1 })),
           });
         }

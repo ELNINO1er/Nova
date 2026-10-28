@@ -2,6 +2,7 @@ import 'dotenv/config';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
+import { migrate } from './migrations.js';
 
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -33,6 +34,7 @@ export async function initDb() {
   const conn = await pool.getConnection();
   try {
     await createTables(conn);
+    await migrate(conn);
     // SEED_DEMO=true insère les comptes/données de démonstration.
     // Autorisé en production (phase de validation) — idempotent, activé explicitement via l'env.
     if (process.env.SEED_DEMO === 'true') {

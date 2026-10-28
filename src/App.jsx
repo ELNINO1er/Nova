@@ -7,6 +7,9 @@ import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
+import {useHasUnsaved,clearUnsaved} from './unsaved.js';
+import { useLocation, useNavigate,useBlocker } from 'react-router-dom';
+import { ROLE_PAGES } from './navigation.js';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
@@ -19,7 +22,7 @@ const ROLE_META = {
   doctor:     { label: 'Espace docteur',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
-  governor:   { label: 'Espace gouverneur', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
+  governor:   { label: 'Santé publique', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
 };
 
 /* Menu de compte (tous écrans) : identité, paramètres et déconnexion explicite. */
@@ -88,7 +91,16 @@ export default function App() {
     return null;
   });
   const [auth, setAuth] = useState('checking');
-  const [page, setPage] = useState('dashboard');
+  const hasUnsaved=useHasUnsaved();
+  const blocker=useBlocker(hasUnsaved && auth==='ok');
+  useEffect(()=>{if(blocker.state==='blocked'){if(window.confirm('Des modifications ne sont pas enregistrées. Quitter cette page ?')){clearUnsaved();blocker.proceed();}else blocker.reset();}},[blocker]);
+  useEffect(()=>{const warn=e=>{if(hasUnsaved){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[hasUnsaved]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pageRole=user?.role || 'patient';
+  const parts=location.pathname.split('/').filter(Boolean);
+  const page=parts[0]===pageRole && ROLE_PAGES[pageRole]?.includes(parts[1]) ? parts[1] : 'dashboard';
+  const setPage=(next)=>navigate(`/${pageRole}/${ROLE_PAGES[pageRole]?.includes(next)?next:'dashboard'}`);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('nova_darkMode') === 'true');
   const [showQR, setShowQR] = useState(false);
   const [showCP, setShowCP] = useState(false);
@@ -105,7 +117,7 @@ export default function App() {
     let cancelled = false;
     authApi.me().then((sessionUser) => {
       if (cancelled) return;
-      const restored = { ...user, ...sessionUser };
+      const restored = sessionUser;
       localStorage.setItem('nova_user', JSON.stringify(restored));
       setUser(restored);
       setAuth('ok');
@@ -126,7 +138,7 @@ export default function App() {
     setUser(null);
     setBadges({});
     setPills({});
-    setPage('dashboard');
+    navigate('/', {replace:true});
     setShowQR(false); setShowCP(false); setShowVid(false);
     setLogoutError('');
     setAuth('login');
@@ -151,7 +163,7 @@ export default function App() {
     setUser(u);
     setBadges({});
     setPills({});
-    setPage('dashboard');
+    navigate(`/${u.role}/dashboard`, {replace:true});
     setAuth('ok');
     broadcastAuth({ type: 'login', userId: u.id });
   };
@@ -187,6 +199,10 @@ export default function App() {
       });
     return () => { cancelled = true; };
   }, [auth, role]);
+
+  useEffect(()=>{
+    if(auth==='ok' && (parts[0]!==pageRole || !ROLE_PAGES[pageRole]?.includes(parts[1])))navigate(`/${pageRole}/dashboard`,{replace:true});
+  },[auth,location.pathname,pageRole]);
 
   if (auth === 'checking') return <PageFallback darkMode={darkMode} />;
   if (auth !== 'ok') return <Login auth={auth} setAuth={setAuth} onLogin={onLogin} />;
@@ -226,7 +242,7 @@ export default function App() {
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             {/* Seul l'espace patient a une page de notifications. */}
-            {role === 'patient' && (
+            {['patient','doctor'].includes(role) && (
               <button onClick={() => setPage('notifications')} className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
                 <Bell className="w-4 h-4" />
                 {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}

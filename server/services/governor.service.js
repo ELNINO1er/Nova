@@ -1,71 +1,35 @@
 import { pool } from '../db/database.js';
 
-// Statistiques pour l'autorité sanitaire (rôle « gouverneur »).
-// Uniquement des agrégats : aucun nom, téléphone ni donnée médicale individuelle.
-
-async function scalar(sql, params = []) {
-  const [[row]] = await pool.execute(sql, params);
-  return Number(row?.total || 0);
+export const MIN_PUBLIC_COUNT=5;
+export function suppress(rows,key) {
+  const hidden=new Set(rows.map((r,i)=>Number(r[key])>0&&Number(r[key])<MIN_PUBLIC_COUNT?i:-1).filter(i=>i>=0));
+  // Suppression complementaire : un total ne doit pas permettre de retrouver une cellule cachee.
+  if(hidden.size===1){const other=rows.map((r,i)=>({i,n:Number(r[key])})).filter(x=>!hidden.has(x.i)&&x.n>0).sort((a,b)=>a.n-b.n)[0];if(other) hidden.add(other.i);}
+  return rows.map((r,i)=>({...r,[key]:hidden.has(i)?null:Number(r[key]),suppressed:hidden.has(i)}));
 }
-
-// Les dates applicatives sont stockées en ISO (VARCHAR) : comparaison sur le préfixe AAAA-MM-JJ.
-const since = (days) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-
-export async function getGovernorStats() {
-  const d30 = since(30);
-  const [
-    patients, doctors, pharmacies,
-    consultations30, prescriptions30, dispenses30, appointments30, labRequests30,
-  ] = await Promise.all([
-    scalar('SELECT COUNT(*) AS total FROM nova_patients'),
-    scalar('SELECT COUNT(*) AS total FROM nova_doctors'),
-    scalar('SELECT COUNT(*) AS total FROM nova_pharmacies'),
-    scalar('SELECT COUNT(*) AS total FROM nova_consultations WHERE LEFT(started_at, 10) >= ?', [d30]),
-    scalar('SELECT COUNT(*) AS total FROM nova_prescriptions WHERE LEFT(issued_at, 10) >= ?', [d30]),
-    scalar('SELECT COUNT(*) AS total FROM nova_dispenses WHERE dispensed_at >= ?', [d30]),
-    scalar('SELECT COUNT(*) AS total FROM nova_appointments WHERE LEFT(starts_at, 10) >= ?', [d30]),
-    scalar('SELECT COUNT(*) AS total FROM nova_lab_requests WHERE LEFT(requested_at, 10) >= ?', [d30]),
-  ]);
-
-  const [cities] = await pool.execute(
-    `SELECT city, COUNT(*) AS patients FROM nova_patients
-     WHERE city IS NOT NULL AND city <> ''
-     GROUP BY city ORDER BY patients DESC LIMIT 10`
-  );
-  const [sexes] = await pool.execute(
-    `SELECT COALESCE(NULLIF(sex, ''), 'NC') AS sex, COUNT(*) AS patients FROM nova_patients GROUP BY 1`
-  );
-  const [ageBands] = await pool.execute(
-    `SELECT CASE
-        WHEN age IS NULL THEN 'Non renseigné'
-        WHEN age < 18 THEN '0-17 ans'
-        WHEN age < 40 THEN '18-39 ans'
-        WHEN age < 60 THEN '40-59 ans'
-        ELSE '60 ans et +' END AS band,
-        COUNT(*) AS patients
-     FROM (SELECT TIMESTAMPDIFF(YEAR, STR_TO_DATE(LEFT(birth_date, 10), '%Y-%m-%d'), CURDATE()) AS age FROM nova_patients) t
-     GROUP BY band ORDER BY band`
-  );
-  const [specialties] = await pool.execute(
-    `SELECT specialty, COUNT(*) AS doctors FROM nova_doctors
-     WHERE specialty IS NOT NULL AND specialty <> ''
-     GROUP BY specialty ORDER BY doctors DESC LIMIT 10`
-  );
-  const [monthly] = await pool.execute(
-    `SELECT LEFT(started_at, 7) AS month, COUNT(*) AS consultations
-     FROM nova_consultations
-     WHERE LEFT(started_at, 10) >= ?
-     GROUP BY month ORDER BY month`,
-    [since(183)]
-  );
-
-  return {
-    kpis: { patients, doctors, pharmacies, consultations30, prescriptions30, dispenses30, appointments30, labRequests30 },
-    cities: cities.map((r) => ({ city: r.city, patients: Number(r.patients) })),
-    sexes: sexes.map((r) => ({ sex: r.sex, patients: Number(r.patients) })),
-    ageBands: ageBands.map((r) => ({ band: r.band, patients: Number(r.patients) })),
-    specialties: specialties.map((r) => ({ specialty: r.specialty, doctors: Number(r.doctors) })),
-    monthlyConsultations: monthly.map((r) => ({ month: r.month, consultations: Number(r.consultations) })),
-    generatedAt: new Date().toISOString(),
-  };
+const protect=n=>Number(n)>0&&Number(n)<MIN_PUBLIC_COUNT?null:Number(n);
+export async function getGovernorStats(query={}) {
+  const today=new Date().toISOString().slice(0,10);
+  const to=query.to||today,from=query.from||new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to||to>today||!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to))||new Date(from).toISOString().slice(0,10)!==from||new Date(to).toISOString().slice(0,10)!==to||Date.parse(to)-Date.parse(from)>366*86400000) throw Object.assign(new Error('Periode invalide (maximum 366 jours, sans date future).'),{status:422});
+  const city=typeof query.city==='string'?query.city.trim():'';
+  const [areas]=await pool.execute("SELECT city,COUNT(*) n FROM nova_patients WHERE deleted_at IS NULL AND city IS NOT NULL AND city<>'' GROUP BY city HAVING COUNT(*)>=?",[MIN_PUBLIC_COUNT]);
+  if(city&&!areas.some(x=>x.city===city)) throw Object.assign(new Error('Zone non publiable : couverture insuffisante.'),{status:422});
+  const scope=city?' AND p.city=?':'';const area=city?[city]:[];
+  const scalar=async(sql,args=[])=>{const [[r]]=await pool.execute(sql,args);return Number(r.n);};
+  const patients=await scalar('SELECT COUNT(*) n FROM nova_patients p WHERE p.deleted_at IS NULL'+scope,area);
+  const count=async(table,date,status='')=>scalar(`SELECT COUNT(*) n FROM ${table} e JOIN nova_patients p ON p.id=e.patient_id WHERE p.deleted_at IS NULL AND LEFT(e.${date},10) BETWEEN ? AND ? ${status}${scope}`,[from,to,...area]);
+  const raw={patients,doctors:await scalar('SELECT COUNT(*) n FROM nova_doctors'),pharmacies:await scalar('SELECT COUNT(*) n FROM nova_pharmacies'),
+    consultations30:await count('nova_consultations','started_at',"AND e.status='completed' AND e.deleted_at IS NULL"),
+    prescriptions30:await count('nova_prescriptions','issued_at',"AND e.status<>'cancelled' AND e.deleted_at IS NULL"),
+    dispenses30:await count('nova_dispenses','dispensed_at',"AND e.status<>'refused'"),
+    appointments30:await count('nova_appointments','starts_at',"AND e.status<>'cancelled' AND e.deleted_at IS NULL"),labRequests30:await count('nova_lab_requests','requested_at',"AND e.status<>'cancelled'")};
+  const [cities]=await pool.execute('SELECT p.city,COUNT(*) patients FROM nova_patients p WHERE p.deleted_at IS NULL'+scope+' GROUP BY p.city ORDER BY patients DESC',area);
+  const [sexes]=await pool.execute("SELECT COALESCE(NULLIF(p.sex,''),'NC') sex,COUNT(*) patients FROM nova_patients p WHERE p.deleted_at IS NULL"+scope+' GROUP BY 1',area);
+  const [ages]=await pool.execute("SELECT CASE WHEN p.birth_date IS NULL OR p.birth_date='' THEN 'Non renseigne' WHEN TIMESTAMPDIFF(YEAR,STR_TO_DATE(LEFT(p.birth_date,10),'%Y-%m-%d'),CURDATE())<18 THEN '0-17 ans' WHEN TIMESTAMPDIFF(YEAR,STR_TO_DATE(LEFT(p.birth_date,10),'%Y-%m-%d'),CURDATE())<40 THEN '18-39 ans' WHEN TIMESTAMPDIFF(YEAR,STR_TO_DATE(LEFT(p.birth_date,10),'%Y-%m-%d'),CURDATE())<60 THEN '40-59 ans' ELSE '60 ans et +' END band,COUNT(*) patients FROM nova_patients p WHERE p.deleted_at IS NULL"+scope+' GROUP BY 1',area);
+  const [monthly]=await pool.execute("SELECT LEFT(e.started_at,7) month,COUNT(*) consultations FROM nova_consultations e JOIN nova_patients p ON p.id=e.patient_id WHERE e.status='completed' AND e.deleted_at IS NULL AND p.deleted_at IS NULL AND LEFT(e.started_at,10) BETWEEN ? AND ?"+scope+' GROUP BY 1 ORDER BY 1',[from,to,...area]);
+  const months=[];for(let d=new Date(from.slice(0,7)+'-01T00:00:00Z');d.toISOString().slice(0,7)<=to.slice(0,7);d.setUTCMonth(d.getUTCMonth()+1)){const month=d.toISOString().slice(0,7);months.push({month,consultations:Number(monthly.find(x=>x.month===month)?.consultations||0)});}
+  const [specialties]=await pool.execute('SELECT specialty,COUNT(*) doctors FROM nova_doctors GROUP BY specialty');
+  return {kpis:Object.fromEntries(Object.entries(raw).map(([k,n])=>[k,protect(n)])),cities:suppress(cities,'patients'),sexes:suppress(sexes,'patients'),ageBands:suppress(ages,'patients'),specialties:suppress(specialties,'doctors'),monthlyConsultations:suppress(months,'consultations'),generatedAt:new Date().toISOString(),
+    filters:{from,to,city},availableCities:areas.map(x=>x.city),methodology:{minimumCount:MIN_PUBLIC_COUNT,scope:'Plateforme NOVA ; filtre par ville de residence. Professionnels : annuaire global.',coverage:'Utilisateurs de NOVA uniquement : ne represente pas la population ivoirienne.',suppression:'null = effectif masque (1 a 4 ou suppression complementaire). 0 = aucun evenement.',definitions:{patients:'Dossiers non supprimes, toutes dates.',consultations30:'Consultations validees dans la periode.',appointments30:'Rendez-vous non annules dont la date est dans la periode.',prescriptions30:'Ordonnances non annulees emises dans la periode.',dispenses30:'Delivrances non refusees dans la periode.',labRequests30:'Examens non annules demandes dans la periode.'}}};
 }

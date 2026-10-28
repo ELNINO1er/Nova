@@ -10,7 +10,7 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
   const [qrModal, setQrModal] = useState(null);
   const [qrLoading, setQrLoading] = useState('');
 
-  const statusLabel = { active: 'Active', expired: 'Expirée', cancelled: 'Annulée' };
+  const statusLabel = { active: 'Active',partial:'Délivrance partielle',dispensed:'Délivrée', expired: 'Expirée', cancelled: 'Annulée' };
   const statusStyle = {
     active:    'bg-emerald-100 text-emerald-700',
     expired:   'bg-slate-100 text-slate-500',
@@ -226,6 +226,7 @@ export default function POrdonnances({ data, card, sub, border, darkMode }) {
                                 <p className={`text-xs ${sub}`}><span className="font-semibold">Durée :</span> {item.duration}</p>
                               )}
                             </div>
+                            <p className={`text-xs ${sub}`}>Quantité prescrite : {item.quantityPrescribed ?? 'Non renseignée'} {item.quantityUnit}</p>
                             {item.instructions && (
                               <p className={`text-xs mt-1.5 italic ${darkMode ? 'text-amber-400' : 'text-amber-700'} flex gap-1`}>
                                 <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />

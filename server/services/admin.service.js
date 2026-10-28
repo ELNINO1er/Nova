@@ -225,8 +225,13 @@ export async function getAdminSystem() {
 }
 
 export async function setDoctorAvailability(id, isAvailable) {
-  const [result] = await pool.execute('UPDATE nova_doctors SET is_available = ? WHERE id = ?', [isAvailable ? 1 : 0, id]);
-  if (!result.affectedRows) return null;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('UPDATE nova_doctors SET is_available=? WHERE id=?', [isAvailable ? 1 : 0, id]);
+    await conn.execute('UPDATE nova_users SET disabled_at=?, session_version=session_version+1 WHERE doctor_id=?', [isAvailable ? null : new Date(), id]);
+    await conn.commit();
+  } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
   const [[doctor]] = await pool.execute(
     `SELECT id, first_name AS firstName, last_name AS lastName, is_available AS isAvailable
      FROM nova_doctors WHERE id = ?`,
@@ -256,8 +261,8 @@ export async function createDoctorAccount(payload) {
     await connection.execute(
       `INSERT INTO nova_doctors
        (id, first_name, last_name, specialty, city, address, phone, email,
-        avatar_initials, license_number, is_available, verified_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?, ?)`,
+        avatar_initials, license_number, is_available, verified_at, created_at, updated_at,rating,reviews_count,experience_years)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?, ?,0,0,0)`,
       [doctorId, payload.firstName, payload.lastName, payload.specialty, payload.city || 'Abidjan',
        payload.address || null, payload.phone, payload.email.toLowerCase(), initials,
        payload.licenseNumber, now, now]
@@ -307,14 +312,16 @@ export async function resetUserPassword(userId) {
     'SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [userId]
   );
   if (!user) return null;
+  if(user.role==='patient')throw Object.assign(new Error('Réinitialisation des patients désactivée : un canal de récupération vérifiant leur identité est nécessaire.'),{status:409});
   const password = provisionalFor(user.role);
   const passwordHash = await bcrypt.hash(password, 12);
   await pool.execute(
     `UPDATE nova_users
-     SET password_hash = ?, must_change_password = 1, failed_login_attempts = 0, locked_until = NULL
+     SET password_hash = ?, must_change_password = 1, failed_login_attempts = 0, locked_until = NULL, session_version=session_version+1
      WHERE id = ?`,
     [passwordHash, user.id]
   );
+  await pool.execute('UPDATE nova_auth_challenges SET used_at=NOW() WHERE user_id=? AND used_at IS NULL',[user.id]);
   return { user: { id: user.id, role: user.role, name: user.name, phone: user.phone }, provisionalPassword: password };
 }
 

@@ -1,3 +1,4 @@
+import { invalidateAfterMutation } from './middleware/cache.js';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -93,6 +94,7 @@ if (!isProduction || process.env.ENABLE_API_DOCS === 'true') {
   }));
 }
 
+app.use('/api',invalidateAfterMutation);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/patient/me',  patientRoutes);
 app.use('/api/doctor/me',   doctorRoutes);

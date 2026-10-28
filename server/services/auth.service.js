@@ -235,7 +235,7 @@ export async function startPhonePasswordLogin(phone, password) {
   const [[user]] = await pool.execute(
     `SELECT u.*, d.email AS doctor_email
      FROM nova_users u LEFT JOIN nova_doctors d ON d.id = u.doctor_id
-     WHERE u.phone = ? AND u.deleted_at IS NULL LIMIT 1`,
+     WHERE u.phone = ? AND u.deleted_at IS NULL AND u.disabled_at IS NULL LIMIT 1`,
     [cleaned]
   );
   if (!user) return INVALID_PHONE_LOGIN;
@@ -286,9 +286,10 @@ export async function changeOwnPassword(userId, currentPassword, newPassword) {
   const policyError = passwordPolicyError(user.role, newPassword);
   if (policyError) throw Object.assign(new Error(policyError), { status: 422, code: 'weak_password' });
   await pool.execute(
-    'UPDATE nova_users SET password_hash = ?, must_change_password = 0, password_changed_at = NOW() WHERE id = ?',
+    'UPDATE nova_users SET password_hash = ?, must_change_password = 0, password_changed_at = NOW(), session_version=session_version+1 WHERE id = ?',
     [await bcrypt.hash(newPassword, 12), user.id]
   );
+  await pool.execute('UPDATE nova_auth_challenges SET used_at=NOW() WHERE user_id=? AND used_at IS NULL',[userId]);
   return { ok: true };
 }
 

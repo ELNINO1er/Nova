@@ -1,3 +1,5 @@
+> État actualisé : voir [la livraison du 28 octobre 2026](FINALISATION_2026-10-28.md). Les constats ou conclusions historiques ci-dessous doivent être lus avec ce complément.
+
 # Mise en production de test : guide
 
 Mis à jour le 27/10/2026, après la correction des bloquants techniques et le passage à la connexion par mot de passe.

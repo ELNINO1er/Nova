@@ -5,6 +5,10 @@ import { formatRelativeDate, initials } from '../../utils/format.js';
 
 export default function PMsg({ data, onConversationsChange, card, sub, border, darkMode, setShowVid, api: apiOverride }) {
   const api = apiOverride || patientApi;
+  const [recipients,setRecipients]=useState(null),[recipient,setRecipient]=useState('');
+  const newConversation=async()=>{try{const rows=apiOverride?await api.patients():(await patientApi.careTeam()).filter(r=>r.hasAccess).map(r=>({id:r.doctorId,firstName:r.doctorName,lastName:''}));setRecipients(Array.isArray(rows)?rows:rows.data||[]);}catch(e){setConvError(e.message);}};
+  const start=async()=>{if(sending||!recipient)return;setSending(true);try{const result=await api.startConversation({[apiOverride?'patientId':'doctorId']:recipient});const list=await api.conversations();setConvList(list);onConversationsChange?.(list);setRecipients(null);openConversation(result.id);}catch(e){setConvError(e.message);}finally{setSending(false);}};
+
   const [convList, setConvList]     = useState(data || []);
   const [selId, setSelId]           = useState(null);
   const [convData, setConvData]     = useState(null);
@@ -13,6 +17,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
   const [sending, setSending]       = useState(false);
   const [showList, setShowList]     = useState(true); // mobile toggle
   const [convError, setConvError]   = useState('');
+  const messageOperation=useRef(null);
   const endRef   = useRef(null);
   const inputRef = useRef(null);
   const convListRef = useRef(convList);   // dernière liste connue, hors des updaters de state
@@ -67,12 +72,15 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
     setSending(true);
     setMsgText('');
     try {
-      const msg = await api.sendMessage(selId, { body });
-      setConvData(prev => prev ? { ...prev, messages: [...(prev.messages || []), msg] } : prev);
+      const fingerprint=selId+'|'+body;
+      if(messageOperation.current?.fingerprint!==fingerprint)messageOperation.current={fingerprint,key:crypto.randomUUID()};
+      const msg = await api.sendMessage(selId, { body,requestKey:messageOperation.current.key });
+      messageOperation.current=null;
+      setConvData(prev => prev ? { ...prev, messages: [...(prev.messages || []).filter(m=>m.id!==msg.id), msg] } : prev);
       updateConvList(list => list.map(c =>
         c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
       ));
-    } catch { setMsgText(body); }
+    } catch(e) {setMsgText(body);setConvError(e.message);}
     finally { setSending(false); }
   };
 
@@ -126,6 +134,9 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
         </span>
       </div>
 
+      <button type="button" onClick={newConversation} className="text-red-700 font-semibold">Nouvelle conversation</button>
+      {recipients&&<div className={`${card} border rounded-xl p-3 flex flex-wrap gap-3`}><label>Destinataire autorisé<select value={recipient} onChange={e=>setRecipient(e.target.value)}><option value="">Choisir…</option>{recipients.map(r=><option key={r.id} value={r.id}>{r.firstName} {r.lastName}</option>)}</select></label><button disabled={sending||!recipient} onClick={start}>Ouvrir la conversation</button><p className={sub}>Un accès au dossier en cours de validité est requis.</p></div>}
+      {convError&&<p role="alert" className="text-red-700">{convError}</p>}
       {convList.length === 0 ? (
         <div className={`${card} border rounded-2xl p-12 flex flex-col items-center text-center`}>
           <MessageCircle className={`w-12 h-12 ${sub} mb-4`} />

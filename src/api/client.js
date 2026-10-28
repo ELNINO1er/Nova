@@ -1,3 +1,4 @@
+import {clearUnsaved} from '../unsaved.js';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const REQUEST_TIMEOUT_MS = 30000;
 
@@ -6,6 +7,8 @@ const REQUEST_TIMEOUT_MS = 30000;
 // et ne doivent ni rafraîchir la session ni déconnecter l'utilisateur.
 const SESSION_ERRORS = new Set(['unauthorized', 'invalid_token', 'token_revoked']);
 
+const updates=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('nova-data'):null;
+if(updates)updates.onmessage=()=>window.dispatchEvent(new Event('nova:data-changed'));
 let refreshPromise = null;
 // Pendant une déconnexion, aucun renouvellement de session ne doit recréer les cookies.
 let sessionClosing = false;
@@ -28,18 +31,19 @@ async function refreshToken() {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
     });
+    if(res.status>=500)throw new Error('Service de session temporairement indisponible. Réessayez.');
     if (!res.ok) return false;
     await res.json().catch(() => ({}));
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    throw new Error(e.message || 'Connexion indisponible. Réessayez.');
   }
 }
 
 // Un seul refresh à la fois, partagé par toutes les requêtes en attente.
 function sharedRefresh() {
   if (!refreshPromise) {
-    refreshPromise = refreshToken().finally(() => { refreshPromise = null; });
+    refreshPromise = (navigator.locks ? navigator.locks.request('nova-session-refresh', async()=>{if(sessionClosing)return false;const check=await fetch(`${API_BASE_URL}/auth/me`,{credentials:'include'});return check.ok || refreshToken();}) : refreshToken()).finally(() => { refreshPromise = null; });
   }
   return refreshPromise;
 }
@@ -96,6 +100,7 @@ export async function request(path, options = {}) {
     error.code = data?.error;
     throw error;
   }
+  if(fetchOptions.method && fetchOptions.method!=='GET' && !path.includes('/read') && !path.startsWith('/auth/')) {clearUnsaved();window.dispatchEvent(new Event('nova:data-changed'));updates?.postMessage('changed');}
   return data;
 }
 

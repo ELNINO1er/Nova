@@ -42,11 +42,12 @@ export default function PDNA({ data, profile, onReload, notify, card, sub, borde
   const addItem = (key) => {
     const v = input.trim();
     if (!v) return;
-    saveSection(key, [...(mp[key] || []), v]);
+    saveSection(key, [...(mp.patientDeclarations?.[key] || []), v]);
   };
 
   const removeItem = (key, idx) => {
-    const list = (mp[key] || []).filter((_, i) => i !== idx);
+    const value=mp[key]?.[idx];
+    const list = (mp.patientDeclarations?.[key] || []).filter(x=>x!==value);
     saveSection(key, list);
   };
 
@@ -126,8 +127,8 @@ export default function PDNA({ data, profile, onReload, notify, card, sub, borde
                 <div className="flex flex-wrap gap-1.5">
                   {items.map((item, idx) => (
                     <span key={idx} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${c.bg}`}>
-                      {item}
-                      <button onClick={() => removeItem(key, idx)} className={`ml-0.5 ${c.btn}`} disabled={saving}>
+                      {item} <small>({(mp.patientDeclarations?.[key]||[]).includes(item)?"déclaré par vous":"information du dossier initial"})</small>
+                      <button onClick={() => removeItem(key, idx)} className={`ml-0.5 ${c.btn}`} disabled={saving || !(mp.patientDeclarations?.[key]||[]).includes(item)}>
                         <X className="w-3 h-3" />
                       </button>
                     </span>

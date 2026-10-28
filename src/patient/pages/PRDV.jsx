@@ -133,7 +133,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
               </select>
               <select value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                 <option value="onsite">Présentiel</option>
-                <option value="video">Téléconsultation</option>
+                <option value="video" disabled>Téléconsultation indisponible</option>
               </select>
               <div className="flex gap-2 md:col-span-2">
                 <button onClick={saveRdv} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">{editingId ? 'Modifier' : 'Créer'}</button>

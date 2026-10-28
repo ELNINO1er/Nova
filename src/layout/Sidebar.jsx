@@ -22,43 +22,19 @@ const SUPPORT_HOURS = import.meta.env.VITE_SUPPORT_HOURS || '';
 
 export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}, darkMode, sub, border }) {
   const sec = role === 'patient' ? [
-    { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Accueil',I:Home},{id:'profile',l:'Mon profil',I:User}]},
-    { t: 'SUIVI MÉDICAL', i: [
-      {id:'vitals',l:'Mes constantes',I:Activity},{id:'pilulier',l:'Pilulier',I:Pill},
-      {id:'treatments',l:'Traitements',I:HeartPulse},
-      {id:'rdv',l:'Rendez-vous',I:Calendar},{id:'vaccinations',l:'Vaccinations',I:Syringe},
-      {id:'dna',l:'ADN Médical',I:Droplet},{id:'labresults',l:'Résultats labo',I:Microscope},
-      {id:'history',l:'Historique',I:ClipboardList}
-    ]},
-    { t: 'COMMUNICATION', i: [
-      {id:'notifications',l:'Notifications',I:Bell,b:badges.notifications},
-      {id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},
-      {id:'prescriptions',l:'Ordonnances',I:FileDown},
-      {id:'documents',l:'Documents',I:FileText},
-      {id:'notes',l:'Bloc-notes',I:StickyNote}
-    ]},
-    { t: 'SOINS', i: [
-      {id:'doctors',  l:'Trouver un médecin', I:Stethoscope},
-      {id:'pharmacy', l:'Pharmacie',          I:Pill},
-      {id:'urgence',  l:'SOS Urgence',        I:Siren},
-      {id:'assistant',l:'Aide NOVA',  I:Bot},
-    ]},
-    { t: 'BIEN-ÊTRE & ASSURANCE', i: [
-      {id:'wellness',  l:'Bien-être',   I:Target},
-      {id:'insurance', l:'Assurance',   I:ShieldCheck},
-    ]},
-    { t: 'FAMILLE & VIE PRIVÉE', i: [
-      {id:'family',  l:'Ma famille',    I:Users},
-      {id:'privacy', l:'Vie privée',    I:Lock},
-    ]},
-    { t: 'COMPTE', i: [{id:'settings',l:'Paramètres',I:Settings}]}
+    {t:'ACCUEIL',i:[{id:'dashboard',l:'Accueil',I:Home},{id:'notifications',l:'Notifications',I:Bell,b:badges.notifications},{id:'urgence',l:'SOS Urgence',I:Siren}]},
+    {t:'MON DOSSIER',i:[{id:'history',l:'Consultations et historique',I:ClipboardList},{id:'dna',l:'Informations médicales',I:Droplet},{id:'vitals',l:'Mes constantes',I:Activity},{id:'labresults',l:'Résultats d’analyses',I:Microscope},{id:'vaccinations',l:'Vaccinations',I:Syringe},{id:'documents',l:'Documents',I:FileText}]},
+    {t:'MES TRAITEMENTS',i:[{id:'prescriptions',l:'Ordonnances',I:FileDown},{id:'pilulier',l:'Prises prévues',I:Pill},{id:'treatments',l:'Suivi des traitements',I:HeartPulse}]},
+    {t:'MES SOINS',i:[{id:'doctors',l:'Trouver un médecin',I:Stethoscope},{id:'rdv',l:'Rendez-vous',I:Calendar},{id:'pharmacy',l:'Pharmacies',I:Pill}]},
+    {t:'MESSAGES',i:[{id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},{id:'assistant',l:'Aide NOVA',I:Bot}]},
+    {t:'MON COMPTE',i:[{id:'profile',l:'Identité et coordonnées',I:User},{id:'privacy',l:'Accès au dossier',I:Lock},{id:'settings',l:'Paramètres et export',I:Settings},{id:'family',l:'Contacts familiaux',I:Users},{id:'notes',l:'Notes personnelles',I:StickyNote},{id:'insurance',l:'Assurance',I:ShieldCheck},{id:'wellness',l:'Bien-être',I:Target}]}
   ] : role === 'doctor' ? [
-    { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],
+    { t: 'PRINCIPAL', i: [{id:'dashboard',l:'Aujourd’hui',I:BarChart3},{id:'patients',l:'Mes patients',I:Users}],
       a: { l: 'Nouveau patient', I: UserPlus, on: onCP }},
     { t: 'ACTIVITÉ', i: [{id:'agenda',l:'Agenda RDV',I:CalendarClock},{id:'consultations',l:'Consultations',I:ClipboardList},{id:'prescriptions',l:'Ordonnances',I:FileDown},{id:'lab-requests',l:'Demandes labo',I:Microscope},{id:'stats',l:'Statistiques',I:TrendingUp}]},
     { t: 'CLINIQUE', i: [{id:'chronic-patients',l:'Suivi chroniques',I:HeartPulse},{id:'urgences',l:'Urgences & Alertes',I:ShieldAlert},{id:'assistant-ia',l:'Aide-mémoire clinique',I:Brain}]},
     { t: 'GESTION', i: [{id:'finances',l:'Finances',I:TrendingUp},{id:'reputation',l:'Réputation & Avis',I:Award},{id:'signature',l:'Signature électronique',I:Edit3}]},
-    { t: 'COMMUNICATION', i: [{id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},{id:'documents',l:'Documents',I:FileText}]},
+    { t: 'COMMUNICATION', i: [{id:'notifications',l:'Notifications',I:Bell},{id:'messages',l:'Messages',I:MessageCircle,b:badges.messages},{id:'documents',l:'Documents',I:FileText}]},
     { t: 'COMPTE', i: [{id:'profile',l:'Mon profil',I:User},{id:'settings',l:'Paramètres',I:Settings}]}
   ] : role === 'governor' ? [
     { t: 'STATISTIQUES', i: [{id:'dashboard',l:'Tableau de bord',I:BarChart3}]}
@@ -86,7 +62,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
               {s.i.map(it => {
                 const isAct = page === it.id;
                 return (
-                  <button key={it.id} onClick={() => setPage(it.id)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${isAct ? act : ina}`}>
+                  <button aria-current={page===it.id?'page':undefined} key={it.id} onClick={() => setPage(it.id)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${isAct ? act : ina}`}>
                     <it.I className="w-4 h-4 flex-shrink-0" />
                     <span className="flex-1 text-left truncate">{it.l}</span>
                     {Number(it.b) > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isAct ? 'bg-white text-red-600' : 'bg-red-600 text-white'}`}>{it.b}</span>}

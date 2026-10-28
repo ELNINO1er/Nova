@@ -3,6 +3,7 @@ import { request, toQuery } from './client.js';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const patientApi = {
+  consultations:()=>request('/patient/me/consultations'),
   dashboard: () => request('/patient/me/dashboard'),
   assistant: (question) => request('/patient/me/assistant', {
     method: 'POST',
@@ -31,10 +32,11 @@ export const patientApi = {
   }),
   deleteAppointment: (id) => request(`/patient/me/appointments/${id}`, { method: 'DELETE' }),
   vaccinations: () => request('/patient/me/vaccinations'),
-  history: () => request('/patient/me/history'),
+  history: (params={}) => request(`/patient/me/history${toQuery(params)}`),
   documents: (params = {}) => request(`/patient/me/documents${toQuery(params)}`),
   // Upload réel via uploadDocument (multipart) — voir plus bas.
   deleteDocument: (id) => request(`/patient/me/documents/${id}`, { method: 'DELETE' }),
+  startConversation:p=>request('/patient/me/conversations',{method:'POST',body:JSON.stringify(p)}),
   conversations: () => request('/patient/me/conversations'),
   conversation: (id) => request(`/patient/me/conversations/${id}`),
   sendMessage: (id, payload) => request(`/patient/me/conversations/${id}/messages`, {

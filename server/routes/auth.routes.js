@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -30,13 +31,17 @@ function clearAuthCookies(res) {
   res.clearCookie('nova_refresh_token', cookieOptions);
 }
 
-function completeLogin(res, user, extra = {}) {
+async function completeLogin(res, user, extra = {}) {
+  const { pool } = await import('../db/database.js');
+  const [[account]] = await pool.execute('SELECT session_version FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [user.id]);
+  if (!account) return res.status(401).json({ error: 'account_inactive', message: 'Compte désactivé.' });
   const tokenPayload = {
     id: user.id,
     role: user.role,
     patientId: user.patientId,
     doctorId: user.doctorId,
     pharmacyId: user.pharmacyId || null,
+    sessionVersion: Number(account.session_version),
   };
   setAuthCookies(res, signAccessToken(tokenPayload), signRefreshToken(tokenPayload));
   return res.set('Cache-Control', 'no-store').json({
@@ -79,7 +84,7 @@ router.post('/password/login', async (req, res, next) => {
       return res.status(status).json({ error: result.error, message: result.message });
     }
     if (result.nextAction) return res.set('Cache-Control', 'no-store').json(result);
-    return completeLogin(res, result.user);
+    return await completeLogin(res, result.user);
   } catch (err) { next(err); }
 });
 
@@ -90,7 +95,7 @@ router.post('/password/change', async (req, res, next) => {
       challengeId: z.string().uuid(),
       newPassword: z.string().min(8).max(128),
     }).parse(req.body);
-    return completeLogin(res, await changeInitialPassword(challengeId, newPassword));
+    return await completeLogin(res, await changeInitialPassword(challengeId, newPassword));
   } catch (err) { next(err); }
 });
 
@@ -180,7 +185,7 @@ router.post('/doctor/totp/enroll/verify', async (req, res, next) => {
       code: z.string().regex(/^\d{6}$/),
     }).parse(req.body);
     const result = await verifyTotpEnrollment(challengeId, code);
-    return completeLogin(res, result.user, { recoveryCodes: result.recoveryCodes });
+    return await completeLogin(res, result.user, { recoveryCodes: result.recoveryCodes });
   } catch (err) { next(err); }
 });
 
@@ -192,7 +197,7 @@ router.post('/doctor/totp/verify', async (req, res, next) => {
       code: z.string().min(6).max(16),
     }).parse(req.body);
     const result = await verifyTotpLogin(challengeId, code);
-    return completeLogin(res, result.user, { usedRecoveryCode: result.usedRecoveryCode });
+    return await completeLogin(res, result.user, { usedRecoveryCode: result.usedRecoveryCode });
   } catch (err) { next(err); }
 });
 
@@ -203,44 +208,40 @@ router.post('/doctor/otp/verify', (_req, res) => {
 
 /* ── POST /api/auth/refresh — renouveler access token ───────── */
 router.post('/refresh', async (req, res, next) => {
+  const { pool } = await import('../db/database.js');
+  let conn;
   try {
-    const refreshToken = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
-    if (!refreshToken) {
-      return res.status(401).json({ error: 'invalid_refresh', message: 'Refresh token manquant.' });
+    conn=await pool.getConnection();
+    const token = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
+    const payload = token && await verifyRefreshToken(token);
+    if (!payload) return res.status(401).json({ error: 'invalid_refresh', message: 'Session expiree.' });
+    await conn.beginTransaction();
+    const [[account]] = await conn.execute('SELECT * FROM nova_users WHERE id=? FOR UPDATE', [payload.id]);
+    if (!account || account.deleted_at || account.disabled_at || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
+      await conn.rollback(); clearAuthCookies(res);
+      return res.status(401).json({ error: 'account_inactive', message: 'Session revoquee.' });
     }
-    const payload = await verifyRefreshToken(refreshToken);
-    if (!payload) {
-      return res.status(401).json({ error: 'invalid_refresh', message: 'Refresh token invalide ou expiré.' });
-    }
-
-    // Blacklist the old refresh token (rotation)
-    await blacklistToken(refreshToken);
-
-    // Le compte est relu en base : un compte supprimé perd l'accès, et un changement de rôle
-    // ou d'officine s'applique au prochain renouvellement (au plus 30 min), pas 7 jours plus tard.
-    const { pool } = await import('../db/database.js');
-    const [[account]] = await pool.execute(
-      'SELECT id, role, patient_id, doctor_id, pharmacy_id FROM nova_users WHERE id = ? AND deleted_at IS NULL',
-      [payload.id]
-    );
-    if (!account) {
-      clearAuthCookies(res);
-      return res.status(401).json({ error: 'account_inactive', message: 'Compte introuvable ou désactivé.' });
-    }
-
-    const tokenPayload = { id: account.id, role: account.role, patientId: account.patient_id || null, doctorId: account.doctor_id || null, pharmacyId: account.pharmacy_id || null };
-    const newToken = signAccessToken(tokenPayload);
-    const newRefreshToken = signRefreshToken(tokenPayload);
-    setAuthCookies(res, newToken, newRefreshToken);
-
-    res.set('Cache-Control', 'no-store').json({ ok: true });
-  } catch (err) { next(err); }
+    const [used] = await conn.execute('INSERT IGNORE INTO nova_revoked_tokens(jti, expires_at) VALUES (?,FROM_UNIXTIME(?))', [payload.jti, payload.exp]);
+    if (!used.affectedRows) { await conn.rollback(); return res.status(401).json({ error:'invalid_refresh', message:'Session deja renouvelee.' }); }
+    const nextPayload = {id:account.id, role:account.role, patientId:account.patient_id, doctorId:account.doctor_id, pharmacyId:account.pharmacy_id, sessionVersion:Number(account.session_version)};
+    const access = signAccessToken(nextPayload), refresh = signRefreshToken(nextPayload);
+    await conn.commit();
+    setAuthCookies(res, access, refresh);
+    res.set('Cache-Control','no-store').json({ok:true});
+  } catch(err) { if(conn)await conn.rollback(); next(err); } finally { conn?.release(); }
 });
 
 /* ── POST /api/auth/logout — invalider le token ─────────────── */
 router.post('/logout', async (req, res, next) => {
   try {
   const accessToken = getCookie(req, 'nova_access_token');
+  const rt = getCookie(req, 'nova_refresh_token');
+  let proof;
+  for(const [candidate,secret] of [[rt,process.env.JWT_REFRESH_SECRET || (process.env.JWT_SECRET+'-refresh')],[accessToken,process.env.JWT_SECRET]]) {if(!candidate)continue;try{proof=jwt.verify(candidate,secret);break;}catch{}}
+  if (proof) {
+    const { pool } = await import('../db/database.js');
+    await pool.execute('UPDATE nova_users SET session_version=session_version+1 WHERE id=?', [proof.id]);
+  }
   if (accessToken) await blacklistToken(accessToken);
   const refreshToken = getCookie(req, 'nova_refresh_token');
   if (refreshToken) await blacklistToken(refreshToken);
@@ -257,7 +258,7 @@ router.post('/password/self-change', requireAuth, async (req, res, next) => {
       currentPassword: z.string().min(1).max(128),
       newPassword: z.string().min(8).max(128),
     }).parse(req.body);
-    res.json(await changeOwnPassword(req.user.id, currentPassword, newPassword));
+    const result=await changeOwnPassword(req.user.id, currentPassword, newPassword);clearAuthCookies(res);res.json(result);
   } catch (err) { next(err); }
 });
 

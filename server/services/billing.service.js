@@ -15,6 +15,7 @@ export async function listPatientPayments(patientId) {
 }
 
 export async function createPatientPayment(patientId, payload) {
+  if(['mobile_money','insurance'].includes(payload.method))throw Object.assign(new Error('Service de paiement externe non intégré.'),{status:503});
   const id = randomUUID();
   let doctorId = payload.doctorId || null;
   let appointmentId = payload.appointmentId || null;
@@ -57,7 +58,7 @@ export async function createPatientPayment(patientId, payload) {
       amount,
       payload.currency || 'XOF',
       payload.method || 'offline',
-      payload.method === 'cash' ? 'paid' : 'pending',
+      'pending',
       payload.reference || null,
       JSON.stringify({ note: payload.note || null, source: 'nova' }),
     ]

@@ -40,6 +40,7 @@ router.get('/prescription/:id', requirePermission('pharmacy.verify'), wrap(async
 /* ─── Délivrer ordonnance ─────────────────────────────────────── */
 router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.object({
   prescriptionId: z.string().min(1),
+  requestKey:z.string().min(8).max(100),
   qrToken:        z.string().min(1),
   status:         z.enum(['full', 'partial', 'refused']),
   items:          z.array(z.object({
@@ -48,7 +49,7 @@ router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.
     substituted:        z.boolean().default(false),
     substitutionName:   z.string().optional(),
     substitutionReason: z.string().optional(),
-  })).min(1),
+  })).max(100),
   notes: z.string().max(1000).optional(),
 })), auditLog('prescription.dispense', 'dispense'), wrap(async (req, res) => {
   assertQrMatches(req.body.qrToken, req.body.prescriptionId);

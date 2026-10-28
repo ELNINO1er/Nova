@@ -119,7 +119,7 @@ async function getChallenge(id, type) {
      FROM nova_auth_challenges c
      JOIN nova_users u ON u.id = c.user_id
      WHERE c.id = ? AND c.type = ? AND c.used_at IS NULL AND c.expires_at > NOW()
-       AND u.deleted_at IS NULL
+       AND u.deleted_at IS NULL AND u.disabled_at IS NULL
      LIMIT 1`,
     [id, type]
   );

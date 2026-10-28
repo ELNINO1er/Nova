@@ -38,21 +38,19 @@ export function auditLog(action, resourceType) {
  * Log when a doctor accesses a patient's data.
  * Usage: router.get('/patients/:id', accessLog('patient_record'), ...)
  */
-export function accessLog(dataAccessed) {
-  return (req, res, next) => {
-    const originalJson = res.json.bind(res);
-
-    res.json = function (body) {
-      if (res.statusCode < 400 && req.user && req.params?.id) {
-        pool.execute(
-          `INSERT INTO nova_access_logs (patient_id, accessor_id, accessor_role, data_accessed)
-           VALUES (?, ?, ?, ?)`,
-          [req.params.id, req.user.id, req.user.role, dataAccessed]
-        ).catch(() => {});
-      }
-      return originalJson(body);
-    };
-
-    next();
-  };
+export function accessLog(dataAccessed){
+ return (req,res,next)=>{
+  const originalJson=res.json.bind(res);
+  res.json=function(body){
+   if(res.statusCode>=400||!req.user)return originalJson(body);
+   const rows=Array.isArray(body)?body:[body];
+   const ids=[...new Set(dataAccessed==='patient_record'?[req.params.id]:rows.map(r=>r?.patientId||(dataAccessed==='patient_directory'?r?.id:null)).filter(Boolean))];
+   if(!ids.length)return originalJson(body);
+   const values=ids.map(id=>[id,req.user.id,req.user.role,dataAccessed]);
+   // Un dossier n'est renvoyé qu'après l'enregistrement de sa consultation.
+   pool.query('INSERT INTO nova_access_logs(patient_id,accessor_id,accessor_role,data_accessed) VALUES ?',[values])
+    .then(()=>originalJson(body)).catch(()=>{res.status(503);originalJson({error:'audit_unavailable',message:'Historique des accès indisponible. Réessayez.'});});
+   return res;
+  };next();
+ };
 }

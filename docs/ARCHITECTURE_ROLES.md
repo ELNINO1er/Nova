@@ -1,3 +1,5 @@
+> État actualisé : voir [la livraison du 28 octobre 2026](FINALISATION_2026-10-28.md). Les constats ou conclusions historiques ci-dessous doivent être lus avec ce complément.
+
 # NOVA — Rôles, parcours et plan de mise en cohérence
 
 État au 28/10/2026, établi à partir du code (routes, services, schéma, interfaces) et non de la documentation existante.

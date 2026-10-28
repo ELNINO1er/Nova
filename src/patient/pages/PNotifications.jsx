@@ -3,7 +3,7 @@ import { Bell, Check, Calendar, Pill, Microscope, MessageCircle, AlertTriangle, 
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate } from '../../utils/format.js';
 
-export default function PNotifications({ data, onReload, notify, setPage, card, sub, border, darkMode }) {
+export default function PNotifications({ data, onReload, notify, setPage, card, sub, border, darkMode, api = patientApi }) {
   const notifs = Array.isArray(data) ? data : (data?.data || []);
   const unread = notifs.filter(n => !n.isRead).length;
 
@@ -18,17 +18,17 @@ export default function PNotifications({ data, onReload, notify, setPage, card, 
 
   const markRead = async (id) => {
     try {
-      await patientApi.markNotificationRead(id);
-      onReload?.(await patientApi.notifications());
-    } catch {}
+      await api.markNotificationRead(id);
+      onReload?.(await api.notifications());
+    } catch(e) {notify?.(e.message,'error');}
   };
 
   const markAll = async () => {
     try {
-      await patientApi.markAllNotificationsRead();
-      onReload?.(await patientApi.notifications());
+      await api.markAllNotificationsRead();
+      onReload?.(await api.notifications());
       notify?.('Toutes les notifications sont lues');
-    } catch {}
+    } catch(e) {notify?.(e.message,'error');}
   };
 
   if (!data) return (
@@ -64,7 +64,7 @@ export default function PNotifications({ data, onReload, notify, setPage, card, 
             const t = typeIcon[n.type] || typeIcon.system;
             const Icon = t.icon;
             return (
-              <div key={n.id} onClick={() => { markRead(n.id); if (n.linkPage) setPage?.(n.linkPage); }}
+              <div key={n.id} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.currentTarget.click();}}} onClick={() => { markRead(n.id); if (n.linkPage) setPage?.(n.linkPage); }}
                 className={`${card} border rounded-2xl p-4 flex items-start gap-3 cursor-pointer hover:shadow-md transition-all ${!n.isRead ? (darkMode ? 'ring-1 ring-slate-600' : 'ring-1 ring-red-200 shadow-sm') : 'opacity-70'}`}>
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${t.bg}`}>
                   <Icon className={`w-5 h-5 ${t.color}`} />
