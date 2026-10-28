@@ -575,9 +575,6 @@ async function createTables(conn) {
 
   /* ── Phase 5B : Ordonnances médecin ─────────────────────────── */
   await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD COLUMN doctor_id VARCHAR(36) DEFAULT NULL`);
-  // Décisions de consentement horodatées à la milliseconde : la plus récente fait foi (révocation / accord).
-  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY responded_at DATETIME(3) NULL`);
-  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`);
   await runIdempotentDdl(conn, `ALTER TABLE nova_prescriptions ADD INDEX idx_np_doctor_id (doctor_id)`);
 
   /* ── Phase 5C : Suivi chroniques + Urgences ──────────────────── */
@@ -698,6 +695,9 @@ async function createTables(conn) {
       INDEX idx_consent_status (status)
     )
   `);
+  // Décisions de consentement horodatées à la milliseconde : la plus récente fait foi (révocation / accord).
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY responded_at DATETIME(3) NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`);
 
   /* ── Pharmacie — utilisateurs et délivrances ──────────────── */
   await conn.query(`
