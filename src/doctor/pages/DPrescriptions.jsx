@@ -1,3 +1,5 @@
+import {useDialogFocus} from '../../components/useDialogFocus.js';
+import {useUnsaved} from '../../unsaved.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { FileDown, Pill, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
@@ -5,30 +7,36 @@ import { formatDate, initials } from '../../utils/format.js';
 
 export default function DPrescriptions({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm,    setShowForm]    = useState(false);
-  const [form,        setForm]        = useState({ patientId: '', notes: '', validDays: 30 });
-  const [items,       setItems]       = useState([{ name: '', dosage: '', frequency: '', duration: '' }]);
+  const [form,        setForm]        = useState({ patientId: '', consultationId:'',notes: '', validDays: 30 });
+  const [items,       setItems]       = useState([{ name: '', dosage: '', frequency: '', duration: '', quantityPrescribed: '', quantityUnit: 'unité',scheduleTimes:'',durationDays:'' }]);
   const [saving,      setSaving]      = useState(false);
+  const [consultations,setConsultations]=useState([]);
+  useEffect(()=>{if(showForm)doctorApi.consultations().then(setConsultations).catch(e=>notify(e.message,'error'));},[showForm]);
   const [detail,      setDetail]      = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  useUnsaved(showForm,JSON.stringify({form,items}));
   const prescriptions = Array.isArray(data) ? data : [];
   const patients      = Array.isArray(patientsData) ? patientsData : [];
 
   const handleShowForm = () => { setShowForm(true); if (!patientsData) loadPatients(); };
-  const addItem    = () => setItems(prev => [...prev, { name: '', dosage: '', frequency: '', duration: '' }]);
+  const addItem    = () => setItems(prev => [...prev, { name: '', dosage: '', frequency: '', duration: '', quantityPrescribed: '', quantityUnit: 'unité',scheduleTimes:'',durationDays:'' }]);
   const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i));
   const updateItem = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
 
   const handleSubmit = async () => {
+    if (saving) return;
+    if (items.some(i=>i.name && (!Number.isInteger(Number(i.quantityPrescribed))||Number(i.quantityPrescribed)<1))) return notify('Quantite positive obligatoire pour chaque ligne.', 'error');
+    if(items.some(i=>i.scheduleTimes&&(!i.durationDays||!Number.isInteger(Number(i.durationDays)))))return notify('Précisez la durée en jours pour alimenter le pilulier.','error');
     if (!form.patientId) return notify('Sélectionnez un patient', 'error');
     if (!items[0]?.name) return notify('Au moins un médicament requis', 'error');
     setSaving(true);
     try {
-      await doctorApi.createPrescription({ ...form, items: items.filter(i => i.name), validDays: Number(form.validDays) });
+      await doctorApi.createPrescription({ ...form,consultationId:form.consultationId||undefined, items: items.filter(i => i.name).map(i=>({...i,quantityPrescribed:Number(i.quantityPrescribed),scheduleTimes:i.scheduleTimes?i.scheduleTimes.split(',').map(t=>t.trim()).filter(Boolean):[],durationDays:i.durationDays?Number(i.durationDays):undefined})), validDays: Number(form.validDays) });
       notify('Ordonnance émise');
       setShowForm(false);
       setForm({ patientId: '', notes: '', validDays: 30 });
-      setItems([{ name: '', dosage: '', frequency: '', duration: '' }]);
+      setItems([{ name: '', dosage: '', frequency: '', duration: '', quantityPrescribed: '', quantityUnit: 'unité',scheduleTimes:'',durationDays:'' }]);
       onReload();
     } catch (e) { notify(e.message, 'error'); }
     finally { setSaving(false); }
@@ -69,12 +77,13 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
             <button onClick={() => setShowForm(false)}><X className={`w-4 h-4 ${sub}`} /></button>
           </div>
           <div>
-            <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
-            <select value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))} className={inp}>
+            <label htmlFor="rx-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
+            <select id="rx-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value,consultationId:'' }))} className={inp}>
               <option value="">Sélectionner un patient...</option>
               {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
             </select>
           </div>
+          <label className="block text-sm">Consultation validée associée (facultatif)<select className={inp} value={form.consultationId||''} onChange={e=>setForm({...form,consultationId:e.target.value})}><option value="">Prescription indépendante</option>{consultations.filter(c=>c.patientId===form.patientId&&c.status==='completed').map(c=><option key={c.id} value={c.id}>{formatDate(c.startedAt)} — {c.motif||'Consultation'}</option>)}</select></label>
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Médicaments *</label>
@@ -94,10 +103,10 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {[['Nom *', 'name', 'Ex: Paracétamol 500mg'], ['Posologie', 'dosage', 'Ex: 1 cp'], ['Fréquence', 'frequency', 'Ex: 3×/jour'], ['Durée', 'duration', 'Ex: 7 jours']].map(([lbl, fld, ph]) => (
+                    {[['Nom *', 'name', 'Ex: Paracétamol 500mg'], ['Posologie', 'dosage', 'Ex: 1 cp'], ['Fréquence', 'frequency', 'Ex: 3×/jour'], ['Durée', 'duration', 'Ex: 7 jours'], ['Quantité à délivrer *', 'quantityPrescribed', 'Ex: 30'], ['Unité', 'quantityUnit', 'comprimé, flacon…'],['Heures de prise (facultatif)', 'scheduleTimes', '08:00, 20:00'],['Durée du pilulier en jours', 'durationDays', '7']].map(([lbl, fld, ph]) => (
                       <div key={fld}>
-                        <label className={`text-[10px] font-bold uppercase ${sub}`}>{lbl}</label>
-                        <input value={item[fld]} onChange={e => updateItem(i, fld, e.target.value)} placeholder={ph} className={inp} />
+                        <label htmlFor={`rx-${i}-${fld}`} className={`text-[10px] font-bold uppercase ${sub}`}>{lbl}</label>
+                        <input id={`rx-${i}-${fld}`} value={item[fld]} onChange={e => updateItem(i, fld, e.target.value)} placeholder={ph} className={inp} />
                       </div>
                     ))}
                   </div>
@@ -142,7 +151,7 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
             <p className={`text-xs ${sub}`}>{rx.cmuNumber}</p>
             <div className="flex items-center gap-3 mt-1 flex-wrap">
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rx.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {rx.status === 'active' ? 'Active' : 'Expirée'}
+                {({active:'Active',partial:'Délivrance partielle',dispensed:'Délivrée',cancelled:'Annulée',expired:'Expirée'})[rx.status]||rx.status}
               </span>
               <p className={`text-xs ${sub}`}>{new Date(rx.issuedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
               <p className={`text-xs ${sub}`}>{rx.itemsCount} médicament{rx.itemsCount > 1 ? 's' : ''}</p>
@@ -159,11 +168,14 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
 }
 
 function PrescriptionDetail({ rx, onClose, card, sub, border, darkMode }) {
+  const dialogRef=useRef(null);useDialogFocus(true,dialogRef,onClose);
   const rxItems = Array.isArray(rx.items) ? rx.items : [];
 
   const handlePrint = () => {
+    const escape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head><title>Ordonnance — ${rx.patientName}</title>
+    if(!win)return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Ordonnance — ${escape(rx.patientName)}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:40px;max-width:680px;margin:0 auto;color:#1e293b}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #dc2626;padding-bottom:16px;margin-bottom:24px}
@@ -181,15 +193,15 @@ function PrescriptionDetail({ rx, onClose, card, sub, border, darkMode }) {
   @media print{button{display:none}}
 </style></head><body>
 <div class="hdr">
-  <div><div class="doc-name">${rx.doctorName}</div><div class="doc-spec">${rx.doctorSpecialty || ''}</div></div>
+  <div><div class="doc-name">${escape(rx.doctorName)}</div><div class="doc-spec">${escape(rx.doctorSpecialty || '')}</div></div>
   <div><div class="rx-title">ORDONNANCE</div><div class="date">${new Date(rx.issuedAt).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}</div></div>
 </div>
-<div class="patient"><strong>${rx.patientName}</strong><span style="color:#64748b;margin-left:10px;font-size:12px">CMU: ${rx.cmuNumber}</span></div>
+<div class="patient"><strong>${escape(rx.patientName)}</strong><span style="color:#64748b;margin-left:10px;font-size:12px">CMU: ${escape(rx.cmuNumber)}</span></div>
 <table>
-  <thead><tr><th>Médicament</th><th>Posologie</th><th>Fréquence</th><th>Durée</th></tr></thead>
-  <tbody>${rxItems.map(i => `<tr><td><strong>${i.name}</strong>${i.instructions ? `<br><span style="font-size:11px;color:#64748b">${i.instructions}</span>` : ''}</td><td>${i.dosage || '—'}</td><td>${i.frequency || '—'}</td><td>${i.duration || '—'}</td></tr>`).join('')}</tbody>
+  <thead><tr><th>Médicament</th><th>Posologie</th><th>Fréquence</th><th>Durée</th><th>Quantité prescrite</th></tr></thead>
+  <tbody>${rxItems.map(i => `<tr><td><strong>${escape(i.name)}</strong>${i.instructions ? `<br><span style="font-size:11px;color:#64748b">${escape(i.instructions)}</span>` : ''}</td><td>${escape(i.dosage || '—')}</td><td>${escape(i.frequency || '—')}</td><td>${escape(i.duration || '—')}</td><td>${escape(i.quantityPrescribed??'Non renseignée')} ${escape(i.quantityUnit)}</td></tr>`).join('')}</tbody>
 </table>
-${rx.notes ? `<div class="notes">📝 ${rx.notes}</div>` : ''}
+${rx.notes ? `<div class="notes">📝 ${escape(rx.notes)}</div>` : ''}
 ${rx.validUntil ? `<p style="margin-top:14px;font-size:11px;color:#64748b">Valable jusqu'au : <strong>${new Date(rx.validUntil).toLocaleDateString('fr-FR')}</strong></p>` : ''}
 <div class="footer"><span>NOVA — Carnet Santé Numérique</span><div class="sig">Signature et cachet</div></div>
 <script>window.onload=()=>window.print()</script>
@@ -198,7 +210,7 @@ ${rx.validUntil ? `<p style="margin-top:14px;font-size:11px;color:#64748b">Valab
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Ordonnance" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
       <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col`}>
         <div className={`p-5 border-b ${border} flex items-center justify-between`}>
           <div>

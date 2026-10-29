@@ -1,12 +1,34 @@
-import React, { useState } from 'react';
-import { Syringe, Check, Clock, AlertTriangle, ChevronRight, Search, QrCode, Shield, ShieldCheck } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Syringe, Clock, QrCode, ShieldCheck, Percent } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
 import { patientApi } from '../../api/patientApi.js';
+import { PatientModal } from '../../components/PatientModal.jsx';
+import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import {
+  Button, Card, CardTitle, Chip, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile,
+} from '../../components/patient/ui.jsx';
+
+// Champs cherchables, du plus au moins important.
+const FIELDS = (v) => [v.n, v.s, searchableDate(v.at), searchableDate(v.nextAt), v.due ? 'rappel a venir' : 'a jour'];
 
 export default function PVax({ data, card, sub, border, darkMode }) {
   const [showQR, setShowQR]   = useState(false);
   const [qrData, setQrData]   = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useUrlQuery();
+
+  const vaccines = useMemo(() => (data || []).map((v, i) => ({
+    key: v.id ?? i,
+    n: v.name,
+    d: v.injectedAt ? formatDate(v.injectedAt) : 'Non renseigné',
+    s: v.status === 'due_soon' ? 'Rappel prévu' : 'À jour',
+    due: v.status === 'due_soon',
+    x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
+    at: v.injectedAt,
+    nextAt: v.nextDueAt,
+  })), [data]);
+  const found = useSearch(vaccines, query, FIELDS);
 
   const openQR = async () => {
     setShowQR(true);
@@ -24,110 +46,129 @@ export default function PVax({ data, card, sub, border, darkMode }) {
 
   if (!data) {
     return (
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Carnet Vaccinal</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-28 rounded-2xl`}></div>)}
+      <div className="space-y-5">
+        <PageHeader title="Carnet vaccinal" sub={sub} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          {[0, 1, 2].map(i => <div key={i} className={`animate-pulse h-32 rounded-3xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
         </div>
-        <div className={`${card} border rounded-2xl p-6`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-40 rounded-lg`}></div></div>
+        <Card darkMode={darkMode}><div className={`animate-pulse h-40 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
       </div>
     );
   }
-  const vs = data.length ? data.map((v) => ({
-    n: v.name,
-    d: v.injectedAt ? formatDate(v.injectedAt) : 'Non renseigné',
-    s: v.status === 'due_soon' ? 'Rappel prévu' : 'À jour',
-    c: v.status === 'due_soon' ? 'amber' : 'emerald',
-    x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
-  })) : [];
-  const upToDateCount = vs.filter((v) => v.c === 'emerald').length;
-  const dueSoonCount = vs.filter((v) => v.c === 'amber').length;
+  const vs = vaccines;
+  const upToDateCount = vs.filter((v) => !v.due).length;
+  const dueSoonCount = vs.filter((v) => v.due).length;
   const coverage = vs.length ? Math.round((upToDateCount / vs.length) * 100) : 0;
+  const nextDue = vs.filter((v) => v.nextAt).sort((a, b) => new Date(a.nextAt) - new Date(b.nextAt))[0];
+
+  // Filtre après recherche : les compteurs des pastilles reflètent la requête.
+  const shown = filter === 'all' ? found : found.filter((v) => (filter === 'due' ? v.due : !v.due));
+  const pillOptions = [
+    ['all', 'Tous', found.length],
+    ['ok', 'À jour', found.filter((v) => !v.due).length],
+    ['due', 'Rappel prévu', found.filter((v) => v.due).length],
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h2 className="text-2xl font-bold">Carnet Vaccinal</h2><p className={`text-sm ${sub}`}>Historique et rappels</p></div>
-        <button onClick={openQR} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-bold shadow hover:opacity-90">
-          <QrCode className="w-4 h-4" /> Passeport vaccinal QR
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5">
-          <ShieldCheck className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{upToDateCount}</p><p className="text-xs">Vaccins à jour</p>
-        </div>
-        <div className="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-2xl p-5">
-          <Clock className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{dueSoonCount}</p><p className="text-xs">Rappel à venir</p>
-        </div>
-        <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-2xl p-5">
-          <Syringe className="w-6 h-6 mb-2" /><p className="text-3xl font-bold">{coverage}%</p><p className="text-xs">Couverture</p>
-        </div>
-      </div>
-      <div className={`${card} border rounded-2xl p-6`}>
-        <h3 className="font-bold mb-4">Historique complet</h3>
-        {vs.length === 0 ? (
-          <div className="py-8 flex flex-col items-center text-center">
-            <Syringe className={`w-10 h-10 ${sub} mb-3`} />
-            <p className={`text-sm ${sub}`}>Aucun vaccin enregistré</p>
-          </div>
-        ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {vs.map((v, i) => {
-            const isAmber = v.c === 'amber';
-            return (
-            <div key={i} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-              <div className="flex items-center justify-between mb-3">
-                <div className={`w-10 h-10 rounded-lg ${isAmber ? 'bg-amber-100' : 'bg-emerald-100'} flex items-center justify-center`}><Syringe className={`w-5 h-5 ${isAmber ? 'text-amber-600' : 'text-emerald-600'}`} /></div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isAmber ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{v.s}</span>
-              </div>
-              <p className="font-bold">{v.n}</p>
-              <p className={`text-xs ${sub} mt-1`}>{v.d}</p>
-              <p className={`text-xs ${sub} mt-2`}>Prochain : <strong>{v.x}</strong></p>
-            </div>
-          );})}
-        </div>
-        )}
+    <div className="space-y-5">
+      <PageHeader title="Carnet vaccinal" sub={sub} subtitle="Historique de vos vaccinations et rappels à prévoir"
+        actions={<Button Icon={QrCode} onClick={openQR}>Passeport vaccinal QR</Button>} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5">
+        <StatTile label="Vaccins à jour" value={upToDateCount} Icon={ShieldCheck} darkMode={darkMode} hint={`sur ${vs.length} enregistré${vs.length > 1 ? 's' : ''}`} />
+        <StatTile label="Rappels à venir" value={dueSoonCount} Icon={Clock} darkMode={darkMode} highlight={dueSoonCount > 0}
+          hint={nextDue ? `Prochain : ${nextDue.n}, ${formatDate(nextDue.nextAt)}` : dueSoonCount > 0 ? 'À planifier avec votre médecin' : 'Aucun rappel en attente'}
+          onClick={dueSoonCount > 0 ? () => setFilter('due') : undefined} />
+        <StatTile label="Couverture" value={coverage} unit="%" Icon={Percent} darkMode={darkMode} hint="Part des vaccins à jour" />
       </div>
 
-      {/* QR Modal */}
-      {showQR && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowQR(false)}>
-          <div className={`${card} border rounded-2xl p-6 w-full max-w-sm shadow-2xl`} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-lg">Passeport Vaccinal</h3>
-                <p className={`text-xs ${sub}`}>Scannez pour vérifier les vaccinations</p>
-              </div>
-              <button onClick={() => setShowQR(false)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}><X className="w-4 h-4" /></button>
+      {vs.length > 0 && (
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <SearchInput value={query} onChange={setQuery} count={shown.length} darkMode={darkMode} className="w-full lg:max-w-md"
+            placeholder="Rechercher un vaccin, une date, un statut…" />
+          <div className="lg:ml-auto"><Pills darkMode={darkMode} value={filter} onChange={setFilter} options={pillOptions} /></div>
+        </div>
+      )}
+
+      <Card darkMode={darkMode} className="!p-0 overflow-hidden">
+        <div className="px-5 pt-5"><CardTitle Icon={Syringe}>Historique complet</CardTitle></div>
+        {vs.length === 0 ? (
+          <div className="px-5 pb-5">
+            <EmptyState Icon={Syringe} title="Aucun vaccin enregistré" darkMode={darkMode}>
+              Vos vaccinations apparaîtront ici dès qu’un professionnel de santé les aura saisies.
+            </EmptyState>
+          </div>
+        ) : query && shown.length === 0 ? (
+          <div className="px-5 pb-5"><NoResults query={query} onClear={() => setQuery('')} darkMode={darkMode} /></div>
+        ) : shown.length === 0 ? (
+          <div className="px-5 pb-5">
+            <EmptyState Icon={Syringe} title="Aucun vaccin dans ce filtre" darkMode={darkMode}
+              action={<button type="button" onClick={() => setFilter('all')} className="text-sm font-semibold text-red-600 hover:text-red-700">Voir tous les vaccins</button>} />
+          </div>
+        ) : (
+          <>
+            <div className={`hidden md:grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_8rem] gap-4 px-5 py-3 text-xs font-semibold text-slate-500 ${darkMode ? 'bg-slate-800/40' : 'bg-red-50/50'}`}>
+              <span>Vaccin</span><span>Injection</span><span>Prochain rappel</span><span className="text-right">Statut</span>
             </div>
-            <div className="flex flex-col items-center gap-4">
-              {qrLoading ? (
-                <div className={`w-52 h-52 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-100'} flex items-center justify-center animate-pulse`}>
-                  <QrCode className={`w-10 h-10 ${sub}`} />
-                </div>
-              ) : qrData?.qr ? (
-                <img src={qrData.qr} alt="QR Code vaccinal" className="w-52 h-52 rounded-xl border-4 border-emerald-500" />
-              ) : (
-                <div className={`w-52 h-52 rounded-xl ${darkMode ? 'bg-slate-700' : 'bg-slate-100'} flex flex-col items-center justify-center gap-2`}>
-                  <QrCode className={`w-10 h-10 ${sub}`} />
-                  <p className={`text-xs ${sub}`}>Génération impossible</p>
-                </div>
-              )}
-              <div className="w-full">
-                <p className={`text-xs font-bold ${sub} mb-2`}>Vaccinations ({vs.length})</p>
-                <div className="space-y-1.5">
-                  {vs.map((v, i) => (
-                    <div key={i} className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                      <span className="font-medium">{v.n}</span>
-                      <span className={`px-2 py-0.5 rounded-full font-bold ${v.c === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{v.s}</span>
+            <ul className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
+              {shown.map((v) => (
+                <li key={v.key} className="px-5 py-4 grid grid-cols-[auto_minmax(0,1fr)] md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_8rem] gap-x-3 md:gap-4 gap-y-2 items-center">
+                  <div className="flex items-center gap-3 min-w-0 col-span-2 md:col-span-1">
+                    <IconBadge Icon={Syringe} solid={v.due} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold break-words"><Highlight text={v.n} query={query} /></p>
+                      <p className={`text-xs ${sub} md:hidden`}><Highlight text={v.s} query={query} /></p>
                     </div>
-                  ))}
-                </div>
+                    <span className="md:hidden"><Chip tone={v.due ? 'watch' : 'neutral'}>{v.s}</Chip></span>
+                  </div>
+                  <dl className="col-span-2 md:contents grid grid-cols-2 gap-3 text-sm pl-[3.25rem] md:pl-0">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-slate-500 md:hidden">Injection</dt>
+                      <dd className="font-medium"><Highlight text={v.d} query={query} /></dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-slate-500 md:hidden">Prochain rappel</dt>
+                      <dd className={`font-medium ${v.due ? 'text-red-700' : ''}`}><Highlight text={v.x} query={query} /></dd>
+                    </div>
+                  </dl>
+                  <div className="hidden md:flex justify-end"><Chip tone={v.due ? 'watch' : 'neutral'}><Highlight text={v.s} query={query} /></Chip></div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Card>
+
+      {showQR && (
+        <PatientModal title="Passeport vaccinal" onClose={() => setShowQR(false)} card={card} darkMode={darkMode} maxWidth="max-w-sm">
+          <div className="flex flex-col items-center gap-4">
+            <p className={`text-xs ${sub} self-start`}>Scannez pour vérifier les vaccinations.</p>
+            {qrLoading ? (
+              <div className={`w-52 h-52 rounded-2xl border border-dashed ${darkMode ? 'border-slate-700' : 'border-red-200'} flex items-center justify-center animate-pulse`}>
+                <QrCode className="w-10 h-10 text-red-300" />
               </div>
+            ) : qrData?.qr ? (
+              <img src={qrData.qr} alt="QR code du passeport vaccinal" className="w-52 h-52 rounded-2xl border-4 border-red-600 bg-white" />
+            ) : (
+              <div className={`w-52 h-52 rounded-2xl border border-dashed ${darkMode ? 'border-slate-700' : 'border-red-200'} flex flex-col items-center justify-center gap-2`}>
+                <QrCode className="w-10 h-10 text-red-300" />
+                <p className={`text-xs ${sub}`}>Génération impossible</p>
+              </div>
+            )}
+            <div className="w-full">
+              <p className={`text-xs font-semibold ${sub} mb-2`}>Vaccinations ({vs.length})</p>
+              <ul className={`divide-y rounded-2xl border ${darkMode ? 'divide-slate-800 border-slate-800' : 'divide-slate-100 border-slate-200/70'}`}>
+                {vs.map((v, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                    <span className="font-medium truncate">{v.n}</span>
+                    <Chip tone={v.due ? 'watch' : 'neutral'}>{v.s}</Chip>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
-        </div>
+        </PatientModal>
       )}
     </div>
   );
 }
-

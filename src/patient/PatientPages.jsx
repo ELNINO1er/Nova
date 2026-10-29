@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import {hasUnsavedData} from '../unsaved.js';
+import React, { useEffect, useState, useRef } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { patientApi } from '../api/patientApi.js';
 
@@ -31,9 +32,11 @@ export { PMsg, PDocs, SettingsPage };
 
 export default function PatientPages({ page, setPage, setShowQR, pills, setPills, setShowVid, onProfileSaved, onBadgesChange, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
+  const generations=useRef({});
   const [apiData, setApiData] = useState({});
   const [apiLoading, setApiLoading] = useState({});
-  const [apiError, setApiError] = useState('');
+  const [apiError, setApiError] = useState({}); // erreur de chargement par page
+  const [pagination,setPagination]=useState({});
   const [notice, setNotice] = useState(null);
 
   const notify = (message, type = 'success') => {
@@ -41,7 +44,10 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     window.setTimeout(() => setNotice(null), 2600);
   };
 
-  const loadPage = (pageKey, force = false) => {
+  // Référence à jour de la pagination : les écouteurs globaux ne relisent pas un état périmé.
+  const paginationRef = useRef(pagination);
+  paginationRef.current = pagination;
+  const loadPage = (pageKey, force = false, listPage = paginationRef.current[pageKey]?.page || 1) => {
     const loaders = {
       dashboard: patientApi.dashboard,
       profile: patientApi.profile,
@@ -65,8 +71,8 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       pharmacy: patientApi.pharmacies,
       family: patientApi.familyMembers,
       privacy: async () => {
-        const [consents, accessLogs] = await Promise.all([patientApi.consents(), patientApi.accessLogs()]);
-        return { consents, accessLogs };
+        const [consents, accessLogs, careTeam] = await Promise.all([patientApi.consents(), patientApi.accessLogs(), patientApi.careTeam()]);
+        return { consents, accessLogs, careTeam };
       },
       settings: patientApi.settings,
     };
@@ -74,36 +80,45 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     if (!load) return;
     if (!force && apiData[pageKey]) return;
 
+    const generation=(generations.current[pageKey]||0)+1;generations.current[pageKey]=generation;
     setApiLoading((current) => ({ ...current, [pageKey]: true }));
-    load()
+    load({page:listPage})
       .then((raw) => {
+        if(generations.current[pageKey]!==generation)return;
         // Déballe les enveloppes paginées { data:[...], pagination } en tableau,
         // pour un format de liste uniforme côté composants.
         const data = raw && !Array.isArray(raw) && Array.isArray(raw.data) && raw.pagination
           ? raw.data
           : raw;
+        if(raw?.pagination)setPagination(current=>({...current,[pageKey]:raw.pagination}));
         setApiData((current) => ({ ...current, [pageKey]: data }));
-        setApiError('');
+        setApiError((current) => ({ ...current, [pageKey]: null }));
       })
       .catch((error) => {
-        setApiError(error.message);
+        if(generations.current[pageKey]!==generation)return;
+        setApiError((current) => ({ ...current, [pageKey]: error.message }));
       })
       .finally(() => {
+        if(generations.current[pageKey]!==generation)return;
         setApiLoading((current) => ({ ...current, [pageKey]: false }));
       });
   };
 
   useEffect(() => {
-    loadPage(page);
+    loadPage(page,true);
   }, [page]);
+
+  // Après une modification ou un retour sur l'onglet : la page courante reste affichée pendant son rechargement ; les autres seront rechargées à l'ouverture.
+  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData((current)=>({[page]:current[page]}));loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));
   };
   const replaceNotifications = (value) => {
     replacePageData('notifications', value);
-    if (Array.isArray(value)) {
-      onBadgesChange?.({ notifications: value.filter((n) => !n.isRead).length });
+    const list = Array.isArray(value) ? value : value?.data;
+    if (Array.isArray(list)) {
+      onBadgesChange?.({ notifications: list.filter((n) => !n.isRead).length });
     }
   };
   const replaceMessages = (value) => {
@@ -116,7 +131,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     setApiData((current) => ({ ...current, [key]: value, dashboard: undefined }));
   };
   const refreshDashboard = () => loadPage('dashboard', true);
-  const retryCurrentPage = () => { setApiError(''); loadPage(page, true); };
+  const retryCurrentPage = () => loadPage(page, true);
 
   const map = {
     dashboard: <PDash data={apiData.dashboard} loading={apiLoading.dashboard} onRefresh={refreshDashboard} setPage={setPage} setShowQR={setShowQR} setShowVid={setShowVid} {...p} />,
@@ -151,29 +166,30 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} {...p} />,
     family: <PFamily data={apiData.family} onReload={(v) => replacePageData('family', v)} notify={notify} {...p} />,
     privacy: <PPrivacy data={apiData.privacy} onReload={(v) => replacePageData('privacy', v)} notify={notify} {...p} />,
-    settings: <SettingsPage data={apiData.settings} {...p} />
+    settings: <SettingsPage data={apiData.settings} setPage={setPage} {...p} />
   };
 
   return (
     <>
-      {apiError && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
+      {apiError[page] && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <span>API indisponible — {apiError}</span>
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+            <span>Chargement impossible — {apiError[page]}</span>
           </div>
-          <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 flex-shrink-0">
+          <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 flex-shrink-0">
             Réessayer
           </button>
         </div>
       )}
 
       {notice && (
-        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-red-100 bg-white text-slate-900'}`}>
           {notice.message}
         </div>
       )}
 
+      {pagination[page]?.totalPages>1 && <nav aria-label="Pagination" className="flex gap-4 items-center mb-3"><button disabled={pagination[page].page<=1 || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page-1)}>Précédent</button><span>Page {pagination[page].page} / {pagination[page].totalPages} — {pagination[page].total} éléments</span><button disabled={!pagination[page].hasMore || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page+1)}>Suivant</button></nav>}
       {map[page] || <div className={`${card} border rounded-2xl p-8 text-center`}><p className={`${sub} text-sm`}>Page "{page}" en développement</p></div>}
     </>
   );

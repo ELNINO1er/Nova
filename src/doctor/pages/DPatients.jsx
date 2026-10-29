@@ -1,3 +1,4 @@
+import LabResultDetails from './LabResultDetails.jsx';
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
@@ -292,7 +293,7 @@ function PatientTabLabo({ pat, card, sub, border, darkMode }) {
           <p className={`text-xs ${sub}`}>Aucun résultat</p>
         ) : (pat.labResults || []).map(r => (
           <div key={r.id} className={`flex items-center justify-between py-2 border-b ${border} last:border-0`}>
-            <p className="text-xs font-semibold">{r.title}</p>
+            <div><p className="text-xs font-semibold">{r.title}</p><LabResultDetails id={r.id}/></div>
             <p className={`text-[10px] ${sub}`}>{new Date(r.performedAt).toLocaleDateString('fr-FR')}</p>
           </div>
         ))}

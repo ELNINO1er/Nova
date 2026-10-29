@@ -9,6 +9,31 @@ on:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: nova_test_root
+          MYSQL_DATABASE: nova_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pnova_test_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: nova_test_root
+      DB_NAME: nova_test
+      SEED_DEMO: "true"
+      JWT_SECRET: ci-test-access-secret-that-is-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-that-is-distinct-and-long
+      SMS_PROVIDER: demo
 
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +45,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Run tests
         run: npm test

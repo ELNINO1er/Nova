@@ -1,8 +1,30 @@
-import React, { useState } from 'react';
-import { Heart, HeartPulse, Activity, Droplet, Thermometer, TrendingUp, Plus, Check } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Heart, HeartPulse, Droplet, Thermometer, TrendingUp, TrendingDown, Plus, Activity } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDate, formatShortDate } from '../../utils/format.js';
 import { PatientModal } from '../../components/PatientModal.jsx';
+import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import {
+  Button, Card, CardTitle, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile, inputClass,
+} from '../../components/patient/ui.jsx';
+
+const byDate = (a, b) => new Date(a.measuredAt) - new Date(b.measuredAt);
+const typeConfig = {
+  blood_pressure: { label: 'Tension artérielle', unit: 'mmHg', icon: HeartPulse,  normal: '12/8', ref: '< 14/9' },
+  blood_glucose:  { label: 'Glycémie',           unit: 'g/L',  icon: Droplet,     normal: '0.70–1.10', ref: '0,70–1,10' },
+  heart_rate:     { label: 'Fréquence cardiaque',unit: 'bpm',  icon: Heart,       normal: '60–100', ref: '60–100' },
+  temperature:    { label: 'Température',        unit: '°C',   icon: Thermometer, normal: '36.1–37.2', ref: '36,1–37,2' },
+};
+// Affichage : virgule décimale française (la tension reste « 12/8 »).
+const show = (v) => (v == null || v === '' ? '—' : String(v).replace('.', ','));
+
+// Champs cherchables de l'historique des mesures, du plus au moins important.
+const FIELDS = (v) => {
+  const c = typeConfig[v.type];
+  return [c?.label || v.type, `${show(v.value)} ${v.value ?? ''} ${c?.unit || ''}`, searchableDate(v.measuredAt)];
+};
+
+const fr = (n, digits = 1) => (Number.isFinite(n) ? n.toLocaleString('fr-FR', { maximumFractionDigits: digits }) : '—');
 
 export default function PVitals({ data, onAddVital, notify, card, sub, border, darkMode }) {
   const [activeType, setActiveType] = useState('blood_pressure');
@@ -10,21 +32,22 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
   const [showAdd, setShowAdd]       = useState(false);
   const [addForm, setAddForm]       = useState({ type: 'blood_pressure', value: '' });
   const [saving, setSaving]         = useState(false);
-
-  const typeConfig = {
-    blood_pressure: { label: 'Tension artérielle', unit: 'mmHg', color: '#ef4444', icon: HeartPulse,  normal: '12/8', ref: '< 14/9' },
-    blood_glucose:  { label: 'Glycémie',           unit: 'g/L',  color: '#f97316', icon: Droplet,     normal: '0.70–1.10', ref: '0.70–1.10' },
-    heart_rate:     { label: 'Fréquence cardiaque',unit: 'bpm',  color: '#8b5cf6', icon: Heart,       normal: '60–100', ref: '60–100' },
-    temperature:    { label: 'Température',        unit: '°C',   color: '#06b6d4', icon: Thermometer, normal: '36.1–37.2', ref: '36.1–37.2' },
-  };
+  const [query, setQuery]           = useUrlQuery();
+  // Historique : constante choisie ou toutes (toutes d'emblée si on arrive avec une recherche globale).
+  const [scope, setScope]           = useState(() => (query ? 'all' : 'current'));
 
   const allVitals = data ?? [];
   const typeVitals = allVitals
     .filter(v => v.type === activeType)
-    .sort((a, b) => new Date(a.measuredAt) - new Date(b.measuredAt))
+    .sort(byDate)
     .slice(-range);
 
   const cfg = typeConfig[activeType];
+
+  // Historique complet (plus récent d'abord), recherché puis restreint à la constante choisie.
+  const history = useMemo(() => [...(data ?? [])].sort((a, b) => byDate(b, a)), [data]);
+  const found = useSearch(history, query, FIELDS);
+  const historyRows = scope === 'current' ? found.filter(v => v.type === activeType) : found;
 
   const toNum = (v) => {
     if (activeType === 'blood_pressure') return Number(String(v).split('/')[0]);
@@ -38,17 +61,17 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
   const yMin = minV - pad;
   const yMax = maxV + pad;
 
-  const W = 600, H = 160;
+  const W = 600, H = 180;
   const points = typeVitals.map((v, i) => {
-    const x = typeVitals.length < 2 ? W / 2 : (i / (typeVitals.length - 1)) * (W - 20) + 10;
+    const x = typeVitals.length < 2 ? W / 2 : (i / (typeVitals.length - 1)) * (W - 40) + 20;
     const n = toNum(v.value);
-    const y = Number.isFinite(n) ? H - ((n - yMin) / (yMax - yMin)) * (H - 20) - 10 : H / 2;
+    const y = Number.isFinite(n) ? (H - 24) - ((n - yMin) / (yMax - yMin)) * (H - 44) : H / 2;
     return { x, y, v, raw: v };
   });
 
   const polyline = points.map(p => `${p.x},${p.y}`).join(' ');
   const area = points.length > 1
-    ? `M${points[0].x},${H} ` + points.map(p => `L${p.x},${p.y}`).join(' ') + ` L${points[points.length-1].x},${H} Z`
+    ? `M${points[0].x},${H - 24} ` + points.map(p => `L${p.x},${p.y}`).join(' ') + ` L${points[points.length-1].x},${H - 24} Z`
     : '';
 
   const latest = typeVitals.at(-1);
@@ -75,152 +98,166 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
   };
 
   if (!data) return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-bold">Mes constantes</h2>
-      <div className={`${card} border rounded-2xl p-6`}>
-        <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-48 rounded-xl`} />
+    <div className="space-y-5">
+      <PageHeader title="Mes constantes" sub={sub} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        {[0, 1, 2, 3].map(i => <div key={i} className={`animate-pulse h-32 rounded-3xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
       </div>
+      <Card darkMode={darkMode}><div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
     </div>
   );
 
+  const axis = darkMode ? '#94a3b8' : '#64748b';
+  const grid = darkMode ? '#1e293b' : '#fee2e2';
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-2xl font-bold">Mes constantes</h2>
-          <p className={`text-sm ${sub}`}>{typeVitals.length} mesures · {cfg.label}</p>
-        </div>
-        <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5">
-          <Plus className="w-3 h-3" /> Ajouter une mesure
-        </button>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Mes constantes" sub={sub}
+        subtitle={`${typeVitals.length} mesure${typeVitals.length > 1 ? 's' : ''} · ${cfg.label}`}
+        actions={<Button Icon={Plus} onClick={() => setShowAdd(true)}>Ajouter une mesure</Button>} />
 
       {showAdd && (
-        <>
-          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => setShowAdd(false)} aria-label="Fermer" />
-          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold">Nouvelle mesure</h3>
-              <button onClick={() => setShowAdd(false)}><X className="w-4 h-4" /></button>
-            </div>
-            <div className="space-y-3">
+        <PatientModal title="Nouvelle mesure" onClose={() => setShowAdd(false)} card={card} darkMode={darkMode} maxWidth="max-w-sm">
+          <div className="space-y-4">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Constante</span>
               <select value={addForm.type} onChange={e => setAddForm(f => ({ ...f, type: e.target.value, value: '' }))}
-                className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+                className={`mt-1 ${inputClass(darkMode)}`}>
                 {Object.entries(typeConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
-              <div>
-                <input value={addForm.value} onChange={e => setAddForm(f => ({ ...f, value: e.target.value }))}
-                  placeholder={typeConfig[addForm.type].normal} onKeyDown={e => e.key === 'Enter' && saveVital()}
-                  className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-                <p className={`text-xs ${sub} mt-1`}>Format attendu : {typeConfig[addForm.type].normal} ({typeConfig[addForm.type].unit})</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={saveVital} disabled={saving || !addForm.value.trim()}
-                  className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold disabled:opacity-50">
-                  {saving ? 'Enregistrement…' : 'Enregistrer'}
-                </button>
-                <button onClick={() => setShowAdd(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
-              </div>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Valeur ({typeConfig[addForm.type].unit})</span>
+              <input value={addForm.value} onChange={e => setAddForm(f => ({ ...f, value: e.target.value }))}
+                placeholder={typeConfig[addForm.type].normal} onKeyDown={e => e.key === 'Enter' && saveVital()}
+                className={`mt-1 ${inputClass(darkMode)}`} />
+              <span className={`block text-xs ${sub} mt-1.5`}>Format attendu : {typeConfig[addForm.type].normal} {typeConfig[addForm.type].unit}</span>
+            </label>
+            <div className="flex gap-2 pt-1">
+              <Button variant="secondary" darkMode={darkMode} className="flex-1" onClick={() => setShowAdd(false)}>Annuler</Button>
+              <Button className="flex-1" onClick={saveVital} disabled={saving || !addForm.value.trim()}>
+                {saving ? 'Enregistrement…' : 'Enregistrer'}
+              </Button>
             </div>
           </div>
-        </>
+        </PatientModal>
       )}
 
-      {/* Type selector */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* Sélecteur de constante : la tuile choisie est en rouge plein. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
         {Object.entries(typeConfig).map(([type, c]) => {
-          const typeLatest = allVitals.filter(v => v.type === type).at(-1);
-          const isAct = activeType === type;
-          const Icon = c.icon;
+          const typeLatest = allVitals.filter(v => v.type === type).sort(byDate).at(-1);
           return (
-            <button key={type} onClick={() => setActiveType(type)}
-              className={`rounded-2xl p-3 text-left transition-all ${isAct ? 'ring-2 ring-offset-1' : ''} ${darkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white border border-slate-200 hover:border-slate-300'} ${isAct ? 'ring-red-500' : ''}`}
-              style={isAct ? { borderColor: c.color } : {}}>
-              <Icon className="w-4 h-4 mb-1" style={{ color: c.color }} />
-              <p className={`text-[10px] font-semibold ${sub}`}>{c.label}</p>
-              <p className="text-lg font-black mt-0.5">{typeLatest ? typeLatest.value : '—'}</p>
-              <p className={`text-[10px] ${sub}`}>{c.unit}</p>
-            </button>
+            <StatTile key={type} label={c.label} Icon={c.icon} darkMode={darkMode}
+              highlight={activeType === type} onClick={() => setActiveType(type)}
+              value={typeLatest ? show(typeLatest.value) : '—'} unit={typeLatest ? c.unit : undefined}
+              hint={typeLatest ? formatShortDate(typeLatest.measuredAt) : 'Aucune mesure'} />
           );
         })}
       </div>
 
-      {/* Chart */}
-      <div className={`${card} border rounded-2xl p-5`}>
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className={`text-xs font-semibold ${sub}`}>{cfg.label}</p>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-3xl font-black">{latest?.value ?? '—'}</span>
-                <span className={`text-sm ${sub}`}>{cfg.unit}</span>
-                {trend === 'up'   && <TrendingUp  className="w-4 h-4 text-red-500" />}
-                {trend === 'down' && <TrendingUp  className="w-4 h-4 text-emerald-500 rotate-180" />}
-              </div>
-              {latest && <p className={`text-xs ${sub} mt-0.5`}>{formatDate(latest.measuredAt)}</p>}
+      <Card darkMode={darkMode}>
+        <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+          <div>
+            <p className={`text-sm font-medium ${sub}`}>{cfg.label} · dernière mesure</p>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-3xl font-bold tabular-nums">{show(latest?.value)}</span>
+              {latest && <span className={`text-sm ${sub}`}>{cfg.unit}</span>}
+              {trend === 'up'   && <TrendingUp className="w-4 h-4 text-red-600 self-center" aria-label="En hausse" />}
+              {trend === 'down' && <TrendingDown className="w-4 h-4 text-slate-500 self-center" aria-label="En baisse" />}
             </div>
+            {latest && <p className={`text-xs ${sub} mt-0.5`}>{formatDate(latest.measuredAt)}</p>}
           </div>
-          <div className={`flex gap-1 p-1 rounded-lg ${darkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
-            {[7, 14, 30].map(r => (
-              <button key={r} onClick={() => setRange(r)}
-                className={`px-2.5 py-1 rounded text-xs font-semibold ${range === r ? 'bg-white text-slate-900 shadow' : sub}`}>
-                {r}j
-              </button>
-            ))}
-          </div>
+          <Pills darkMode={darkMode} value={range} onChange={setRange}
+            options={[[7, '7 dernières'], [14, '14 dernières'], [30, '30 dernières']]} />
         </div>
 
         {typeVitals.length < 2 ? (
-          <div className={`flex items-center justify-center h-32 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-            <p className={`text-sm ${sub}`}>Pas assez de données — ajoutez des mesures</p>
+          <div className={`flex items-center justify-center h-32 rounded-2xl border border-dashed ${darkMode ? 'border-slate-700' : 'border-red-100'}`}>
+            <p className={`text-sm ${sub}`}>Pas assez de données : ajoutez au moins deux mesures.</p>
           </div>
         ) : (
-          <div className="relative w-full overflow-x-auto">
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minHeight: '120px' }}>
-              <defs>
-                <linearGradient id={`grad-${activeType}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={cfg.color} stopOpacity="0.25" />
-                  <stop offset="100%" stopColor={cfg.color} stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {area && <path d={area} fill={`url(#grad-${activeType})`} />}
-              {points.length > 1 && <polyline points={polyline} fill="none" stroke={cfg.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+          <div className="w-full">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minHeight: '140px' }} role="img" aria-label={`Évolution : ${cfg.label}`}>
+              {[0, 0.5, 1].map(t => {
+                const y = 20 + t * (H - 44);
+                return <line key={t} x1="20" x2={W - 20} y1={y} y2={y} stroke={grid} strokeDasharray="4 4" />;
+              })}
+              {area && <path d={area} fill="#dc2626" fillOpacity={darkMode ? 0.15 : 0.07} />}
+              {points.length > 1 && <polyline points={polyline} fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
               {points.map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={cfg.color} stroke={darkMode ? '#1e293b' : 'white'} strokeWidth="2" />
+                <circle key={i} cx={p.x} cy={p.y} r={i === points.length - 1 ? 5 : 3.5} fill="#dc2626" stroke={darkMode ? '#0f172a' : 'white'} strokeWidth="2">
+                  <title>{`${show(p.v.value)} ${cfg.unit} · ${formatDate(p.v.measuredAt)}`}</title>
+                </circle>
               ))}
-              {/* X axis labels — only first and last */}
-              {typeVitals.length > 1 && <>
-                <text x={points[0].x} y={H - 2} textAnchor="middle" fontSize="9" fill={darkMode ? '#94a3b8' : '#64748b'}>{formatShortDate(typeVitals[0].measuredAt)}</text>
-                <text x={points[points.length-1].x} y={H - 2} textAnchor="middle" fontSize="9" fill={darkMode ? '#94a3b8' : '#64748b'}>{formatShortDate(typeVitals.at(-1).measuredAt)}</text>
-              </>}
+              <text x={points[0].x} y={H - 4} textAnchor="start" fontSize="11" fill={axis}>{formatShortDate(typeVitals[0].measuredAt)}</text>
+              <text x={points[points.length-1].x} y={H - 4} textAnchor="end" fontSize="11" fill={axis}>{formatShortDate(typeVitals.at(-1).measuredAt)}</text>
             </svg>
           </div>
         )}
 
-        <div className={`mt-3 pt-3 border-t ${border} flex items-center gap-4 text-xs ${sub} flex-wrap`}>
-          <span>Normale : <strong>{cfg.ref} {cfg.unit}</strong></span>
-          {nums.length > 0 && <>
-            <span>Min : <strong>{Math.min(...nums)}</strong></span>
-            <span>Max : <strong>{Math.max(...nums)}</strong></span>
-            <span>Moy : <strong>{(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1)}</strong></span>
-          </>}
-        </div>
-      </div>
+        <dl className={`mt-4 pt-4 border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'} grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm`}>
+          <div><dt className="text-xs text-slate-500">Valeurs normales</dt><dd className="font-semibold mt-0.5">{cfg.ref} {cfg.unit}</dd></div>
+          <div><dt className="text-xs text-slate-500">Minimum</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(Math.min(...nums)) : '—'}</dd></div>
+          <div><dt className="text-xs text-slate-500">Maximum</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(Math.max(...nums)) : '—'}</dd></div>
+          <div><dt className="text-xs text-slate-500">Moyenne</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(nums.reduce((a, b) => a + b, 0) / nums.length) : '—'}</dd></div>
+        </dl>
+        {activeType === 'blood_pressure' && nums.length > 0 && <p className={`text-xs mt-2 ${sub}`}>Statistiques calculées sur la systolique.</p>}
+      </Card>
 
-      {/* History table */}
-      <div className={`${card} border rounded-2xl p-4`}>
-        <h3 className="font-bold text-sm mb-3">Historique ({typeVitals.length} mesures)</h3>
-        <div className="space-y-1.5 max-h-64 overflow-y-auto">
-          {[...typeVitals].reverse().map((v, i) => (
-            <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-              <span className={`text-xs ${sub}`}>{formatDate(v.measuredAt)}</span>
-              <span className="font-bold text-sm">{v.value} <span className={`text-xs font-normal ${sub}`}>{cfg.unit}</span></span>
+      <Card darkMode={darkMode} className="!p-0 overflow-hidden">
+        <div className="px-5 pt-5">
+          <CardTitle Icon={Activity}>Historique des mesures</CardTitle>
+          {history.length > 0 && (
+            <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+              <SearchInput value={query} onChange={setQuery} count={historyRows.length} darkMode={darkMode} className="w-full lg:max-w-md"
+                placeholder="Rechercher une valeur, une date, une constante…" />
+              <div className="lg:ml-auto">
+                <Pills darkMode={darkMode} value={scope} onChange={setScope} options={[
+                  ['current', cfg.label, found.filter(v => v.type === activeType).length],
+                  ['all', 'Toutes les constantes', found.length],
+                ]} />
+              </div>
             </div>
-          ))}
+          )}
         </div>
-      </div>
+        {history.length === 0 || (!query && historyRows.length === 0) ? (
+          <div className="px-5 pb-5">
+            <EmptyState title="Aucune mesure" darkMode={darkMode}
+              action={<Button Icon={Plus} onClick={() => setShowAdd(true)}>Ajouter une mesure</Button>}>
+              {history.length === 0 ? 'Enregistrez votre première mesure pour suivre son évolution.' : `Aucune mesure de ${cfg.label.toLowerCase()} pour le moment.`}
+            </EmptyState>
+          </div>
+        ) : historyRows.length === 0 ? (
+          <div className="px-5 pb-5"><NoResults query={query} onClear={() => setQuery('')} darkMode={darkMode} /></div>
+        ) : (
+          <>
+            <div className={`hidden sm:grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem] gap-4 px-5 py-3 text-xs font-semibold text-slate-500 ${darkMode ? 'bg-slate-800/40' : 'bg-red-50/50'}`}>
+              <span>Constante</span><span>Date</span><span className="text-right">Valeur</span>
+            </div>
+            <ul className={`max-h-96 overflow-y-auto divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
+              {historyRows.map((v, i) => {
+                const c = typeConfig[v.type] || { label: v.type, unit: '', icon: Activity };
+                return (
+                  <li key={v.id ?? `${v.type}-${v.measuredAt}-${i}`} className="px-5 py-3 flex sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem] items-center gap-3 sm:gap-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <IconBadge Icon={c.icon} size="sm" solid={i === 0 && !query} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate"><Highlight text={c.label} query={query} /></p>
+                        <p className={`text-xs sm:hidden ${sub}`}><Highlight text={formatDate(v.measuredAt)} query={query} /></p>
+                      </div>
+                    </div>
+                    <span className={`hidden sm:block text-sm ${sub}`}><Highlight text={formatDate(v.measuredAt)} query={query} /></span>
+                    <span className={`text-sm font-semibold tabular-nums text-right whitespace-nowrap ${darkMode ? 'text-white' : 'text-slate-900'}`}>
+                      <Highlight text={show(v.value)} query={query} /> <span className="font-normal text-slate-500">{c.unit}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </Card>
     </div>
   );
 }
-
-/* ============ RECHERCHE MÉDECINS ============ */

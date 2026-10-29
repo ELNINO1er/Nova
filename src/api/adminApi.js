@@ -11,6 +11,28 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify({ isAvailable }),
     }),
+  createDoctor: (payload) => request('/admin/me/doctors', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  changeOwnPassword: (currentPassword, newPassword) => request('/auth/password/self-change', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  }),
+  me: () => request('/auth/me'),
+  createDoctorLogin: (doctorId, phone) => request(`/admin/me/doctors/${doctorId}/account`, {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  }),
+  resetPassword: (userId) => request(`/admin/me/users/${userId}/reset-password`, { method: 'POST' }),
+  // Double validation des réinitialisations de comptes sensibles (médecin, admin, santé publique).
+  resetRequests: () => request('/admin/me/reset-requests'),
+  decideReset: (requestId, approve) => request(`/admin/me/reset-requests/${requestId}/${approve ? 'approve' : 'reject'}`, { method: 'POST' }),
+  // Pharmacien ou gouverneur (les médecins passent par createDoctor).
+  createAccount: (payload) => request('/admin/me/accounts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
   setPharmacyStatus: (id, isOpen) =>
     request(`/admin/me/pharmacies/${id}/status`, {
       method: 'PATCH',

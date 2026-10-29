@@ -1,3 +1,5 @@
+import LabResultDetails from './LabResultDetails.jsx';
+import {useUnsaved} from '../../unsaved.js';
 import React, { useState, useEffect } from 'react';
 import { Microscope, Plus, Send, Save, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
@@ -5,6 +7,7 @@ import { formatDate, initials } from '../../utils/format.js';
 
 export default function DLabRequests({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm, setShowForm] = useState(false);
+  const [resultRequest,setResultRequest]=useState(null);
   const [form,     setForm]     = useState({ patientId: '', type: 'blood', title: '', notes: '' });
   const [saving,   setSaving]   = useState(false);
 
@@ -46,6 +49,7 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
 
   return (
     <div className="space-y-4">
+      {resultRequest && <ResultForm request={resultRequest} onClose={()=>setResultRequest(null)} onDone={()=>{setResultRequest(null);onReload();}} notify={notify} />}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div><h2 className="text-2xl font-bold">Demandes d'analyses</h2><p className={`text-sm ${sub}`}>{requests.length} demandes</p></div>
         <button onClick={handleShowForm}
@@ -125,6 +129,8 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
                     <p className={`text-xs ${sub}`}>{new Date(r.requestedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
                   </div>
                   {r.notes && <p className={`text-xs ${sub} mt-1 truncate`}>{r.notes}</p>}
+                  {r.resultId&&<LabResultDetails id={r.resultId}/>}
+                  {r.status==='pending'&&<button type="button" onClick={()=>setResultRequest(r)} className="mt-2 border rounded-lg px-3 py-2 text-sm text-red-700">Transcrire le résultat reçu</button>}
                 </div>
               </div>
             );
@@ -138,3 +144,17 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
 /* ════════════════════════════════════════════════════════════════
    SUIVI CHRONIQUES
    ════════════════════════════════════════════════════════════════ */
+
+function ResultForm({request,onClose,onDone,notify}) {
+ const [lab,setLab]=useState(''),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[text,setText]=useState(''),[busy,setBusy]=useState(false);
+ useUnsaved(true,JSON.stringify({lab,date,text}));
+ const save=async()=>{if(busy)return;setBusy(true);try{
+ const items=text.split('\n').filter(x=>x.trim()).map(x=>{const [name,value,unit,status]=x.split('|').map(v=>v.trim());return {name,value,unit,status:status||'normal'};});
+ await doctorApi.recordLabResult(request.id,{laboratoryName:lab,performedAt:new Date(date+'T00:00:00Z').toISOString(),items});notify('Résultat enregistré.');onDone();
+ }catch(e){notify(e.message,'error');}finally{setBusy(false);}};
+ return <section className="p-5 border rounded-xl space-y-3"><h3 className="font-bold">Résultat : {request.title}</h3><p className="text-sm">Transcription par le médecin prescripteur d’un document reçu. Indiquez le laboratoire d’origine.</p>
+ <label className="block">Laboratoire<input className="block border rounded p-2 w-full" value={lab} onChange={e=>setLab(e.target.value)}/></label>
+ <label className="block">Date de réalisation<input type="date" className="block border rounded p-2" value={date} max={new Date().toISOString().slice(0,10)} onChange={e=>setDate(e.target.value)}/></label>
+ <label className="block">Résultats (une ligne par analyse : nom | valeur | unité | statut)<textarea className="block border rounded p-2 w-full" rows={5} value={text} onChange={e=>setText(e.target.value)} placeholder="Glycémie | 0.95 | g/L | normal"/></label><p className="text-xs">Statuts : normal, high, low, critical. La validation clinique reste à la charge du médecin.</p>
+ <button type="button" disabled={busy||lab.trim().length<2||!text.trim()} onClick={save} className="bg-red-600 text-white rounded px-4 py-2 disabled:opacity-50">Enregistrer</button><button type="button" onClick={onClose} className="px-4 py-2">Annuler</button></section>;
+}

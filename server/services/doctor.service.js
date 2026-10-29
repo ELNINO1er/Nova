@@ -1,24 +1,32 @@
+import {persistMessage} from './messaging.service.js';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
-import { sendOtp } from './auth.service.js';
-import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral } from './notification.service.js';
+import { getMedicalProfile,getLabResult } from './patient.service.js';
+import { medicalList } from './medical-profile.js';
+import { assertDoctorPatientAccess, doctorAccessClause, hasDoctorPatientAccess } from './access.js';
+import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
+import { generateProvisionalPassword, passwordPolicyError } from './auth.service.js';
+import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral, notifyPatientAppointmentStatus } from './notification.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
 export async function getDoctorDashboard(doctorId) {
+  const currentAccess = doctorAccessClause(doctorId, 'p.id');
   const todayStr = new Date().toISOString().slice(0, 10);
   const monthStr = new Date().toISOString().slice(0, 7);
 
   const [[doctor]]         = await pool.execute(`SELECT * FROM nova_doctors WHERE id = ?`, [doctorId]);
   const [todayAppts]       = await pool.execute(
     `SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type
+     , (${currentAccess.sql}) AS has_access
      FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
-    [doctorId, `${todayStr}%`]
+     WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${currentAccess.sql}) AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
+    [...currentAccess.params, doctorId, ...currentAccess.params, `${todayStr}%`]
   );
+  const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
-    `SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM nova_appointments WHERE doctor_id = ?`, [doctorId]
+    `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ monthCons }]] = await pool.execute(
     `SELECT COUNT(*) AS monthCons FROM nova_consultations WHERE doctor_id = ? AND started_at LIKE ?`,
@@ -31,8 +39,8 @@ export async function getDoctorDashboard(doctorId) {
   const [recentCons] = await pool.execute(
     `SELECT c.*, p.first_name, p.last_name FROM nova_consultations c
      JOIN nova_patients p ON p.id = c.patient_id
-     WHERE c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 5`,
-    [doctorId]
+     WHERE c.doctor_id = ? AND ${currentAccess.sql} ORDER BY c.started_at DESC LIMIT 5`,
+    [doctorId, ...currentAccess.params]
   );
 
   return {
@@ -54,12 +62,12 @@ export async function getDoctorDashboard(doctorId) {
 /* ─── Patients ───────────────────────────────────────────────── */
 
 export async function getDoctorPatients(doctorId, query = {}) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   let sql = `
-    SELECT DISTINCT p.*
+    SELECT p.*
     FROM nova_patients p
-    JOIN nova_appointments a ON a.patient_id = p.id
-    WHERE a.doctor_id = ?`;
-  const args = [doctorId];
+    WHERE p.deleted_at IS NULL AND ${access.sql}`;
+  const args = [...access.params];
   if (query.search) {
     sql += ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.cmu_number LIKE ? OR p.phone LIKE ?)`;
     const s = `%${query.search}%`;
@@ -92,17 +100,12 @@ export async function getDoctorPatient(doctorId, patientId) {
     `SELECT * FROM nova_lab_results WHERE patient_id = ? ORDER BY performed_at DESC LIMIT 5`, [patientId]
   );
 
-  const mpData = mp ? {
-    allergies:       safeJson(mp.allergies),
-    chronicDiseases: safeJson(mp.chronic_diseases),
-    familyHistory:   safeJson(mp.family_history),
-    surgicalHistory: safeJson(mp.surgical_history),
-  } : { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
+  const mpData = await getMedicalProfile(patientId);
 
   return {
     ...mapPatientFull(patient),
     medicalProfile: mpData,
-    vitals: vitals.map(v => ({ id: v.id, type: v.type, label: v.label, value: v.value, unit: v.unit, measuredAt: v.measured_at })),
+    vitals: vitals.map(v => ({ id: v.id, type: v.type, label: v.label, value: v.value, unit: v.unit, measuredAt: v.measured_at,sourceRole:v.source_role||'legacy',authorId:v.author_id })),
     consultations: consultations.map(c => ({
       id: c.id, motif: c.motif, diagnosisMain: c.diagnosis_main, notes: c.notes,
       recommendations: c.recommendations, status: c.status, startedAt: c.started_at,
@@ -115,11 +118,14 @@ export async function getDoctorPatient(doctorId, patientId) {
 /* ─── Rendez-vous ────────────────────────────────────────────── */
 
 export async function getDoctorAppointments(doctorId, query = {}) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   let sql = `
-    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone
+    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone,
+           (${access.sql}) AS has_access
     FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-    WHERE a.doctor_id = ?`;
-  const args = [doctorId];
+    WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${access.sql})`;
+  // Une demande reste visible pour être acceptée ou refusée, mais sans ouvrir le dossier.
+  const args = [...access.params, doctorId, ...access.params];
   if (query.date)   { sql += ' AND a.starts_at LIKE ?'; args.push(`${query.date}%`); }
   if (query.status) { sql += ' AND a.status = ?'; args.push(query.status); }
   sql += ' ORDER BY a.starts_at DESC';
@@ -127,35 +133,39 @@ export async function getDoctorAppointments(doctorId, query = {}) {
   return rows.map(mapApptWithPatient);
 }
 
-export async function updateDoctorAppointment(doctorId, id, changes) {
-  const [[existing]] = await pool.execute(
-    `SELECT id FROM nova_appointments WHERE id = ? AND doctor_id = ?`, [id, doctorId]
-  );
-  if (!existing) return null;
-  const sets = []; const vals = [];
-  if (changes.status)   { sets.push('status = ?');    vals.push(changes.status); }
-  if (changes.startsAt) { sets.push('starts_at = ?'); vals.push(changes.startsAt); }
-  if (changes.location) { sets.push('location = ?');  vals.push(changes.location); }
-  if (!sets.length) return null;
-  vals.push(id);
-  vals.push(doctorId);
-  await pool.execute(`UPDATE nova_appointments SET ${sets.join(', ')} WHERE id = ? AND doctor_id = ?`, vals);
-  const [[row]] = await pool.execute(
-    `SELECT a.*, p.first_name, p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id WHERE a.id = ? AND a.doctor_id = ?`, [id, doctorId]
-  );
-  return mapApptWithPatient(row);
+export async function updateDoctorAppointment(doctorId,id,changes){
+  const result=await withDoctorSchedule(doctorId,async(conn)=>{
+    const [[row]]=await conn.execute('SELECT * FROM nova_appointments WHERE id=? AND doctor_id=? FOR UPDATE',[id,doctorId]);
+    if(!row) return null;
+    if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'doctor');
+    // Répondre à une demande ne nécessite pas d'accès : c'est l'acceptation qui ouvre le dossier.
+    if(row.status!=='requested') await assertDoctorPatientAccess(doctorId,row.patient_id);
+    let startsAt=row.starts_at;
+    if(changes.startsAt&&new Date(changes.startsAt).toISOString()!==row.starts_at){
+      startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);await assertDoctorSlotFree(doctorId,startsAt,id,conn);
+      await releaseSlotFor(row,conn);await reserveMatchingSlot(conn,doctorId,startsAt,row.patient_id);
+    }
+    if(changes.status==='cancelled') await releaseSlotFor(row,conn);
+    await conn.execute('UPDATE nova_appointments SET starts_at=?,status=?,location=?,updated_at=? WHERE id=?',[startsAt,changes.status||row.status,changes.location||row.location,new Date().toISOString(),id]);
+    const [[updated]]=await conn.execute('SELECT a.*,p.first_name,p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id=a.patient_id WHERE a.id=?',[id]);return updated;
+  });
+  if(!result) return null;
+  notifyPatientAppointmentStatus(result.patient_id,'Votre medecin',result.status,result.starts_at).catch(()=>{});
+  return mapApptWithPatient(result);
 }
 
 /* ─── Consultations ──────────────────────────────────────────── */
 
 export async function getDoctorConsultations(doctorId) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
     `SELECT c.*, p.first_name, p.last_name, p.cmu_number
      FROM nova_consultations c JOIN nova_patients p ON p.id = c.patient_id
-     WHERE c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 50`,
-    [doctorId]
+     WHERE c.doctor_id = ? AND ${access.sql} ORDER BY c.started_at DESC`,
+    [doctorId, ...access.params]
   );
-  return rows.map(r => ({
+  const amendments=await Promise.all(rows.map(async r=>{const [list]=await pool.execute('SELECT reason,content,created_at FROM nova_consultation_amendments WHERE consultation_id=? ORDER BY created_at',[r.id]);return list;}));
+  return rows.map((r,index) => ({
     id:                 r.id,
     patientId:          r.patient_id,
     patientName:        `${r.first_name} ${r.last_name}`,
@@ -168,12 +178,19 @@ export async function getDoctorConsultations(doctorId) {
     status:             r.status,
     startedAt:          r.started_at,
     completedAt:        r.completed_at,
+    amendments:amendments[index],
   }));
 }
 
 /* ─── Créer un patient depuis l'espace médecin ───────────────── */
 
 export async function createPatientByDoctor(doctorId, payload) {
+  // Mot de passe choisi par le médecin, ou généré ; le patient le change à sa première connexion.
+  const provisionalPassword = payload.password || generateProvisionalPassword();
+  const policyError = passwordPolicyError('patient', provisionalPassword);
+  if (policyError) throw Object.assign(new Error(`Mot de passe : ${policyError}`), { status: 422, code: 'weak_password' });
+  const passwordHash = await bcrypt.hash(provisionalPassword, 12);
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -190,7 +207,7 @@ export async function createPatientByDoctor(doctorId, payload) {
     // 2. Créer le patient
     const patientId = randomUUID();
     const now = new Date().toISOString();
-    const cmuNumber = payload.cmuNumber || `CI-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
+    const cmuNumber = payload.cmuNumber?.trim() || null;
 
     await conn.execute(
       `INSERT INTO nova_patients (id, cmu_number, first_name, last_name, birth_date, sex, blood_type, phone, email, address, city, weight_kg, height_cm, emergency_name, emergency_relationship, emergency_phone, updated_at, created_at)
@@ -215,33 +232,25 @@ export async function createPatientByDoctor(doctorId, payload) {
        now]
     );
 
-    // 4. Créer le user avec un code temporaire (sera remplacé par OTP)
+    // 4. Créer le compte de connexion (téléphone + mot de passe provisoire)
     const userId = randomUUID();
-    const tempCode = String(Math.floor(1000 + Math.random() * 9000));
-    const codeHash = await bcrypt.hash(tempCode, 10);
+    const unusableLegacyHash = await bcrypt.hash(randomUUID(), 10);
     const avatar = `${(payload.firstName?.[0] || '').toUpperCase()}${(payload.lastName?.[0] || '').toUpperCase()}`;
 
     await conn.execute(
-      `INSERT INTO nova_users (id, phone, code_hash, role, patient_id, name, avatar, created_at)
-       VALUES (?, ?, ?, 'patient', ?, ?, ?, ?)`,
-      [userId, phone, codeHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, must_change_password, role, patient_id, name, avatar, created_at)
+       VALUES (?, ?, ?, ?, 1, 'patient', ?, ?, ?, ?)`,
+      [userId, phone, unusableLegacyHash, passwordHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
     );
 
-    // 5. Créer un RDV initial pour lier docteur ↔ patient
-    const apptId = randomUUID();
-    const [[doctor]] = await conn.execute('SELECT first_name, last_name, specialty, city FROM nova_doctors WHERE id = ?', [doctorId]);
-    const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Dr.';
-
+    // 5. L'inscription ne vaut pas consentement : le patient doit accepter la demande.
     await conn.execute(
-      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?)`,
-      [apptId, patientId, now, doctorName, doctor?.specialty || '', doctor?.city || '', doctorId, now]
+      `INSERT INTO nova_consents (id, patient_id, doctor_id, status, scope, requested_at, responded_at, expires_at)
+       VALUES (?, ?, ?, 'pending', ?, NOW(3), NULL, NULL)`,
+      [randomUUID(), patientId, doctorId, JSON.stringify(['profile', 'vitals', 'consultations', 'prescriptions'])]
     );
 
     await conn.commit();
-
-    // 6. Envoyer OTP pour activation (hors transaction)
-    const otpResult = await sendOtp(phone).catch(() => null);
 
     return {
       patientId,
@@ -249,8 +258,8 @@ export async function createPatientByDoctor(doctorId, payload) {
       cmuNumber,
       name: `${payload.firstName} ${payload.lastName}`,
       phone,
-      otpSent: !!otpResult,
-      ...(otpResult?.devCode ? { devCode: otpResult.devCode } : {}),
+      // Affiché une seule fois au médecin, qui le remet au patient.
+      provisionalPassword,
     };
   } catch (err) {
     await conn.rollback();
@@ -260,45 +269,17 @@ export async function createPatientByDoctor(doctorId, payload) {
   }
 }
 
-async function verifyDoctorPatientRelation(doctorId, patientId) {
-  const access = await hasDoctorPatientAccess(doctorId, patientId);
-  if (!access) {
-    const err = new Error('Aucune relation avec ce patient.');
-    err.status = 403;
-    throw err;
-  }
-}
-
-async function hasDoctorPatientAccess(doctorId, patientId) {
-  const [[consent]] = await pool.execute(
-    `SELECT id FROM nova_consents
-     WHERE doctor_id = ? AND patient_id = ? AND status = 'granted'
-       AND (expires_at IS NULL OR expires_at > NOW())
-     LIMIT 1`,
-    [doctorId, patientId]
-  );
-  if (consent) return true;
-
-  const [[clinicalRelation]] = await pool.execute(
-    `SELECT id FROM (
-       SELECT id FROM nova_consultations WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_prescriptions WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_lab_requests WHERE doctor_id = ? AND patient_id = ?
-       UNION ALL
-       SELECT id FROM nova_appointments WHERE doctor_id = ? AND patient_id = ? AND status <> 'cancelled'
-     ) rel LIMIT 1`,
-    [doctorId, patientId, doctorId, patientId, doctorId, patientId, doctorId, patientId]
-  );
-  return !!clinicalRelation;
-}
+// Règle d'accès centralisée (services/access.js) : la révocation par le patient prime.
+const verifyDoctorPatientRelation = assertDoctorPatientAccess;
 
 export async function createConsultation(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  const conn=await pool.getConnection();
+  try{
+  await conn.beginTransaction();
   const id  = randomUUID();
   const now = new Date().toISOString();
-  await pool.execute(
+  await conn.execute(
     `INSERT INTO nova_consultations
       (id,patient_id,doctor_id,motif,diagnosis_main,diagnosis_secondary,notes,recommendations,status,started_at,completed_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
@@ -307,7 +288,7 @@ export async function createConsultation(doctorId, payload) {
      payload.notes || null, payload.recommendations || null,
      payload.status || 'completed', now, payload.status === 'draft' ? null : now]
   );
-  const [[row]] = await pool.execute(
+  const [[row]] = await conn.execute(
     `SELECT c.*, p.first_name, p.last_name FROM nova_consultations c
      JOIN nova_patients p ON p.id = c.patient_id WHERE c.id = ?`, [id]
   );
@@ -318,35 +299,53 @@ export async function createConsultation(doctorId, payload) {
     status: row.status, startedAt: row.started_at,
   };
 
-  // Notifier le patient
-  const [[doc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
-  notifyPatientConsultation(payload.patientId, `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`, id).catch(() => {});
+  // Notifier le patient et alimenter son historique médical
+  const [[doc]] = await conn.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+  const doctorName = `Dr. ${doc?.first_name || ''} ${doc?.last_name || ''}`.trim();
+  if (result.status !== 'draft') {
+    await conn.execute(
+      'INSERT INTO nova_medical_history (id, patient_id, type, title, occurred_at, doctor_name) VALUES (?, ?, ?, ?, ?, ?)',
+      [randomUUID(), payload.patientId, 'consultation', payload.diagnosisMain || payload.motif || 'Consultation', now, doctorName]
+    );
+  }
+  if(result.status!=='draft') await notifyPatientConsultation(payload.patientId, doctorName, id,conn);
+  await conn.commit();
 
   return result;
+  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }
 
 export async function updateConsultation(doctorId, id, changes) {
-  const [[existing]] = await pool.execute(
-    `SELECT id FROM nova_consultations WHERE id = ? AND doctor_id = ?`, [id, doctorId]
-  );
-  if (!existing) return null;
-  const sets = []; const vals = [];
-  const fields = ['motif','diagnosis_main','diagnosis_secondary','notes','recommendations','status'];
-  const map    = { motif:'motif', diagnosisMain:'diagnosis_main', diagnosisSecondary:'diagnosis_secondary', notes:'notes', recommendations:'recommendations', status:'status' };
-  for (const [k, col] of Object.entries(map)) {
-    if (changes[k] !== undefined) { sets.push(`${col} = ?`); vals.push(changes[k]); }
-  }
-  if (!sets.length) return null;
-  vals.push(id);
-  await pool.execute(`UPDATE nova_consultations SET ${sets.join(', ')} WHERE id = ?`, vals);
-  return { id, ...changes };
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[current]] = await conn.execute('SELECT * FROM nova_consultations WHERE id=? AND doctor_id=? FOR UPDATE', [id, doctorId]);
+    if (!current) { await conn.rollback(); return null; }
+    await assertDoctorPatientAccess(doctorId, current.patient_id);
+    if (current.status === 'completed') {
+      if (!String(changes.amendmentReason || '').trim()) throw Object.assign(new Error('Acte valide : un motif de correction est obligatoire.'), {status:409});
+      if (changes.status && changes.status !== 'completed') throw Object.assign(new Error('Un acte valide ne peut pas redevenir un brouillon.'),{status:409});
+      await conn.execute('INSERT INTO nova_consultation_amendments(id,consultation_id,doctor_id,reason,content) VALUES (?,?,?,?,?)', [randomUUID(),id,doctorId,changes.amendmentReason,JSON.stringify(changes)]);
+    } else {
+      const next = {...current};
+      for (const [key,col] of Object.entries({motif:'motif', diagnosisMain:'diagnosis_main',diagnosisSecondary:'diagnosis_secondary',notes:'notes',recommendations:'recommendations'})) if (changes[key] !== undefined) next[col]=changes[key];
+      const status=changes.status || current.status;
+      if (!['draft','completed'].includes(status)) throw Object.assign(new Error('Statut invalide.'),{status:422});
+      await conn.execute('UPDATE nova_consultations SET motif=?,diagnosis_main=?,diagnosis_secondary=?,notes=?,recommendations=?,status=?,completed_at=? WHERE id=?',[next.motif,next.diagnosis_main,next.diagnosis_secondary,next.notes,next.recommendations,status,status==='completed'?new Date().toISOString():null,id]);
+      if(status==='completed') await conn.execute('INSERT INTO nova_medical_history(id,patient_id,type,title,occurred_at,doctor_name) VALUES (?,?,?,?,?,?)',[randomUUID(),current.patient_id,'consultation',next.diagnosis_main||next.motif||'Consultation',new Date().toISOString(),'Medecin prescripteur']);
+    }
+    if(current.status==='completed'||changes.status==='completed'){const {createNotification}=await import('./notification.service.js');await createNotification({patientId:current.patient_id,targetRole:'patient',type:'consultation',title:current.status==='completed'?'Correction du compte rendu':'Compte rendu validé',linkPage:'history'},conn);}
+    await conn.commit();
+    return {id, ...changes, amendment:current.status==='completed'};
+  } catch(err) { await conn.rollback(); throw err; } finally {conn.release();}
 }
 
 /* ─── Statistiques ───────────────────────────────────────────── */
 
 export async function getDoctorStats(doctorId) {
+  const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
-    `SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM nova_appointments WHERE doctor_id = ?`, [doctorId]
+    `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ totalConsultations }]] = await pool.execute(
     `SELECT COUNT(*) AS totalConsultations FROM nova_consultations WHERE doctor_id = ?`, [doctorId]
@@ -413,6 +412,12 @@ function mapDoctorProfile(r) {
 }
 
 function mapApptWithPatient(r) {
+  // Demande non encore acceptée : identité minimale, aucune donnée médicale.
+  if (r.has_access !== undefined && !Number(r.has_access)) {
+    return { id: r.id, startsAt: r.starts_at, patientId: r.patient_id, patientName: `${r.first_name} ${r.last_name}`,
+      cmuNumber: null, bloodType: null, age: null, phone: null, specialty: r.specialty, location: r.location,
+      mode: r.mode, status: r.status, recordShared: false };
+  }
   const birth = r.birth_date ? new Date(r.birth_date) : null;
   const today = new Date();
   const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
@@ -429,6 +434,7 @@ function mapApptWithPatient(r) {
     location:    r.location,
     mode:        r.mode,
     status:      r.status,
+    recordShared: true,
   };
 }
 
@@ -471,22 +477,19 @@ function mapPatientFull(r) {
   };
 }
 
-function safeJson(val) {
-  if (!val) return [];
-  try { return JSON.parse(val); } catch { return []; }
-}
 
 /* ─── Ordonnances (médecin) ──────────────────────────────────── */
 
 export async function getDoctorPrescriptions(doctorId) {
+  const access = doctorAccessClause(doctorId, 'pat.id');
   const [rows] = await pool.execute(
     `SELECT p.*, pat.first_name, pat.last_name, pat.cmu_number,
             (SELECT COUNT(*) FROM nova_prescription_items pi WHERE pi.prescription_id = p.id) AS items_count
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.doctor_id = ?
-     ORDER BY p.issued_at DESC LIMIT 50`,
-    [doctorId]
+     WHERE p.doctor_id = ? AND ${access.sql}
+     ORDER BY p.issued_at DESC`,
+    [doctorId, ...access.params]
   );
   return rows.map(r => ({
     id:          r.id,
@@ -509,6 +512,7 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
     [prescriptionId, doctorId]
   );
   if (!row) return null;
+  await assertDoctorPatientAccess(doctorId, row.patient_id);
   const [items] = await pool.execute(
     `SELECT * FROM nova_prescription_items WHERE prescription_id = ?`, [prescriptionId]
   );
@@ -523,15 +527,20 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
     validUntil:      row.valid_until,
     status:          row.status,
     notes:           row.notes,
-    items: items.map(i => ({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions })),
+    items: items.map(i => ({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions, quantityPrescribed:i.quantity_prescribed, quantityUnit:i.quantity_unit })),
   };
 }
 
 export async function createDoctorPrescription(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  if (!payload.items?.length || payload.items.some(i=>!Number.isInteger(i.quantityPrescribed)||i.quantityPrescribed<=0)) throw Object.assign(new Error('Quantite prescrite obligatoire pour chaque ligne.'),{status:422});
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    if(payload.consultationId) {
+      const [[c]]=await conn.execute("SELECT id FROM nova_consultations WHERE id=? AND patient_id=? AND doctor_id=? AND status='completed'",[payload.consultationId,payload.patientId,doctorId]);
+      if(!c) throw Object.assign(new Error('Consultation non validee ou non autorisee.'),{status:422});
+    }
     const [[doc]] = await conn.execute(`SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?`, [doctorId]);
     const doctorName = doc ? `Dr. ${doc.first_name} ${doc.last_name}` : 'Dr. —';
     const specialty  = doc?.specialty || '';
@@ -541,27 +550,40 @@ export async function createDoctorPrescription(doctorId, payload) {
       ? new Date(Date.now() + Number(payload.validDays) * 86400000).toISOString().slice(0, 10)
       : null;
     await conn.execute(
-      `INSERT INTO nova_prescriptions (id, patient_id, doctor_name, doctor_specialty, issued_at, valid_until, status, notes, doctor_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-      [id, payload.patientId, doctorName, specialty, now, validUntil, payload.notes || null, doctorId]
+      `INSERT INTO nova_prescriptions (id, patient_id, doctor_name, doctor_specialty, issued_at, valid_until, status, notes, doctor_id, consultation_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+      [id, payload.patientId, doctorName, specialty, now, validUntil, payload.notes || null, doctorId, payload.consultationId || null]
     );
+    const itemIds=new Map(payload.items.map(item=>[item,randomUUID()]));
     if (payload.items?.length) {
       const values = payload.items.map(item =>
-        [randomUUID(), id, item.name, item.dosage || null, item.frequency || null, item.duration || null, item.instructions || null]
+        [itemIds.get(item), id, item.name, item.dosage || null, item.frequency || null, item.duration || null, item.instructions || null, item.quantityPrescribed, item.quantityUnit || 'unité']
       );
-      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       await conn.execute(
-        `INSERT INTO nova_prescription_items (id, prescription_id, name, dosage, frequency, duration, instructions) VALUES ${placeholders}`,
+        `INSERT INTO nova_prescription_items (id, prescription_id, name, dosage, frequency, duration, instructions, quantity_prescribed, quantity_unit) VALUES ${placeholders}`,
         values.flat()
       );
     }
-    await conn.commit();
-    const [[row]] = await pool.execute(
+    // Seules les heures et la durée explicitement saisies par le prescripteur alimentent le pilulier.
+    const planned=payload.items.filter(i=>i.scheduleTimes?.length);
+    if(planned.length){
+      const treatmentId=randomUUID();
+      await conn.execute("INSERT INTO nova_treatments(id,patient_id,diagnosis,status,started_at,doctor_name) VALUES (?,?,?,'active',?,?)",[treatmentId,payload.patientId,'Suivi de prescription',now,doctorName]);
+      for(const item of planned){
+        if(!Number.isInteger(item.durationDays)||item.durationDays<1||item.durationDays>365||item.scheduleTimes.some(t=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)))throw Object.assign(new Error('Horaires et durée du suivi invalides.'),{status:422});
+        const medId=randomUUID();await conn.execute('INSERT INTO nova_medications(id,treatment_id,name,dosage,frequency) VALUES (?,?,?,?,?)',[medId,treatmentId,item.name,item.dosage||null,item.frequency||null]);
+
+        const until=new Date(Date.now()+(item.durationDays-1)*86400000).toISOString().slice(0,10);
+        for(const time of new Set(item.scheduleTimes))await conn.execute("INSERT INTO nova_medication_schedules(id,patient_id,medication_id,name,dosage,take_time,color,prescription_item_id,starts_on,ends_on) VALUES (?,?,?,?,?,?,'red',?,?,?)",[randomUUID(),payload.patientId,medId,item.name,item.dosage||null,time,itemIds.get(item),now.slice(0,10),until]);
+      }
+    }
+    const [[row]] = await conn.execute(
       `SELECT p.*, pat.first_name, pat.last_name FROM nova_prescriptions p
        JOIN nova_patients pat ON pat.id = p.patient_id WHERE p.id = ?`, [id]
     );
-    // Notifier le patient
-    notifyPatientPrescription(row.patient_id, doctorName).catch(() => {});
+    await notifyPatientPrescription(row.patient_id,doctorName,conn);
+    await conn.commit();
 
     return { id, patientId: row.patient_id, patientName: `${row.first_name} ${row.last_name}`, issuedAt: row.issued_at, status: row.status };
   } catch (err) {
@@ -575,11 +597,12 @@ export async function createDoctorPrescription(doctorId, payload) {
 /* ─── Demandes d'analyses ────────────────────────────────────── */
 
 export async function getDoctorLabRequests(doctorId) {
+  const access = doctorAccessClause(doctorId, 'pat.id');
   const [rows] = await pool.execute(
     `SELECT lr.*, pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_lab_requests lr JOIN nova_patients pat ON pat.id = lr.patient_id
-     WHERE lr.doctor_id = ? ORDER BY lr.requested_at DESC LIMIT 50`,
-    [doctorId]
+     WHERE lr.doctor_id = ? AND ${access.sql} ORDER BY lr.requested_at DESC`,
+    [doctorId, ...access.params]
   );
   return rows.map(r => ({
     id:             r.id,
@@ -590,7 +613,7 @@ export async function getDoctorLabRequests(doctorId) {
     title:          r.title,
     notes:          r.notes,
     status:         r.status,
-    consultationId: r.consultation_id,
+    consultationId: r.consultation_id,resultId:r.result_id,
     requestedAt:    r.requested_at,
   }));
 }
@@ -598,23 +621,24 @@ export async function getDoctorLabRequests(doctorId) {
 /* ─── Suivi chroniques ───────────────────────────────────────── */
 
 export async function getChronicPatients(doctorId) {
-  // Patients avec maladies chroniques dans leur profil médical
+  // Patients avec maladies chroniques, limités aux dossiers accessibles
+  const chronicAccess = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
     `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies,
             (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
             (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
      FROM nova_patients p
-     JOIN nova_appointments a ON a.patient_id = p.id AND a.doctor_id = ?
      LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
-     WHERE mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
+     WHERE p.deleted_at IS NULL AND ${chronicAccess.sql}
+       AND mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
      ORDER BY last_consult ASC`,
-    [doctorId, doctorId, doctorId]
+    [doctorId, doctorId, ...chronicAccess.params]
   );
   return rows.map(r => {
     const birth = r.birth_date ? new Date(r.birth_date) : null;
     const today = new Date();
   const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
-    const chronic = safeJson(r.chronic_diseases);
+    const chronic = medicalList(r.chronic_diseases);
     const daysSince = r.last_consult
       ? Math.floor((Date.now() - new Date(r.last_consult).getTime()) / 86400000)
       : null;
@@ -631,7 +655,7 @@ export async function getChronicPatients(doctorId) {
       age,
       bloodType:    r.blood_type,
       chronicDiseases: chronic,
-      allergies:    safeJson(r.allergies),
+      allergies:    medicalList(r.allergies),
       lastConsult:  r.last_consult || null,
       lastDiagnosis:r.last_diagnosis || null,
       daysSince,
@@ -643,12 +667,13 @@ export async function getChronicPatients(doctorId) {
 /* ─── Alertes docteur ────────────────────────────────────────── */
 
 export async function getDoctorAlerts(doctorId) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
     `SELECT a.*, p.first_name, p.last_name, p.cmu_number
      FROM nova_doctor_alerts a
      JOIN nova_patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? ORDER BY a.created_at DESC LIMIT 50`,
-    [doctorId]
+     WHERE a.doctor_id = ? AND ${access.sql} ORDER BY a.created_at DESC LIMIT 50`,
+    [doctorId, ...access.params]
   );
   return rows.map(r => ({
     id:          r.id,
@@ -679,9 +704,10 @@ export async function createDoctorAlert(doctorId, payload) {
 
 export async function resolveDoctorAlert(doctorId, alertId) {
   const [[existing]] = await pool.execute(
-    `SELECT id FROM nova_doctor_alerts WHERE id = ? AND doctor_id = ?`, [alertId, doctorId]
+    `SELECT id,patient_id FROM nova_doctor_alerts WHERE id = ? AND doctor_id = ?`, [alertId, doctorId]
   );
   if (!existing) return null;
+  await assertDoctorPatientAccess(doctorId,existing.patient_id);
   const now = new Date().toISOString();
   await pool.execute(
     `UPDATE nova_doctor_alerts SET status = 'resolved', resolved_at = ? WHERE id = ?`, [now, alertId]
@@ -790,6 +816,13 @@ export async function saveDoctorSignatureData(doctorId, signatureData) {
 
 export async function createDoctorLabRequest(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  if (payload.consultationId) {
+    const [[cons]] = await pool.execute(
+      'SELECT id FROM nova_consultations WHERE id = ? AND doctor_id = ? AND patient_id = ?',
+      [payload.consultationId, doctorId, payload.patientId]
+    );
+    if (!cons) throw Object.assign(new Error('Consultation introuvable pour ce patient.'), { status: 404 });
+  }
   const id  = randomUUID();
   const now = new Date().toISOString();
   await pool.execute(
@@ -881,6 +914,10 @@ export async function deletePrescriptionTemplate(doctorId, templateId) {
 
 export async function createReferral(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
+  if (payload.toDoctorId === doctorId) throw Object.assign(new Error('Impossible de s’adresser un patient à soi-même.'), { status: 422 });
+  const [[target]] = await pool.execute('SELECT id FROM nova_doctors WHERE id = ? AND is_available = 1', [payload.toDoctorId]);
+  if (!target) throw Object.assign(new Error('Médecin destinataire introuvable ou indisponible.'), { status: 404 });
+  if(!await hasDoctorPatientAccess(payload.toDoctorId,payload.patientId))throw Object.assign(new Error('Le patient doit autoriser le spécialiste avant de transmettre des informations médicales.'),{status:409});
 
   const id = randomUUID();
   const sharedData = payload.sharedData || ['profile', 'vitals', 'consultations'];
@@ -898,8 +935,8 @@ export async function createReferral(doctorId, payload) {
   if (toDocUser) {
     await pool.execute(
       `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, created_at)
-       VALUES (?, ?, ?, 'doctor', 'referral', ?, ?, 'patients', NOW())`,
-      [randomUUID(), payload.patientId, toDocUser.id,
+       VALUES (?, '', ?, 'doctor', 'referral', ?, ?, 'patients', NOW())`,
+      [randomUUID(), toDocUser.id,
        'Transfert de patient',
        `Dr. ${fromDoc?.first_name || ''} ${fromDoc?.last_name || ''} vous transfère un patient. Motif : ${payload.reason}`]
     );
@@ -909,14 +946,15 @@ export async function createReferral(doctorId, payload) {
 }
 
 export async function getReferrals(doctorId) {
+  const access=doctorAccessClause(doctorId,'p.id');
   const [sent] = await pool.execute(
     `SELECT r.*, p.first_name AS p_fn, p.last_name AS p_ln,
             d.first_name AS d_fn, d.last_name AS d_ln, d.specialty AS d_spec
      FROM nova_referrals r
      JOIN nova_patients p ON p.id = r.patient_id
      JOIN nova_doctors d ON d.id = r.to_doctor_id
-     WHERE r.from_doctor_id = ? ORDER BY r.created_at DESC LIMIT 30`,
-    [doctorId]
+     WHERE r.from_doctor_id = ? AND ${access.sql} ORDER BY r.created_at DESC LIMIT 30`,
+    [doctorId,...access.params]
   );
   const [received] = await pool.execute(
     `SELECT r.*, p.first_name AS p_fn, p.last_name AS p_ln,
@@ -924,8 +962,8 @@ export async function getReferrals(doctorId) {
      FROM nova_referrals r
      JOIN nova_patients p ON p.id = r.patient_id
      JOIN nova_doctors d ON d.id = r.from_doctor_id
-     WHERE r.to_doctor_id = ? ORDER BY r.created_at DESC LIMIT 30`,
-    [doctorId]
+     WHERE r.to_doctor_id = ? AND ${access.sql} ORDER BY r.created_at DESC LIMIT 30`,
+    [doctorId,...access.params]
   );
 
   const map = r => ({
@@ -945,23 +983,13 @@ export async function respondReferral(doctorId, referralId, accept) {
     [referralId, doctorId, 'pending']
   );
   if (!ref) { const e = new Error('Transfert introuvable.'); e.status = 404; throw e; }
+  await assertDoctorPatientAccess(doctorId,ref.patient_id);
 
   const status = accept ? 'accepted' : 'declined';
   await pool.execute(
     'UPDATE nova_referrals SET status = ?, responded_at = NOW() WHERE id = ?',
     [status, referralId]
   );
-
-  // Si accepté, créer un RDV initial pour lier le nouveau médecin au patient
-  if (accept) {
-    const [[doc]] = await pool.execute('SELECT first_name, last_name, specialty, city FROM nova_doctors WHERE id = ?', [doctorId]);
-    await pool.execute(
-      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, created_at)
-       VALUES (?, ?, NOW(), ?, ?, ?, 'onsite', 'confirmed', ?, NOW())`,
-      [randomUUID(), ref.patient_id, `Dr. ${doc.first_name} ${doc.last_name}`,
-       doc.specialty, doc.city || '', doctorId]
-    );
-  }
 
   // Notifier le médecin d'origine
   const [[toDoc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
@@ -981,22 +1009,23 @@ export async function addVitalByDoctor(doctorId, patientId, payload) {
   const id = randomUUID();
   const now = payload.measuredAt || new Date().toISOString();
   await pool.execute(
-    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.type, payload.label || payload.type, String(payload.value), payload.unit || '', now]
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, payload.label || payload.type, String(payload.value), payload.unit || '', now, 'doctor', doctorId]
   );
   return { id, patientId, type: payload.type, value: payload.value, unit: payload.unit, measuredAt: now };
 }
 
 // ── Doctor Conversations ──────────────────────────
 export async function getDoctorConversations(doctorId) {
+  const access = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
-    `SELECT c.*, p.first_name, p.last_name
+    `SELECT c.*, p.first_name, p.last_name,(SELECT COUNT(*) FROM nova_messages m WHERE m.conversation_id=c.id AND m.sender_role='patient' AND m.is_read=0) unread_count
      FROM nova_conversations c
      JOIN nova_patients p ON p.id = c.patient_id
-     WHERE c.doctor_id = ?
+     WHERE c.doctor_id = ? AND ${access.sql}
      ORDER BY c.updated_at DESC`,
-    [doctorId]
+    [doctorId, ...access.params]
   );
   return rows.map(r => ({
     id: r.id, patientId: r.patient_id,
@@ -1012,6 +1041,7 @@ export async function getDoctorConversation(doctorId, convId) {
     'SELECT * FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
   );
   if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  await assertDoctorPatientAccess(doctorId, conv.patient_id);
   const [messages] = await pool.execute(
     'SELECT * FROM nova_messages WHERE conversation_id = ? ORDER BY created_at ASC', [convId]
   );
@@ -1025,23 +1055,7 @@ export async function getDoctorConversation(doctorId, convId) {
   };
 }
 
-export async function createDoctorMessage(doctorId, convId, { body }) {
-  const [[conv]] = await pool.execute(
-    'SELECT id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
-  );
-  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  await pool.execute(
-    'INSERT INTO nova_messages (id, conversation_id, sender_role, body, is_read, created_at) VALUES (?,?,?,?,0,?)',
-    [id, convId, 'doctor', body, now]
-  );
-  await pool.execute(
-    'UPDATE nova_conversations SET last_message = ?, unread_count = unread_count + 1, updated_at = ? WHERE id = ?',
-    [body, now, convId]
-  );
-  return { id, conversationId: convId, senderRole: 'doctor', body, createdAt: now };
-}
+export async function createDoctorMessage(doctorId,conversationId,payload){return persistMessage('doctor',doctorId,conversationId,payload);}
 
 export async function markDoctorConversationRead(doctorId, convId) {
   const [[conv]] = await pool.execute(
@@ -1071,7 +1085,7 @@ export async function createDoctorDocument(doctorId, body, file) {
   const now = new Date().toISOString();
   await pool.execute(
     'INSERT INTO nova_doctor_documents (id, doctor_id, title, category, mime_type, size_bytes, file_path, created_at) VALUES (?,?,?,?,?,?,?,?)',
-    [id, doctorId, body.title || file.originalname, body.category || 'other', file.mimetype, file.size, file.filename, now]
+    [id, doctorId, body.title || file.originalname, body.category || 'other', file.mimetype, file.size, `shared/${file.filename}`, now]
   );
   return { id, title: body.title || file.originalname, category: body.category || 'other', createdAt: now };
 }
@@ -1083,7 +1097,7 @@ export async function deleteDoctorDocument(doctorId, docId) {
   if (doc.file_path) {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
-    const fullPath = path.join(process.cwd(), 'data', 'uploads', doc.file_path);
+    const fullPath = path.join(process.cwd(), 'data', 'uploads', doc.file_path.includes('/')?doc.file_path:`shared/${doc.file_path}`);
     await fs.unlink(fullPath).catch(() => {});
   }
   return { ok: true };
@@ -1106,4 +1120,10 @@ export async function updateDoctorSettings(userId, payload) {
     [userId, json]
   );
   return payload;
+}
+
+export async function getDoctorLabResult(doctorId,id){
+ const [[row]]=await pool.execute('SELECT patient_id FROM nova_lab_results WHERE id=?',[id]);
+ if(!row)return null;await assertDoctorPatientAccess(doctorId,row.patient_id);
+ return {...await getLabResult(row.patient_id,id),patientId:row.patient_id};
 }

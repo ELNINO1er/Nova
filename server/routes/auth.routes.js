@@ -1,8 +1,11 @@
+import jwt from 'jsonwebtoken';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
-  loginUser, phoneExists, sendOtp, startDoctorPasswordLogin, verifyOtp, verifyOtpById,
+  changeInitialDoctorPassword, changeInitialPassword, changeOwnPassword, phoneExists, sendOtp,
+  startPhonePasswordLogin, verifyOtp,
 } from '../services/auth.service.js';
+import { verifyTotpEnrollment, verifyTotpLogin } from '../services/mfa.service.js';
 import {
   signAccessToken, signRefreshToken, verifyRefreshToken,
   blacklistToken, requireAuth,
@@ -12,7 +15,8 @@ const router = Router();
 
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+  secure: process.env.COOKIE_SECURE === 'true'
+    || (process.env.NODE_ENV === 'production' && process.env.COOKIE_SECURE !== 'false'),
   sameSite: 'lax',
   path: '/',
 };
@@ -27,12 +31,81 @@ function clearAuthCookies(res) {
   res.clearCookie('nova_refresh_token', cookieOptions);
 }
 
+async function completeLogin(res, user, extra = {}) {
+  const { pool } = await import('../db/database.js');
+  const [[account]] = await pool.execute('SELECT session_version FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [user.id]);
+  if (!account) return res.status(401).json({ error: 'account_inactive', message: 'Compte désactivé.' });
+  const tokenPayload = {
+    id: user.id,
+    role: user.role,
+    patientId: user.patientId,
+    doctorId: user.doctorId,
+    pharmacyId: user.pharmacyId || null,
+    sessionVersion: Number(account.session_version),
+  };
+  setAuthCookies(res, signAccessToken(tokenPayload), signRefreshToken(tokenPayload));
+  return res.set('Cache-Control', 'no-store').json({
+    user: { ...tokenPayload, name: user.name, avatar: user.avatar },
+    ...extra,
+  });
+}
+
+const strongPassword = z.string().min(12).max(128)
+  .regex(/[a-z]/, 'Une minuscule est requise.')
+  .regex(/[A-Z]/, 'Une majuscule est requise.')
+  .regex(/\d/, 'Un chiffre est requis.')
+  .regex(/[^A-Za-z0-9]/, 'Un caractère spécial est requis.');
+
 function getCookie(req, name) {
   const raw = req.headers.cookie || '';
   const found = raw.split(';').map(v => v.trim()).find(v => v.startsWith(`${name}=`));
   if (!found) return null;
-  return decodeURIComponent(found.slice(name.length + 1));
+  try {
+    return decodeURIComponent(found.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 }
+
+/* ── Connexion téléphone + mot de passe (patient, pharmacien, admin) ── */
+router.post('/password/login', async (req, res, next) => {
+  try {
+    const { phone, password } = z.object({
+      phone: z.string().min(8).max(20),
+      password: z.string().min(1).max(128),
+    }).parse(req.body);
+
+    const result = await startPhonePasswordLogin(phone, password);
+    if (result.error) {
+      const status = result.error === 'account_locked' ? 423
+        : result.error === 'use_doctor_login' ? 409
+        : result.error === 'no_password' ? 403 : 401;
+      // 401 réservé aux identifiants refusés : code distinct des erreurs de session côté client.
+      return res.status(status).json({ error: result.error, message: result.message });
+    }
+    if (result.nextAction) return res.set('Cache-Control', 'no-store').json(result);
+    return await completeLogin(res, result.user);
+  } catch (err) { next(err); }
+});
+
+/* Première connexion : remplacement obligatoire du mot de passe provisoire. */
+router.post('/password/change', async (req, res, next) => {
+  try {
+    const { challengeId, newPassword } = z.object({
+      challengeId: z.string().uuid(),
+      newPassword: z.string().min(8).max(128),
+    }).parse(req.body);
+    return await completeLogin(res, await changeInitialPassword(challengeId, newPassword));
+  } catch (err) { next(err); }
+});
+
+/* ── Connexion par code SMS : désactivée tant qu'aucun fournisseur SMS n'est choisi ──
+   Réactivable avec OTP_LOGIN_ENABLED=true (et SMS_PROVIDER=twilio|webhook). */
+function otpLoginEnabled(_req, res, next) {
+  if (process.env.OTP_LOGIN_ENABLED === 'true') return next();
+  return res.status(410).json({ error: 'flow_disabled', message: 'Connectez-vous avec votre numéro et votre mot de passe.' });
+}
+router.use(['/check', '/otp/send', '/otp/verify'], otpLoginEnabled);
 
 /* ── POST /api/auth/check — vérifie si le numéro existe ─────── */
 router.post('/check', async (req, res, next) => {
@@ -86,116 +159,109 @@ router.post('/otp/verify', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/* POST /api/auth/doctor/password/start - email + mot de passe puis OTP */
-router.post('/doctor/password/start', async (req, res, next) => {
+/* Ancienne connexion médecin par email : remplacée par numéro + mot de passe (/password/login). */
+router.post('/doctor/password/start', (_req, res) => {
+  res.status(410).json({ error: 'flow_disabled', message: 'Connectez-vous avec votre numéro et votre mot de passe.' });
+});
+
+/* Première activation : remplacement obligatoire du mot de passe provisoire. */
+router.post('/doctor/password/change', async (req, res, next) => {
   try {
-    const { email, password } = z.object({
-      email: z.string().email(),
-      password: z.string().min(4),
+    const { challengeId, newPassword } = z.object({
+      challengeId: z.string().uuid(),
+      newPassword: strongPassword,
     }).parse(req.body);
-
-    const result = await startDoctorPasswordLogin(email, password);
-    if (result.error) {
-      return res.status(result.error === 'invalid_credentials' ? 401 : 400).json({
-        error: result.error,
-        message: result.message,
-      });
-    }
-
-    res.json(result);
+    res.set('Cache-Control', 'no-store').json(
+      await changeInitialDoctorPassword(challengeId, newPassword)
+    );
   } catch (err) { next(err); }
 });
 
-/* POST /api/auth/doctor/otp/verify - OTP par challenge, reserve medecin */
-router.post('/doctor/otp/verify', async (req, res, next) => {
+/* Première activation : vérification du QR Authenticator et remise des secours. */
+router.post('/doctor/totp/enroll/verify', async (req, res, next) => {
   try {
-    const { otpId, code } = z.object({
-      otpId: z.string().uuid(),
-      code: z.string().length(4),
+    const { challengeId, code } = z.object({
+      challengeId: z.string().uuid(),
+      code: z.string().regex(/^\d{6}$/),
     }).parse(req.body);
-
-    const result = await verifyOtpById(otpId, code, 'doctor');
-    if (result.error) {
-      const status = result.error === 'otp_max_attempts' ? 429
-        : result.error === 'otp_expired' ? 410
-          : result.error === 'forbidden' ? 403 : 401;
-      return res.status(status).json({ error: result.error, message: result.message });
-    }
-
-    const { user } = result;
-    const tokenPayload = { id: user.id, role: user.role, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null };
-    const token = signAccessToken(tokenPayload);
-    const refreshToken = signRefreshToken(tokenPayload);
-    setAuthCookies(res, token, refreshToken);
-
-    res.set('Cache-Control', 'no-store').json({
-      user: { id: user.id, role: user.role, name: user.name, avatar: user.avatar, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null },
-    });
+    const result = await verifyTotpEnrollment(challengeId, code);
+    return await completeLogin(res, result.user, { recoveryCodes: result.recoveryCodes });
   } catch (err) { next(err); }
 });
 
-/* ── POST /api/auth/login — legacy (rétrocompatible) ────────── */
-router.post('/login', async (req, res, next) => {
+/* Connexions suivantes : code TOTP ou code de récupération. */
+router.post('/doctor/totp/verify', async (req, res, next) => {
   try {
-    const { phone, code } = z.object({
-      phone: z.string().min(8),
-      code:  z.string().length(4),
+    const { challengeId, code } = z.object({
+      challengeId: z.string().uuid(),
+      code: z.string().min(6).max(16),
     }).parse(req.body);
-
-    const user = await loginUser(phone, code);
-    if (!user) {
-      return res.status(401).json({ error: 'invalid_credentials', message: 'Code incorrect.' });
-    }
-    if (user.role === 'doctor') {
-      return res.status(403).json({ error: 'forbidden', message: 'Veuillez utiliser la connexion médecin dédiée.' });
-    }
-
-    const tokenPayload = { id: user.id, role: user.role, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null };
-    const token = signAccessToken(tokenPayload);
-    const refreshToken = signRefreshToken(tokenPayload);
-    setAuthCookies(res, token, refreshToken);
-
-    res.set('Cache-Control', 'no-store').json({
-      user: { id: user.id, role: user.role, name: user.name, avatar: user.avatar, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null },
-    });
+    const result = await verifyTotpLogin(challengeId, code);
+    return await completeLogin(res, result.user, { usedRecoveryCode: result.usedRecoveryCode });
   } catch (err) { next(err); }
+});
+
+// Ancien flux SMS médecin désactivé : il contournait l'activation TOTP.
+router.post('/doctor/otp/verify', (_req, res) => {
+  res.status(410).json({ error: 'flow_disabled', message: 'Utilisez le code de votre application Authenticator.' });
 });
 
 /* ── POST /api/auth/refresh — renouveler access token ───────── */
 router.post('/refresh', async (req, res, next) => {
+  const { pool } = await import('../db/database.js');
+  let conn;
   try {
-    const refreshToken = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
-    if (!refreshToken) {
-      return res.status(401).json({ error: 'invalid_refresh', message: 'Refresh token manquant.' });
+    conn=await pool.getConnection();
+    const token = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
+    const payload = token && await verifyRefreshToken(token);
+    if (!payload) return res.status(401).json({ error: 'invalid_refresh', message: 'Session expiree.' });
+    await conn.beginTransaction();
+    const [[account]] = await conn.execute('SELECT * FROM nova_users WHERE id=? FOR UPDATE', [payload.id]);
+    if (!account || account.deleted_at || account.disabled_at || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
+      await conn.rollback(); clearAuthCookies(res);
+      return res.status(401).json({ error: 'account_inactive', message: 'Session revoquee.' });
     }
-    const payload = verifyRefreshToken(refreshToken);
-    if (!payload) {
-      return res.status(401).json({ error: 'invalid_refresh', message: 'Refresh token invalide ou expiré.' });
-    }
-
-    // Blacklist the old refresh token (rotation)
-    blacklistToken(refreshToken);
-
-    const tokenPayload = { id: payload.id, role: payload.role, patientId: payload.patientId, doctorId: payload.doctorId, pharmacyId: payload.pharmacyId || null };
-    const newToken = signAccessToken(tokenPayload);
-    const newRefreshToken = signRefreshToken(tokenPayload);
-    setAuthCookies(res, newToken, newRefreshToken);
-
-    res.set('Cache-Control', 'no-store').json({ ok: true });
-  } catch (err) { next(err); }
+    const [used] = await conn.execute('INSERT IGNORE INTO nova_revoked_tokens(jti, expires_at) VALUES (?,FROM_UNIXTIME(?))', [payload.jti, payload.exp]);
+    if (!used.affectedRows) { await conn.rollback(); return res.status(401).json({ error:'invalid_refresh', message:'Session deja renouvelee.' }); }
+    const nextPayload = {id:account.id, role:account.role, patientId:account.patient_id, doctorId:account.doctor_id, pharmacyId:account.pharmacy_id, sessionVersion:Number(account.session_version)};
+    const access = signAccessToken(nextPayload), refresh = signRefreshToken(nextPayload);
+    await conn.commit();
+    setAuthCookies(res, access, refresh);
+    res.set('Cache-Control','no-store').json({ok:true});
+  } catch(err) { if(conn)await conn.rollback(); next(err); } finally { conn?.release(); }
 });
 
 /* ── POST /api/auth/logout — invalider le token ─────────────── */
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res, next) => {
+  try {
   const accessToken = getCookie(req, 'nova_access_token');
-  if (accessToken) blacklistToken(accessToken);
+  const rt = getCookie(req, 'nova_refresh_token');
+  let proof;
+  for(const [candidate,secret] of [[rt,process.env.JWT_REFRESH_SECRET || (process.env.JWT_SECRET+'-refresh')],[accessToken,process.env.JWT_SECRET]]) {if(!candidate)continue;try{proof=jwt.verify(candidate,secret);break;}catch{}}
+  if (proof) {
+    const { pool } = await import('../db/database.js');
+    await pool.execute('UPDATE nova_users SET session_version=session_version+1 WHERE id=?', [proof.id]);
+  }
+  if (accessToken) await blacklistToken(accessToken);
   const refreshToken = getCookie(req, 'nova_refresh_token');
-  if (refreshToken) blacklistToken(refreshToken);
+  if (refreshToken) await blacklistToken(refreshToken);
   clearAuthCookies(res);
   res.json({ ok: true, message: 'Déconnecté.' });
+  } catch (err) { next(err); }
 });
 
 /* ── GET /api/auth/me — profil + permissions ────────────────── */
+/* Changer son mot de passe depuis les paramètres (tous rôles). */
+router.post('/password/self-change', requireAuth, async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1).max(128),
+      newPassword: z.string().min(8).max(128),
+    }).parse(req.body);
+    const result=await changeOwnPassword(req.user.id, currentPassword, newPassword);clearAuthCookies(res);res.json(result);
+  } catch (err) { next(err); }
+});
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const { pool } = await import('../db/database.js');
@@ -207,7 +273,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
       [req.user.role]
     );
 
-    const [[account]] = await pool.execute('SELECT name, avatar FROM nova_users WHERE id = ? AND deleted_at IS NULL', [req.user.id]);
+    const [[account]] = await pool.execute('SELECT name, avatar, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [req.user.id]);
     if (!account) return res.status(401).json({ error: 'account_inactive', message: 'Compte introuvable ou desactive.' });
     res.set('Cache-Control', 'no-store').json({
       id: req.user.id,
@@ -217,6 +283,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
       pharmacyId: req.user.pharmacyId,
       name: account.name,
       avatar: account.avatar,
+      phone: account.phone,
       permissions: permissions.map(p => p.code),
     });
   } catch (err) { next(err); }

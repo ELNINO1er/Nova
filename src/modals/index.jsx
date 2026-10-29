@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart, Activity, Pill, Calendar, FileText, User, Stethoscope,
   Shield, Search, AlertTriangle, Plus, Check, Clock, Download, X,
@@ -10,42 +10,55 @@ import {
   ClipboardList, Microscope, Syringe, ChevronLeft, CalendarClock,
   HeartPulse, Thermometer, StickyNote, Palette, KeyRound, Smartphone,
   Mail, UserPlus, PhoneCall, Paperclip, MoreVertical, ArrowRight,
-  HelpCircle, BookOpen, Pencil, HardDrive, Wifi
+  HelpCircle, BookOpen, Pencil, HardDrive, Wifi,
+  Camera
 } from 'lucide-react';
+import { PHOTO_ACCEPT, preparePhoto } from '../utils/photo.js';
 import { doctorApi } from '../api/doctorApi.js';
+import { patientApi } from '../api/patientApi.js';
 
 /* ============== MODALS ============== */
 export function QRModal({ onClose }) {
-  const cells = [];
-  for (let i = 0; i < 25; i++) for (let j = 0; j < 25; j++) {
-    const isC = (i < 7 && j < 7) || (i < 7 && j > 17) || (i > 17 && j < 7);
-    const cI = (i >= 1 && i <= 5 && j >= 1 && j <= 5) || (i >= 1 && i <= 5 && j >= 19 && j <= 23) || (i >= 19 && i <= 23 && j >= 1 && j <= 5);
-    const cC = (i >= 2 && i <= 4 && j >= 2 && j <= 4) || (i >= 2 && i <= 4 && j >= 20 && j <= 22) || (i >= 20 && i <= 22 && j >= 2 && j <= 4);
-    if ((isC && !cI) || cC || (!isC && Math.random() > 0.55)) cells.push(<rect key={`${i}-${j}`} x={i*4} y={j*4} width="4" height="4" fill="#000" />);
-  }
+  // Pass Santé d'urgence : vraies données du patient et QR lisible par tout téléphone (texte de la fiche).
+  const [card, setCard] = useState(null);
+  const [qr, setQr] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    Promise.all([patientApi.emergencyCard(), patientApi.emergencyCardQr()])
+      .then(([c, q]) => { if (alive) { setCard(c); setQr(q); } })
+      .catch((e) => { if (alive) setError(e.message || 'Fiche indisponible.'); });
+    return () => { alive = false; };
+  }, []);
+  const age = card?.birthDate ? Math.floor((Date.now() - new Date(card.birthDate)) / (365.25 * 86400000)) : null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'Urgence">
-      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'urgence">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2"><Siren className="w-5 h-5 text-red-600" /><h3 className="font-bold text-slate-900">Pass Santé d'Urgence</h3></div>
+          <div className="flex items-center gap-2"><Siren className="w-5 h-5 text-red-600" /><h3 className="font-bold">Pass Santé d’urgence</h3></div>
           <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
-        <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white">
-          <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
-          <h4 className="text-2xl font-bold mt-1">Kouamé Bamba</h4>
-          <p className="text-xs text-red-100">CI-2024-0847-3692</p>
-          <div className="bg-white rounded-xl p-4 my-4 flex items-center justify-center">
-            <svg viewBox="0 0 100 100" className="w-40 h-40">{cells}</svg>
+        {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}
+        {!error && !card && <p className="text-sm text-slate-500 py-8 text-center">Chargement de votre fiche…</p>}
+        {card && (
+          <div className="bg-red-600 rounded-2xl p-6 text-white">
+            <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
+            <h4 className="text-2xl font-bold mt-1">{card.firstName} {card.lastName}</h4>
+            <p className="text-xs text-red-100">CMU {card.cmuNumber || '—'}</p>
+            <div className="bg-white rounded-xl p-3 my-4 flex items-center justify-center">
+              {qr?.qr ? <img src={qr.qr} alt="QR de la fiche d’urgence" className="w-44 h-44" /> : <p className="text-xs text-slate-500 py-10">QR indisponible</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-white/10 rounded-lg p-3"><p className="text-[10px] text-red-100">GROUPE</p><p className="text-xl font-bold">{card.bloodType || '—'}</p></div>
+              <div className="bg-white/10 rounded-lg p-3"><p className="text-[10px] text-red-100">ÂGE</p><p className="text-xl font-bold">{age != null ? `${age} ans` : '—'}</p></div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 mt-3">
+              <p className="text-[10px] text-red-100 mb-1">ALLERGIES</p>
+              <p className="text-sm font-semibold">{card.allergies?.length ? card.allergies.join(', ') : 'Aucune allergie renseignée'}</p>
+            </div>
+            <p className="text-[11px] text-red-100 mt-3">Le QR contient ces informations en clair, lisibles par l’appareil photo d’un secouriste. Vous pouvez le désactiver dans vos paramètres.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-white/10 backdrop-blur rounded-lg p-3"><p className="text-[10px] text-red-100">GROUPE</p><p className="text-xl font-bold">O+</p></div>
-            <div className="bg-white/10 backdrop-blur rounded-lg p-3"><p className="text-[10px] text-red-100">ÂGE</p><p className="text-xl font-bold">52 ans</p></div>
-          </div>
-          <div className="bg-white/10 backdrop-blur rounded-lg p-3 mt-3">
-            <p className="text-[10px] text-red-100 mb-1">⚠️ ALLERGIES</p>
-            <p className="text-sm font-semibold">Pénicilline, Arachides</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -65,7 +78,7 @@ export function AyaChat({ onClose }) {
   };
   return (
     <div className="fixed bottom-6 right-6 w-full max-w-sm h-[500px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50">
-      <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 rounded-t-2xl flex items-center justify-between">
+      <div className="bg-red-600 text-white p-4 rounded-t-2xl flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><Bot className="w-5 h-5" /></div>
           <div><h4 className="font-bold">Aya</h4><p className="text-[10px] text-red-100">Assistante IA Santé</p></div>
@@ -91,39 +104,17 @@ export function AyaChat({ onClose }) {
 }
 
 export function VideoModal({ onClose }) {
+  // Aucun service vidéo n'est intégré : on l'indique clairement au lieu de simuler un appel.
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
-      <div className="flex-1 relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center text-4xl font-bold mx-auto mb-4 shadow-2xl">AT</div>
-            <p className="text-white text-2xl font-bold">Dr. Aïcha Touré</p>
-            <p className="text-slate-400 text-sm mt-2">Cardiologie • CHU Treichville</p>
-            <div className="flex items-center gap-2 justify-center mt-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-emerald-400 text-xs font-bold">EN APPEL • 03:24</span>
-            </div>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Téléconsultation">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2"><Video className="w-5 h-5 text-red-600" /><h3 className="font-bold">Téléconsultation</h3></div>
+          <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
-        <div className="absolute top-4 right-4 w-32 h-44 bg-gradient-to-br from-slate-700 to-slate-900 rounded-xl border-2 border-white/20 flex items-center justify-center shadow-2xl">
-          <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-sm mx-auto mb-2">KB</div>
-            <p className="text-white text-xs font-semibold">Vous</p>
-          </div>
-        </div>
-        <div className="absolute top-4 left-4">
-          <span className="px-3 py-1.5 rounded-full bg-black/40 backdrop-blur text-white text-xs font-bold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> HD • Sécurisé
-          </span>
-        </div>
-      </div>
-      <div className="bg-slate-900 p-6 flex items-center justify-center gap-4">
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><Mic className="w-6 h-6" /></button>
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><Video className="w-6 h-6" /></button>
-        <button onClick={onClose} className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg shadow-red-600/40">
-          <Phone className="w-7 h-7 rotate-[135deg]" />
-        </button>
-        <button className="w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center"><MessageCircle className="w-6 h-6" /></button>
+        <p className="text-sm">La vidéo n’est pas encore disponible dans NOVA.</p>
+        <p className="text-sm text-slate-600 mt-2">Pour un rendez-vous en téléconsultation, le médecin vous indique comment le joindre (téléphone ou application de son choix). Vous pouvez aussi lui écrire depuis la messagerie.</p>
+        <button type="button" onClick={onClose} className="mt-5 w-full min-h-11 rounded-xl bg-red-600 text-white font-semibold">J’ai compris</button>
       </div>
     </div>
   );
@@ -197,28 +188,52 @@ export function ConsModal({ onClose, darkMode, sub, border }) {
   );
 }
 
+// Mot de passe provisoire lisible (sans 0/O, 1/l/I) : lettres et chiffres.
+function generatePassword(length = 10) {
+  const letters = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const all = letters + digits;
+  const values = crypto.getRandomValues(new Uint32Array(length));
+  const chars = Array.from(values, (v) => all[v % all.length]);
+  chars[values[0] % length] = digits[values[1] % digits.length];
+  chars[(values[0] + 1) % length] = letters[values[2] % letters.length];
+  return chars.join('');
+}
+
 export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, border }) {
   const [step, setStep] = useState(1);
-  const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
+  const [d, setD] = useState({ fn: '', ln: '', p: '', pw: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
+  const [photo, setPhoto] = useState(null); // data URL réduite, envoyée avec la création
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try { setPhoto(await preparePhoto(file)); setError(''); }
+    catch (err) { setError(err.message); }
+  };
 
   const payload = {
     firstName: d.fn.trim(),
     lastName: d.ln.trim(),
     phone: d.p.trim(),
+    password: d.pw || undefined, // vide : le serveur génère un mot de passe provisoire
     cmuNumber: d.cmu.trim() || undefined,
     sex: d.sex,
     birthDate: d.bd || undefined,
     bloodType: d.bt || undefined,
     address: d.addr.trim() || undefined,
     city: d.city.trim() || undefined,
+    photo: photo || undefined,
   };
 
   const validateStep = () => {
     if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate)) return 'Renseignez le prénom, le nom et la date de naissance.';
-    if (step === 2 && payload.phone.replace(/\D/g, '').length < 8) return 'Renseignez un numéro de téléphone valide.';
+    if (step === 2 && payload.phone.replace(/\D/g, '').length !== 10) return 'Numéro à 10 chiffres requis : il servira d’identifiant de connexion.';
+    if (step === 2 && d.pw && (d.pw.length < 8 || !/[A-Za-z]/.test(d.pw) || !/\d/.test(d.pw))) return 'Mot de passe : 8 caractères minimum, avec une lettre et un chiffre.';
     return '';
   };
 
@@ -270,15 +285,43 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
             </div>
           )}
           {created && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-              <p className="font-bold">Patient créé : {created.name}</p>
-              <p>CMU : {created.cmuNumber}</p>
-              {created.devCode && <p>Code OTP dev : <strong>{created.devCode}</strong></p>}
+            <div className="space-y-3">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                <p className="font-bold">Patient créé : {created.name}</p>
+                <p>CMU : {created.cmuNumber}</p>
+                {photo && !created.photoSaved && <p className="mt-1 font-semibold text-amber-800">La photo n’a pas pu être enregistrée : le patient pourra l’ajouter depuis son profil.</p>}
+                <p className="mt-1">Remettez ces identifiants au patient. Le mot de passe ne sera plus affiché ; le patient devra le changer à sa première connexion.</p>
+              </div>
+              <div className="rounded-xl bg-slate-950 text-white p-4 space-y-1">
+                <p className="text-xs text-slate-400">Numéro</p>
+                <p className="font-mono font-bold">{created.phone}</p>
+                <p className="text-xs text-slate-400 pt-2">Mot de passe provisoire</p>
+                <code className="text-lg font-bold break-all select-all">{created.provisionalPassword}</code>
+              </div>
+              <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${created.phone}\nMot de passe : ${created.provisionalPassword}`)}
+                className={`w-full px-4 py-2 rounded-lg border font-semibold text-sm ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+                Copier les identifiants
+              </button>
             </div>
           )}
           {step === 1 && (
             <>
               <h4 className="font-bold">Identité</h4>
+              <div className="flex items-center gap-4">
+                <div className={`w-20 h-20 rounded-full overflow-hidden flex items-center justify-center shrink-0 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  {photo ? <img src={photo} alt="Photo du patient" className="w-full h-full object-cover" /> : <Camera className={`w-7 h-7 ${sub}`} />}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-2">
+                    <label className={`cursor-pointer px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+                      {photo ? 'Changer la photo' : 'Ajouter une photo'}
+                      <input type="file" accept={PHOTO_ACCEPT} capture="user" onChange={pickPhoto} className="sr-only" />
+                    </label>
+                    {photo && <button type="button" onClick={() => setPhoto(null)} className="px-3 py-2 rounded-lg text-xs font-semibold text-red-600">Retirer</button>}
+                  </div>
+                  <p className={`text-[11px] ${sub}`}>Facultatif. Aide à identifier le patient ; il pourra la changer lui-même.</p>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
@@ -289,13 +332,21 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
           )}
           {step === 2 && (
             <>
-              <h4 className="font-bold">Contact</h4>
+              <h4 className="font-bold">Contact et accès</h4>
               <div>
                 <label className={`text-xs ${sub}`}>Téléphone *</label>
                 <div className={`mt-1 flex items-center gap-2 p-2 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                   <span className="text-xs font-bold pr-2 border-r">🇨🇮 +225</span>
                   <input type="tel" value={d.p} onChange={(e) => setD({...d, p: e.target.value})} placeholder="07 89 45 23 11" className="flex-1 outline-none bg-transparent text-sm" />
                 </div>
+              </div>
+              <div>
+                <label className={`text-xs ${sub}`}>Mot de passe provisoire</label>
+                <div className="mt-1 flex gap-2">
+                  <input type="text" value={d.pw} onChange={(e) => setD({...d, pw: e.target.value})} placeholder="Laisser vide pour le générer" autoComplete="off" className={`flex-1 px-3 py-2 rounded-lg border text-sm font-mono ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
+                  <button type="button" onClick={() => setD({...d, pw: generatePassword()})} className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Générer</button>
+                </div>
+                <p className={`text-[11px] ${sub} mt-1`}>8 caractères minimum avec une lettre et un chiffre. Le patient le changera à sa première connexion.</p>
               </div>
               <div><label className={`text-xs ${sub}`}>Adresse</label><input type="text" value={d.addr} onChange={(e) => setD({...d, addr: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
               <div><label className={`text-xs ${sub}`}>Ville</label><input type="text" value={d.city} onChange={(e) => setD({...d, city: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
@@ -310,7 +361,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-emerald-900">Le patient recevra un SMS pour activer son compte avec le numéro fourni.</p>
+                <p className="text-xs text-emerald-900">Le patient se connectera avec son numéro et le mot de passe provisoire, affiché après la création.</p>
               </div>
             </>
           )}

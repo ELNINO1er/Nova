@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import {hasUnsavedData} from '../unsaved.js';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserPlus, Plus } from 'lucide-react';
 import { doctorApi } from '../api/doctorApi.js';
 
@@ -16,13 +17,17 @@ import DAssistantIA from './pages/DAssistantIA.jsx';
 import DFinances from './pages/DFinances.jsx';
 import DReputation from './pages/DReputation.jsx';
 import DSignature from './pages/DSignature.jsx';
+import PNotifications from '../patient/pages/PNotifications.jsx';
 import PMsg from '../patient/pages/PMsg.jsx';
 import PDocs from '../patient/pages/PDocs.jsx';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
+import PageError from '../components/PageError.jsx';
 
 export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedTick, setShowVid, card, sub, border, darkMode }) {
+  const generations=useRef({});
   const [apiData,    setApiData]    = useState({});
   const [apiLoading, setApiLoading] = useState({});
+  const [apiError,   setApiError]   = useState({});
   const [notice,     setNotice]     = useState(null);
 
   const notify = (message, type = 'success') => {
@@ -42,6 +47,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       'lab-requests':     doctorApi.labRequests,
       'chronic-patients': doctorApi.chronicPatients,
       alerts:             doctorApi.alerts,
+      urgences:           doctorApi.alerts,
       finances:           doctorApi.finances,
       reputation:         doctorApi.reputation,
       signature:          doctorApi.signature,
@@ -52,14 +58,17 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
     };
     const load = loaders[pageKey];
     if (!load || (!force && apiData[pageKey])) return;
+    const generation=(generations.current[pageKey]||0)+1;generations.current[pageKey]=generation;
     setApiLoading(c => ({ ...c, [pageKey]: true }));
+    setApiError(c => ({ ...c, [pageKey]: null }));
     load()
-      .then(data => setApiData(c => ({ ...c, [pageKey]: data })))
-      .catch(err  => notify(err.message, 'error'))
-      .finally(() => setApiLoading(c => ({ ...c, [pageKey]: false })));
+      .then(data => {if(generations.current[pageKey]===generation)setApiData(c => ({ ...c, [pageKey]: data }));})
+      .catch(err  => { if(generations.current[pageKey]!==generation)return;setApiError(c => ({ ...c, [pageKey]: err.message })); notify(err.message, 'error'); })
+      .finally(() => {if(generations.current[pageKey]===generation)setApiLoading(c => ({ ...c, [pageKey]: false }));});
   };
 
-  useEffect(() => { loadPage(page); }, [page]);
+  useEffect(() => { loadPage(page,true); }, [page]);
+  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData({});loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   useEffect(() => {
     if (!patientCreatedTick) return;
@@ -72,16 +81,16 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
 
   const doctorName = apiData.dashboard?.doctor
     ? `Dr. ${apiData.dashboard.doctor.firstName} ${apiData.dashboard.doctor.lastName}`
-    : 'Dr. Aïcha Touré';
-  const doctorSpec = apiData.dashboard?.doctor?.specialty || 'Cardiologie';
+    : '';
+  const doctorSpec = apiData.dashboard?.doctor?.specialty || '';
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* En-tête commun (le tableau de bord a le sien) */}
+      {page !== 'dashboard' && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Cockpit Clinique</h2>
-          <p className={`text-sm ${sub}`}>{doctorName} • {doctorSpec}</p>
+          <p className={`text-sm ${sub}`}>{[doctorName, doctorSpec].filter(Boolean).join(' • ')}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={onCP}
@@ -93,7 +102,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
             <Plus className="w-4 h-4" /> Nouvelle consultation
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Toast */}
       {notice && (
@@ -103,23 +112,28 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
         </div>
       )}
 
-      {page === 'dashboard'     && <DDash     data={apiData.dashboard}     loading={apiLoading.dashboard}     {...p} />}
+      {apiError[page] && !apiData[page] ? (
+        <PageError message={apiError[page]} onRetry={() => loadPage(page, true)} card={card} sub={sub} />
+      ) : (<>
+      {page === 'dashboard'     && <DDash     data={apiData.dashboard}     loading={apiLoading.dashboard}     onCP={onCP} {...p} />}
       {page === 'patients'      && <DPatients data={apiData.patients}      loading={apiLoading.patients}      onReload={() => loadPage('patients', true)} {...p} />}
       {page === 'agenda'        && <DAgenda   data={apiData.agenda}        loading={apiLoading.agenda}        onReload={() => loadPage('agenda', true)}   {...p} />}
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'stats'         && <DStats    data={apiData.stats}         loading={apiLoading.stats}         {...p} />}
-      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} {...p} />}
+      {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>setApiData(c=>({...c,notifications:v}))} {...p} />}
+      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} viewerRole="doctor" {...p} />}
       {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'lab-requests'       && <DLabRequests     data={apiData['lab-requests']}       loading={apiLoading['lab-requests']}      onReload={() => loadPage('lab-requests', true)}      patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'chronic-patients'   && <DSuiviChroniques data={apiData['chronic-patients']}    loading={apiLoading['chronic-patients']}  onReload={() => loadPage('chronic-patients', true)} {...p} />}
-      {page === 'urgences'           && <DUrgences        data={apiData.alerts}                 loading={apiLoading.alerts}               onReload={() => loadPage('alerts', true)}           patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
+      {page === 'urgences'           && <DUrgences        data={apiData.urgences}               loading={apiLoading.urgences}             onReload={() => loadPage('urgences', true)}           patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'assistant-ia'       && <DAssistantIA     chronicData={apiData['chronic-patients']} consultData={apiData.consultations} statsData={apiData.stats} loadChronic={() => loadPage('chronic-patients')} loadConsult={() => loadPage('consultations')} loadStats={() => loadPage('stats')} {...p} />}
       {page === 'finances'    && <DFinances   data={apiData.finances}   loading={apiLoading.finances}   {...p} />}
       {page === 'reputation'  && <DReputation data={apiData.reputation} loading={apiLoading.reputation} {...p} />}
-      {page === 'signature'   && <DSignature  data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
+      {page === 'signature'   && <DSignature  doctorName={doctorName} doctorSpec={doctorSpec} data={apiData.signature}  loading={apiLoading.signature}  onSave={() => loadPage('signature', true)} {...p} />}
       {page === 'settings'    && <SettingsPage data={apiData.settings} api={doctorApi} {...p} />}
+      </>)}
     </div>
   );
 }

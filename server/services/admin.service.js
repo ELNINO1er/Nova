@@ -1,5 +1,8 @@
 import { pool } from '../db/database.js';
 import { paginatedResponse } from '../middleware/paginate.js';
+import bcrypt from 'bcrypt';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { generateProvisionalPassword, STRONG_PASSWORD_ROLES } from './auth.service.js';
 
 async function scalar(sql, params = []) {
   const [[row]] = await pool.execute(sql, params);
@@ -76,9 +79,11 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
   if (type === 'patients') {
     const countSql = `SELECT COUNT(*) AS total FROM nova_patients
       WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)`;
-    const dataSql = `SELECT id, first_name AS firstName, last_name AS lastName, cmu_number AS cmuNumber,
-        phone, email, city, birth_date AS birthDate, created_at AS createdAt
-      FROM nova_patients
+    const dataSql = `SELECT p.id, p.first_name AS firstName, p.last_name AS lastName, p.cmu_number AS cmuNumber,
+        p.phone, p.email, p.city, p.birth_date AS birthDate, p.created_at AS createdAt,
+        (SELECT u.id FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
+        (SELECT u.phone FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
+      FROM nova_patients p
       WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)
       ORDER BY COALESCE(created_at, updated_at) DESC
       ${limiter}`;
@@ -105,7 +110,9 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
     const countSql = `SELECT COUNT(*) AS total FROM nova_users
       WHERE (? = '%%' OR name LIKE ? OR phone LIKE ? OR role LIKE ?)`;
     const dataSql = `SELECT id, phone, role, patient_id AS patientId, doctor_id AS doctorId,
-        pharmacy_id AS pharmacyId, name, avatar, created_at AS createdAt
+        pharmacy_id AS pharmacyId, name, avatar, created_at AS createdAt,
+        (password_hash IS NOT NULL) AS hasPassword, must_change_password AS mustChangePassword,
+        (locked_until IS NOT NULL AND locked_until > NOW()) AS isLocked
       FROM nova_users
       WHERE (? = '%%' OR name LIKE ? OR phone LIKE ? OR role LIKE ?)
       ORDER BY created_at DESC
@@ -117,10 +124,12 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
 
   const countSql = `SELECT COUNT(*) AS total FROM nova_doctors
     WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)`;
-  const dataSql = `SELECT id, first_name AS firstName, last_name AS lastName, specialty, sub_specialty AS subSpecialty,
-      city, address, phone, email, rating, reviews_count AS reviewsCount, is_available AS isAvailable,
-      created_at AS createdAt
-    FROM nova_doctors
+  const dataSql = `SELECT d.id, d.first_name AS firstName, d.last_name AS lastName, d.specialty, d.sub_specialty AS subSpecialty,
+      d.city, d.address, d.phone, d.email, d.rating, d.reviews_count AS reviewsCount, d.is_available AS isAvailable,
+      d.created_at AS createdAt,
+      (SELECT u.id FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
+        (SELECT u.phone FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
+    FROM nova_doctors d
     WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)
     ORDER BY COALESCE(created_at, last_name) DESC
     ${limiter}`;
@@ -216,14 +225,71 @@ export async function getAdminSystem() {
 }
 
 export async function setDoctorAvailability(id, isAvailable) {
-  const [result] = await pool.execute('UPDATE nova_doctors SET is_available = ? WHERE id = ?', [isAvailable ? 1 : 0, id]);
-  if (!result.affectedRows) return null;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('UPDATE nova_doctors SET is_available=? WHERE id=?', [isAvailable ? 1 : 0, id]);
+    await conn.execute('UPDATE nova_users SET disabled_at=?, session_version=session_version+1 WHERE doctor_id=?', [isAvailable ? null : new Date(), id]);
+    await conn.commit();
+  } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
   const [[doctor]] = await pool.execute(
     `SELECT id, first_name AS firstName, last_name AS lastName, is_available AS isAvailable
      FROM nova_doctors WHERE id = ?`,
     [id]
   );
   return doctor;
+}
+
+function provisionalPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  const bytes = randomBytes(18);
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+}
+
+export async function createDoctorAccount(payload) {
+  const connection = await pool.getConnection();
+  const doctorId = randomUUID();
+  const userId = randomUUID();
+  const password = provisionalPassword();
+  const passwordHash = await bcrypt.hash(password, 12);
+  const unusableLegacyHash = await bcrypt.hash(randomUUID(), 12);
+  const initials = `${payload.firstName[0] || ''}${payload.lastName[0] || ''}`.toUpperCase();
+  const now = new Date().toISOString();
+
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `INSERT INTO nova_doctors
+       (id, first_name, last_name, specialty, city, address, phone, email,
+        avatar_initials, license_number, is_available, verified_at, created_at, updated_at,rating,reviews_count,experience_years)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?, ?,0,0,0)`,
+      [doctorId, payload.firstName, payload.lastName, payload.specialty, payload.city || 'Abidjan',
+       payload.address || null, payload.phone, payload.email.toLowerCase(), initials,
+       payload.licenseNumber, now, now]
+    );
+    await connection.execute(
+      `INSERT INTO nova_users
+       (id, phone, code_hash, password_hash, role, doctor_id, name, avatar,
+        must_change_password, mfa_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'doctor', ?, ?, ?, 1, 0, ?, ?)`,
+      [userId, payload.phone, unusableLegacyHash, passwordHash, doctorId,
+       `Dr. ${payload.firstName} ${payload.lastName}`, initials, now, now]
+    );
+    await connection.commit();
+    return {
+      doctor: { id: doctorId, firstName: payload.firstName, lastName: payload.lastName, email: payload.email, phone: payload.phone },
+      provisionalPassword: password,
+      message: 'Compte créé. Transmettez le mot de passe provisoire par un canal sécurisé.',
+    };
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw Object.assign(new Error('Email, téléphone ou numéro d’ordre déjà utilisé.'), { status: 409 });
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function setPharmacyOpen(id, isOpen) {
@@ -235,4 +301,152 @@ export async function setPharmacyOpen(id, isOpen) {
     [id]
   );
   return pharmacy;
+}
+
+/**
+ * Génère un nouveau mot de passe provisoire (à changer à la prochaine connexion)
+ * et débloque le compte. Le mot de passe n'est renvoyé qu'une seule fois.
+ *
+ * Médecins, admins et gouverneurs déjà actifs : la réinitialisation remplace aussi leur
+ * Authenticator à la connexion suivante. Elle exige donc l'accord d'un second administrateur
+ * (demande en attente, puis approveResetRequest par un autre compte admin).
+ */
+const RESET_REQUEST_HOURS = 24;
+
+export async function resetUserPassword(userId, requestedBy) {
+  const [[user]] = await pool.execute(
+    'SELECT id, role, name, phone, password_hash IS NOT NULL AS has_password FROM nova_users WHERE id = ? AND deleted_at IS NULL', [userId]
+  );
+  if (!user) return null;
+  if(user.role==='patient')throw Object.assign(new Error('Réinitialisation des patients désactivée : un canal de récupération vérifiant leur identité est nécessaire.'),{status:409});
+  if (STRONG_PASSWORD_ROLES.includes(user.role) && Number(user.has_password)) {
+    const [[pending]] = await pool.execute(
+      "SELECT id FROM nova_reset_requests WHERE target_user_id = ? AND status = 'pending' AND expires_at > NOW()", [user.id]
+    );
+    if (pending) throw Object.assign(new Error('Une demande de réinitialisation attend déjà la validation d’un second administrateur.'), { status: 409 });
+    const id = randomUUID();
+    await pool.execute(
+      'INSERT INTO nova_reset_requests (id, target_user_id, requested_by, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? HOUR))',
+      [id, user.id, requestedBy, RESET_REQUEST_HOURS]
+    );
+    return { pending: true, requestId: id, user: { id: user.id, role: user.role, name: user.name, phone: user.phone } };
+  }
+  return applyPasswordReset(user);
+}
+
+export async function listResetRequests() {
+  const [rows] = await pool.execute(
+    `SELECT r.id, r.requested_by, r.requested_at, r.expires_at, t.id AS user_id, t.name, t.role, t.phone, q.name AS requested_by_name
+     FROM nova_reset_requests r
+     JOIN nova_users t ON t.id = r.target_user_id
+     LEFT JOIN nova_users q ON q.id = r.requested_by
+     WHERE r.status = 'pending' AND r.expires_at > NOW()
+     ORDER BY r.requested_at ASC`
+  );
+  return rows.map((r) => ({
+    id: r.id, requestedAt: r.requested_at, expiresAt: r.expires_at, requestedBy: r.requested_by,
+    requestedByName: r.requested_by_name, user: { id: r.user_id, name: r.name, role: r.role, phone: r.phone },
+  }));
+}
+
+/* Le second administrateur approuve ou refuse ; le demandeur ne peut pas valider sa propre demande. */
+export async function decideResetRequest(requestId, adminUserId, approve) {
+  const conn = await pool.getConnection();
+  let user;
+  try {
+    await conn.beginTransaction();
+    const [[request]] = await conn.execute(
+      "SELECT * FROM nova_reset_requests WHERE id = ? AND status = 'pending' AND expires_at > NOW() FOR UPDATE", [requestId]
+    );
+    if (!request) { await conn.rollback(); return null; }
+    if (request.requested_by === adminUserId) {
+      throw Object.assign(new Error('Un second administrateur doit valider cette réinitialisation.'), { status: 403, code: 'same_admin' });
+    }
+    await conn.execute(
+      'UPDATE nova_reset_requests SET status = ?, decided_by = ?, decided_at = NOW(3) WHERE id = ?',
+      [approve ? 'approved' : 'rejected', adminUserId, requestId]
+    );
+    [[user]] = await conn.execute('SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [request.target_user_id]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  if (!approve) return { rejected: true };
+  if (!user) return null;
+  return applyPasswordReset(user);
+}
+
+async function applyPasswordReset(user) {
+  const password = provisionalFor(user.role);
+  const passwordHash = await bcrypt.hash(password, 12);
+  await pool.execute(
+    `UPDATE nova_users
+     SET password_hash = ?, must_change_password = 1, failed_login_attempts = 0, locked_until = NULL, session_version=session_version+1
+     WHERE id = ?`,
+    [passwordHash, user.id]
+  );
+  await pool.execute('UPDATE nova_auth_challenges SET used_at=NOW() WHERE user_id=? AND used_at IS NULL',[user.id]);
+  return { user: { id: user.id, role: user.role, name: user.name, phone: user.phone }, provisionalPassword: password };
+}
+
+// Médecins, admins, gouverneurs : règles fortes (12 caractères, symbole) ; les autres : lisible.
+function provisionalFor(role) {
+  return STRONG_PASSWORD_ROLES.includes(role) ? `${generateProvisionalPassword(11)}!` : generateProvisionalPassword();
+}
+
+/** Comptes créés par l'admin : pharmacien (rattaché à une pharmacie) ou gouverneur. */
+/** Crée l'accès de connexion d'un médecin déjà enregistré qui n'en a pas (ex. annuaire importé). */
+export async function createDoctorLogin(doctorId, phone) {
+  const [[doctor]] = await pool.execute('SELECT id, first_name, last_name, avatar_initials FROM nova_doctors WHERE id = ?', [doctorId]);
+  if (!doctor) return null;
+  const [[existing]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ? AND deleted_at IS NULL', [doctorId]);
+  if (existing) throw Object.assign(new Error('Ce médecin a déjà un compte de connexion.'), { status: 409 });
+  const password = provisionalFor('doctor');
+  const id = randomUUID();
+  const name = `Dr. ${doctor.first_name} ${doctor.last_name}`;
+  const now = new Date().toISOString();
+  try {
+    await pool.execute(
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, role, doctor_id, name, avatar, must_change_password, mfa_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'doctor', ?, ?, ?, 1, 0, ?, ?)`,
+      [id, phone, await bcrypt.hash(randomUUID(), 10), await bcrypt.hash(password, 12), doctor.id, name,
+       doctor.avatar_initials || `${doctor.first_name[0] || ''}${doctor.last_name[0] || ''}`.toUpperCase(), now, now]
+    );
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') throw Object.assign(new Error('Ce numéro est déjà utilisé.'), { status: 409 });
+    throw error;
+  }
+  return { user: { id, role: 'doctor', name, phone }, provisionalPassword: password };
+}
+
+export async function createStaffAccount(payload) {
+  let pharmacy = null;
+  if (payload.role === 'pharmacist') {
+    [[pharmacy]] = await pool.execute('SELECT id, name FROM nova_pharmacies WHERE id = ?', [payload.pharmacyId || '']);
+    if (!pharmacy) throw Object.assign(new Error('Pharmacie introuvable.'), { status: 404 });
+  }
+  const password = provisionalFor(payload.role);
+  const passwordHash = await bcrypt.hash(password, 12);
+  const unusableLegacyHash = await bcrypt.hash(randomUUID(), 10);
+  const initials = payload.name.split(/\s+/).map((w) => w[0] || '').join('').slice(0, 2).toUpperCase();
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  try {
+    await pool.execute(
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, must_change_password, role, pharmacy_id, name, avatar, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      [id, payload.phone, unusableLegacyHash, passwordHash, payload.role, pharmacy?.id || null, payload.name, initials, now, now]
+    );
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') throw Object.assign(new Error('Ce numéro est déjà utilisé.'), { status: 409 });
+    throw error;
+  }
+  return {
+    user: { id, role: payload.role, name: payload.name, phone: payload.phone, pharmacy: pharmacy?.name || null },
+    provisionalPassword: password,
+    message: 'Compte créé. Transmettez le mot de passe provisoire par un canal sécurisé.',
+  };
 }

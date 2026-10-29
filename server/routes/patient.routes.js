@@ -1,3 +1,5 @@
+import {startConversation} from '../services/messaging.service.js';
+import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
@@ -57,6 +59,9 @@ import {
   deleteNote,
   getConsents,
   grantConsent,
+  getCareTeam,
+  grantDoctorAccess,
+  revokeDoctorAccess,
   revokeConsent,
   getAccessLogs,
   getFamilyMembers,
@@ -67,28 +72,26 @@ import {
 } from '../services/patient.service.js';
 
 import { wrap, validateBody } from '../middleware/helpers.js';
+import { auditLog } from '../middleware/audit.js';
 import { cacheFor } from '../middleware/cache.js';
 import { answerPatientAssistant } from '../services/ai.service.js';
 import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
 import { buildPatientSummaryPdf } from '../services/export.service.js';
+import { patientPhotoFile, removePatientPhoto, savePatientPhoto } from '../services/photo.service.js';
 
 const router = Router();
 router.use(requirePatient);
 
+// Libellés du formulaire (« Conjoint(e) », « Père », « Sœur »…) ramenés aux codes stockés.
 const familyRelationshipSchema = z.preprocess((value) => {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '').trim().toLowerCase()
+    .replace(/œ/g, 'oe').normalize('NFD').replace(/\p{M}/gu, '').replace(/\(e\)|\(s\)/g, '').trim();
   const aliases = {
-    enfant: 'child',
-    child: 'child',
-    conjoint: 'spouse',
-    epoux: 'spouse',
-    spouse: 'spouse',
-    parent: 'parent',
-    frere: 'sibling',
-    soeur: 'sibling',
-    sibling: 'sibling',
-    autre: 'other',
-    other: 'other',
+    enfant: 'child', fils: 'child', fille: 'child', child: 'child',
+    conjoint: 'spouse', conjointe: 'spouse', epoux: 'spouse', epouse: 'spouse', mari: 'spouse', femme: 'spouse', spouse: 'spouse',
+    parent: 'parent', pere: 'parent', mere: 'parent',
+    frere: 'sibling', soeur: 'sibling', sibling: 'sibling',
+    autre: 'other', other: 'other',
   };
   return aliases[normalized] || value;
 }, z.enum(['child', 'spouse', 'parent', 'sibling', 'other']));
@@ -107,6 +110,27 @@ router.post('/assistant', validateBody(z.object({
 
 router.get('/profile', cacheFor(60), wrap(async (req, res) => {
   res.json(await getProfile(req.user.patientId));
+}));
+
+/* ─── Photo de profil (le patient la change ou la retire lui-même) ─── */
+router.get('/photo', wrap(async (req, res) => {
+  // Pas de photo : 204 (cas normal, pas une erreur).
+  const file = await patientPhotoFile(req.user.patientId);
+  res.set('Cache-Control', 'private, no-store');
+  if (!file) return res.status(204).end();
+  res.sendFile(file, (err) => { if (err && !res.headersSent) res.status(204).end(); });
+}));
+
+router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('patient.photo.update', 'patient'), wrap(async (req, res) => {
+  const result = await savePatientPhoto(req.user.patientId, req.body.photo);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
+}));
+
+router.delete('/photo', auditLog('patient.photo.remove', 'patient'), wrap(async (req, res) => {
+  const result = await removePatientPhoto(req.user.patientId);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
 }));
 
 router.patch('/profile', validateBody(z.object({
@@ -174,6 +198,9 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 
 /* ─── Rendez-vous ────────────────────────────────────────────── */
 
+// Réserver = accepter que ce médecin consulte le dossier une fois le rendez-vous confirmé (révocable).
+const SHARE_RECORD = z.literal(true, { error: 'Acceptez le partage de votre dossier avec ce médecin pour réserver.' });
+
 router.get('/appointments', wrap(async (req, res) => {
   res.json(await getAppointments(req.user.patientId));
 }));
@@ -184,22 +211,27 @@ router.post('/appointments', validateBody(z.object({
   specialty:  z.string().default('Médecine générale'),
   location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).default('requested'),
-})), wrap(async (req, res) => {
+  shareRecord: SHARE_RECORD,
+})), auditLog('appointment.request', 'appointment'), wrap(async (req, res) => {
   res.status(201).json(await createAppointment(req.user.patientId, req.body));
 }));
 
 router.patch('/appointments/:id', validateBody(z.object({
   startsAt:   z.string().datetime().optional(),
   mode:       z.enum(['onsite', 'video']).optional(),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).optional(),
-})), wrap(async (req, res) => {
-  res.json(await updateAppointment(req.user.patientId, req.params.id, req.body));
+  // Le patient ne peut qu'annuler ; la confirmation appartient au médecin.
+  status:     z.enum(['cancelled']).optional(),
+})), auditLog('appointment.update', 'appointment'), wrap(async (req, res) => {
+  const appt = await updateAppointment(req.user.patientId, req.params.id, req.body);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
-router.delete('/appointments/:id', wrap(async (req, res) => {
-  await deleteAppointment(req.user.patientId, req.params.id);
-  res.status(204).send();
+// « Supprimer » = annuler : le rendez-vous reste dans l'historique.
+router.delete('/appointments/:id', auditLog('appointment.cancel', 'appointment'), wrap(async (req, res) => {
+  const appt = await deleteAppointment(req.user.patientId, req.params.id);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
 /* ─── Vaccinations ───────────────────────────────────────────── */
@@ -209,6 +241,8 @@ router.get('/vaccinations', wrap(async (req, res) => {
 }));
 
 /* ─── Historique ─────────────────────────────────────────────── */
+
+router.get('/consultations',wrap(async(req,res)=>res.json(await patientConsultations(req.user.patientId))));
 
 router.get('/history', wrap(async (req, res) => {
   res.json(await getHistory(req.user.patientId, req.query));
@@ -241,11 +275,14 @@ router.delete('/documents/:id', requirePermission('patient.documents'), wrap(asy
 router.get('/documents/:id/download', requirePermission('patient.documents'), wrap(async (req, res) => {
   const file = await getDocumentFile(req.user.patientId, req.params.id);
   if (!file) return res.status(404).json({ error: 'not_found', message: 'Document introuvable' });
+  res.set('Cache-Control','no-store');
   res.type(file.mimeType);
   res.download(file.path, file.filename);
 }));
 
 /* ─── Conversations & Messages ───────────────────────────────── */
+
+router.post('/conversations',validateBody(z.object({doctorId:z.string().min(1)})),auditLog('conversation.create','conversation'),wrap(async(req,res)=>res.status(201).json(await startConversation(req.body.doctorId,req.user.patientId))));
 
 router.get('/conversations', wrap(async (req, res) => {
   res.json(await getConversations(req.user.patientId));
@@ -258,6 +295,7 @@ router.get('/conversations/:id', wrap(async (req, res) => {
 }));
 
 router.post('/conversations/:id/messages', validateBody(z.object({
+  requestKey:z.string().min(8).max(100).optional(),
   body:           z.string().min(1).max(2000),
   attachmentName: z.string().optional(),
 })), wrap(async (req, res) => {
@@ -300,8 +338,8 @@ router.get('/doctors/:id/slots', wrap(async (req, res) => {
   res.json(await getDoctorSlots(req.params.id, req.query));
 }));
 
-router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
-  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id);
+router.post('/doctors/:id/slots/:slotId/book', validateBody(z.object({ shareRecord: SHARE_RECORD })), wrap(async (req, res) => {
+  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id, req.body.shareRecord);
   if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
   res.status(201).json(result);
 }));
@@ -358,7 +396,7 @@ router.get('/notes', wrap(async (req, res) => {
 router.post('/notes', validateBody(z.object({
   title:   z.string().min(1),
   content: z.string().default(''),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).default('amber'),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).default('amber'),
   pinned:  z.boolean().default(false),
 })), wrap(async (req, res) => {
   res.status(201).json(await createNote(req.user.patientId, req.body));
@@ -367,7 +405,7 @@ router.post('/notes', validateBody(z.object({
 router.patch('/notes/:id', validateBody(z.object({
   title:   z.string().min(1).optional(),
   content: z.string().optional(),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).optional(),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).optional(),
   pinned:  z.boolean().optional(),
 })), wrap(async (req, res) => {
   res.json(await updateNote(req.user.patientId, req.params.id, req.body));
@@ -387,24 +425,33 @@ router.get('/emergency-card', wrap(async (req, res) => {
 }));
 
 router.get('/emergency-card/qr', wrap(async (req, res) => {
+  const settings = await getSettings(req.user.patientId);
+  if (settings?.privacy?.emergencyQr === false) {
+    return res.status(403).json({ error: 'emergency_qr_disabled', message: 'QR d’urgence désactivé dans vos paramètres.' });
+  }
   const card = await getEmergencyCard(req.user.patientId);
   if (!card) return res.status(404).json({ error: 'not_found' });
 
-  const jwt = (await import('jsonwebtoken')).default;
-  const token = jwt.sign(
-    { type: 'emergency_card', patientId: req.user.patientId },
-    process.env.JWT_SECRET,
-    { expiresIn: '15m' }
-  );
+  // Contenu en clair : un secouriste le lit avec n'importe quel téléphone, sans compte NOVA.
+  const lines = [
+    'NOVA - FICHE D URGENCE',
+    `${card.firstName} ${card.lastName}`,
+    card.birthDate ? `Né(e) le ${String(card.birthDate).slice(0, 10)}` : null,
+    `Groupe sanguin : ${card.bloodType || 'non renseigné'}`,
+    `Allergies : ${card.allergies?.length ? card.allergies.join(', ') : 'aucune renseignée'}`,
+    card.chronicDiseases?.length ? `Maladies chroniques : ${card.chronicDiseases.join(', ')}` : null,
+    card.currentMedications?.length ? `Traitements : ${card.currentMedications.map((m) => `${m.name} ${m.dosage || ''}`.trim()).join(', ')}` : null,
+    card.emergencyContact?.phone ? `Contact : ${card.emergencyContact.name || ''} ${card.emergencyContact.phone}`.trim() : null,
+  ].filter(Boolean);
 
-  const dataUrl = await QRCode.toDataURL(token, {
+  const dataUrl = await QRCode.toDataURL(lines.join('\n'), {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 300,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  res.json({ qr: dataUrl, expiresIn: 900 });
+  res.json({ qr: dataUrl, content: lines });
 }));
 
 /* ─── Wellness Goals ─────────────────────────────────────────── */
@@ -463,7 +510,20 @@ router.post('/payments', validateBody(z.object({
   res.status(201).json(await createPatientPayment(req.user.patientId, req.body));
 }));
 
-router.get('/export/pdf', wrap(async (req, res) => {
+router.get('/export/json',auditLog('patient.export','patient'),wrap(async(req,res)=>{
+ const {pool}=await import('../db/database.js');
+ const tables=['nova_patients','nova_medical_profile','nova_medical_declarations','nova_vitals','nova_consultations','nova_prescriptions','nova_treatments','nova_medication_schedules','nova_medication_intakes','nova_appointments','nova_lab_results','nova_vaccinations','nova_documents','nova_consents','nova_medical_history','nova_notes','nova_lab_requests','nova_notifications','nova_pharmacy_orders','nova_payments','nova_patient_settings','nova_wellness_goals','nova_insurance','nova_access_logs','nova_conversations'];
+ const data={};
+ for(const table of tables){const [rows]=await pool.execute(`SELECT * FROM ${table} WHERE ${table==='nova_patients'?'id':'patient_id'}=?${table==='nova_consultations'?" AND status='completed' AND deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;}
+ for(const [table,parent,fk] of [['nova_medications','nova_treatments','treatment_id'],['nova_prescription_items','nova_prescriptions','prescription_id'],['nova_lab_result_items','nova_lab_results','lab_result_id'],['nova_consultation_amendments','nova_consultations','consultation_id'],['nova_messages','nova_conversations','conversation_id']]){
+  const [rows]=await pool.execute(`SELECT c.* FROM ${table} c JOIN ${parent} p ON p.id=c.${fk} WHERE p.patient_id=?${parent==='nova_consultations'?" AND p.status='completed' AND p.deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;
+ }
+ const [family]=await pool.execute('SELECT * FROM nova_family_members WHERE owner_patient_id=?',[req.user.patientId]);data.nova_family_members=family;
+ for(const row of data.nova_documents) delete row.file_path;
+ res.set('Cache-Control','no-store').set('Content-Disposition','attachment; filename="nova-dossier.json"').json({exportedAt:new Date().toISOString(),data});
+}));
+
+router.get('/export/pdf',auditLog('patient.export','patient'), wrap(async (req, res) => {
   const pdf = await buildPatientSummaryPdf(req.user.patientId);
   if (!pdf) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
   res.setHeader('Content-Type', 'application/pdf');
@@ -515,6 +575,20 @@ router.post('/consents/:id/grant', requirePermission('patient.consents'), wrap(a
 
 router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await revokeConsent(req.user.patientId, req.params.id));
+}));
+
+/* ─── Équipe de soins : qui a accès à mon dossier, révocation / rétablissement ─── */
+
+router.get('/care-team', requirePermission('patient.consents'), wrap(async (req, res) => {
+  res.json(await getCareTeam(req.user.patientId));
+}));
+
+router.post('/care-team/:doctorId/revoke', requirePermission('patient.consents'), auditLog('patient.access.revoke', 'doctor'), wrap(async (req, res) => {
+  res.json(await revokeDoctorAccess(req.user.patientId, req.params.doctorId));
+}));
+
+router.post('/care-team/:doctorId/grant', requirePermission('patient.consents'), auditLog('patient.access.grant', 'doctor'), wrap(async (req, res) => {
+  res.json(await grantDoctorAccess(req.user.patientId, req.params.doctorId));
 }));
 
 /* ─── Access Logs ────────────────────────────────────────────── */

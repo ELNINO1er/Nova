@@ -1,7 +1,11 @@
+import {persistMessage} from './messaging.service.js';
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
-import { notifyDoctorConsent, notifyDoctorAppointment } from './notification.service.js';
+import { medicalList } from './medical-profile.js';
+import { hasDoctorPatientAccess } from './access.js';
+import { notifyDoctorConsent, notifyDoctorAppointment, notifyDoctorAppointmentChange } from './notification.service.js';
+import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
@@ -142,7 +146,7 @@ export async function getTreatments(patientId) {
 
 export async function getMedicationToday(patientId) {
   const [schedules] = await pool.execute(
-    'SELECT * FROM nova_medication_schedules WHERE patient_id = ? ORDER BY take_time ASC',
+    "SELECT * FROM nova_medication_schedules WHERE patient_id = ? AND (starts_on IS NULL OR starts_on<=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d')) AND (ends_on IS NULL OR ends_on>=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d')) ORDER BY take_time ASC",
     [patientId]
   );
   const today = new Date().toISOString().slice(0, 10);
@@ -156,6 +160,7 @@ export async function getMedicationToday(patientId) {
   return schedules.map((row) => ({
     id: row.id,
     medicationId: row.medication_id,
+    prescriptionItemId:row.prescription_item_id, startsOn:row.starts_on,endsOn:row.ends_on,
     name: row.name,
     dosage: row.dosage,
     time: row.take_time,
@@ -166,41 +171,21 @@ export async function getMedicationToday(patientId) {
   }));
 }
 
-export async function createMedicationIntake(patientId, scheduleId, payload) {
-  const [[schedule]] = await pool.execute(
-    'SELECT id FROM nova_medication_schedules WHERE id = ? AND patient_id = ?',
-    [scheduleId, patientId]
-  );
-  if (!schedule) {
-    const err = new Error('Ce médicament ne vous appartient pas.');
-    err.status = 403;
-    throw err;
-  }
-
-  const now = new Date().toISOString();
-  const takenAt = payload.takenAt || now;
-
-  const [[existing]] = await pool.execute(
-    `SELECT id FROM nova_medication_intakes
-     WHERE patient_id = ? AND schedule_id = ? AND LEFT(taken_at, 10) = LEFT(?, 10)`,
-    [patientId, scheduleId, takenAt]
-  );
-
-  if (existing) {
-    await pool.execute(
-      'UPDATE nova_medication_intakes SET status = ?, taken_at = ? WHERE id = ?',
-      [payload.status, takenAt, existing.id]
-    );
-    return { id: existing.id, patientId, scheduleId, status: payload.status, takenAt };
-  }
-
-  const id = randomUUID();
-  await pool.execute(
-    `INSERT INTO nova_medication_intakes (id, patient_id, schedule_id, status, taken_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, patientId, scheduleId, payload.status, takenAt, now]
-  );
-  return { id, patientId, scheduleId, status: payload.status, takenAt };
+export async function createMedicationIntake(patientId,scheduleId,payload){
+ const now=new Date().toISOString(),takenAt=payload.takenAt||now,day=takenAt.slice(0,10);
+ if(!Number.isFinite(Date.parse(takenAt))||day>now.slice(0,10))throw Object.assign(new Error('Date de prise invalide ou future.'),{status:422});
+ const conn=await pool.getConnection();
+ try{
+  await conn.beginTransaction();
+  const [[schedule]]=await conn.execute('SELECT * FROM nova_medication_schedules WHERE id=? AND patient_id=? FOR UPDATE',[scheduleId,patientId]);
+  if(!schedule)throw Object.assign(new Error('Médicament non autorisé.'),{status:403});
+  if((schedule.starts_on&&day<schedule.starts_on)||(schedule.ends_on&&day>schedule.ends_on))throw Object.assign(new Error('Date hors de la période prescrite.'),{status:422});
+  const [[existing]]=await conn.execute('SELECT id FROM nova_medication_intakes WHERE patient_id=? AND schedule_id=? AND LEFT(taken_at,10)=?',[patientId,scheduleId,day]);
+  const id=existing?.id||randomUUID();
+  if(existing)await conn.execute('UPDATE nova_medication_intakes SET status=?,taken_at=? WHERE id=?',[payload.status,takenAt,id]);
+  else await conn.execute('INSERT INTO nova_medication_intakes(id,patient_id,schedule_id,status,taken_at,created_at) VALUES (?,?,?,?,?,?)',[id,patientId,scheduleId,payload.status,takenAt,now]);
+  await conn.commit();return {id,patientId,scheduleId,status:payload.status,takenAt};
+ }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }
 
 /* ─── Rendez-vous ────────────────────────────────────────────── */
@@ -214,47 +199,42 @@ export async function getAppointments(patientId) {
 }
 
 export async function createAppointment(patientId, payload) {
-  const [[doctor]] = await pool.execute(
-    'SELECT id, first_name, last_name, specialty, city FROM nova_doctors WHERE id = ? AND is_available = 1',
-    [payload.doctorId]
-  );
-  if (!doctor) {
-    const err = new Error('Medecin indisponible ou introuvable.');
-    err.status = 404;
-    throw err;
-  }
-  const id = randomUUID();
-  await pool.execute(
-    `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.startsAt, `Dr. ${doctor.first_name} ${doctor.last_name}`,
-     doctor.specialty || '', doctor.city || '', payload.mode || 'onsite', payload.status || 'requested', doctor.id]
-  );
-  return getAppointment(patientId, id);
+  if(payload.mode==='video')throw Object.assign(new Error('Téléconsultation indisponible : aucun service vidéo intégré.'),{status:503});
+  const startsAt=new Date(payload.startsAt).toISOString(); assertFuture(startsAt);
+  const id=randomUUID();
+  await withDoctorSchedule(payload.doctorId, async(conn,doctor)=>{
+    if(!doctor.is_available) throw Object.assign(new Error('Medecin indisponible.'),{status:409});
+    await assertDoctorSlotFree(doctor.id,startsAt,null,conn);
+    await reserveMatchingSlot(conn,doctor.id,startsAt,patientId);
+    await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at,record_shared_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString(),payload.shareRecord?new Date():null]);
+  });
+  notifyDoctorAppointment(payload.doctorId,'Votre patient',frDate(startsAt)).catch(()=>{});
+  return getAppointment(patientId,id);
 }
 
-export async function updateAppointment(patientId, id, changes) {
-  const current = await getAppointment(patientId, id);
-  if (!current) return null;
-  await pool.execute(
-    `UPDATE nova_appointments
-     SET starts_at = ?, mode = ?, status = ?
-     WHERE patient_id = ? AND id = ?`,
-    [
-      changes.startsAt   ?? current.startsAt,
-      changes.mode       ?? current.mode,
-      changes.status     ?? current.status,
-      patientId, id,
-    ]
-  );
-  return getAppointment(patientId, id);
-}
+const frDate = (iso) => new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
 
-export async function deleteAppointment(patientId, id) {
-  await pool.execute(
-    'DELETE FROM nova_appointments WHERE patient_id = ? AND id = ?', [patientId, id]
-  );
+export async function updateAppointment(patientId,id,changes) {
+  const [[initial]]=await pool.execute('SELECT doctor_id FROM nova_appointments WHERE id=? AND patient_id=?',[id,patientId]);
+  if(!initial) return null;
+  await withDoctorSchedule(initial.doctor_id,async(conn)=>{
+    const [[row]]=await conn.execute('SELECT * FROM nova_appointments WHERE id=? AND patient_id=? FOR UPDATE',[id,patientId]);
+    if(row.status==='cancelled') { if(changes.status==='cancelled') return; throw Object.assign(new Error('Rendez-vous annule.'),{status:409}); }
+    if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'patient');
+    let startsAt=row.starts_at,status=row.status;
+    if(changes.status==='cancelled') {status='cancelled';await releaseSlotFor(row,conn);}
+    else if(changes.startsAt && new Date(changes.startsAt).toISOString()!==row.starts_at){
+      startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);
+      await assertDoctorSlotFree(row.doctor_id,startsAt,id,conn);
+      await releaseSlotFor(row,conn);await reserveMatchingSlot(conn,row.doctor_id,startsAt,patientId);status='requested';
+    }
+    await conn.execute('UPDATE nova_appointments SET starts_at=?,status=?,mode=?,updated_at=? WHERE id=?',[startsAt,status,changes.mode||row.mode,new Date().toISOString(),id]);
+  });
+  notifyDoctorAppointmentChange(initial.doctor_id,'Votre patient',changes.status==='cancelled'?'cancelled':'moved',changes.startsAt?frDate(changes.startsAt):'').catch(()=>{});
+  return getAppointment(patientId,id);
 }
+export async function cancelAppointment(patientId,id) {return updateAppointment(patientId,id,{status:'cancelled'});}
+export async function deleteAppointment(patientId,id) {return cancelAppointment(patientId,id);}
 
 /* ─── Vaccinations ───────────────────────────────────────────── */
 
@@ -365,7 +345,7 @@ export async function getDocumentFile(patientId, id) {
 
 export async function getConversations(patientId) {
   const [rows] = await pool.execute(
-    'SELECT * FROM nova_conversations WHERE patient_id = ? ORDER BY updated_at DESC',
+    "SELECT c.*,(SELECT COUNT(*) FROM nova_messages m WHERE m.conversation_id=c.id AND m.sender_role='doctor' AND m.is_read=0) unread_count FROM nova_conversations c WHERE patient_id = ? ORDER BY updated_at DESC",
     [patientId]
   );
   return rows.map(mapConversation);
@@ -389,31 +369,7 @@ export async function getConversation(patientId, conversationId) {
   };
 }
 
-export async function createMessage(patientId, conversationId, payload) {
-  const [[conv]] = await pool.execute(
-    'SELECT * FROM nova_conversations WHERE patient_id = ? AND id = ?',
-    [patientId, conversationId]
-  );
-  if (!conv) return null;
-
-  const id = randomUUID();
-  const now = new Date().toISOString();
-
-  await pool.execute(
-    `INSERT INTO nova_messages (id, conversation_id, sender_role, body, attachment_name, is_read, created_at)
-     VALUES (?, ?, 'patient', ?, ?, 0, ?)`,
-    [id, conversationId, payload.body, payload.attachmentName || null, now]
-  );
-
-  await pool.execute(
-    `UPDATE nova_conversations
-     SET last_message = ?, updated_at = ?
-     WHERE id = ?`,
-    [payload.body.slice(0, 120), now, conversationId]
-  );
-
-  return { id, conversationId, senderRole: 'patient', body: payload.body, isRead: false, createdAt: now };
-}
+export async function createMessage(patientId,conversationId,payload){return persistMessage('patient',patientId,conversationId,payload);}
 
 export async function markConversationRead(patientId, conversationId) {
   const [[conv]] = await pool.execute(
@@ -457,7 +413,7 @@ export async function getPrescriptions(patientId, query = {}) {
   const itemsByPrescription = new Map();
   for (const i of allItems) {
     const list = itemsByPrescription.get(i.prescription_id) || [];
-    list.push({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions });
+    list.push({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions,quantityPrescribed:i.quantity_prescribed,quantityUnit:i.quantity_unit });
     itemsByPrescription.set(i.prescription_id, list);
   }
   return rows.map(row => ({
@@ -496,7 +452,7 @@ export async function getPrescription(patientId, id) {
       dosage: i.dosage,
       frequency: i.frequency,
       duration: i.duration,
-      instructions: i.instructions,
+      instructions: i.instructions,quantityPrescribed:i.quantity_prescribed,quantityUnit:i.quantity_unit,
     })),
   };
 }
@@ -507,9 +463,9 @@ export async function addVital(patientId, payload) {
   const id = randomUUID();
   const now = payload.measuredAt || new Date().toISOString();
   await pool.execute(
-    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.type, payload.label, String(payload.value), payload.unit || '', now]
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, payload.label, String(payload.value), payload.unit || '', now, 'patient', patientId]
   );
   const [[row]] = await pool.execute('SELECT * FROM nova_vitals WHERE id = ?', [id]);
   return mapVital(row);
@@ -572,10 +528,11 @@ export async function getDoctorSlots(doctorId, query = {}) {
   }));
 }
 
-export async function bookSlot(patientId, slotId, doctorId) {
+export async function bookSlot(patientId, slotId, doctorId, shareRecord = false) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.execute('SELECT id FROM nova_doctors WHERE id=? FOR UPDATE',[doctorId]);
 
     const [[slot]] = await conn.execute(
       'SELECT * FROM nova_doctor_slots WHERE id = ? AND doctor_id = ? AND status = "available" FOR UPDATE',
@@ -583,21 +540,24 @@ export async function bookSlot(patientId, slotId, doctorId) {
     );
     if (!slot) { await conn.rollback(); return null; }
 
+    const startsCheck = new Date(`${slot.slot_date}T${String(slot.slot_time).slice(0,5)}:00.000Z`).toISOString();
+    assertFuture(startsCheck); await assertDoctorSlotFree(doctorId,startsCheck,null,conn);
     await conn.execute(
       'UPDATE nova_doctor_slots SET status = "booked", patient_id = ? WHERE id = ?',
       [patientId, slotId]
     );
 
     const [[doctor]] = await conn.execute('SELECT * FROM nova_doctors WHERE id = ?', [slot.doctor_id]);
+    if(!doctor?.is_available)throw Object.assign(new Error('Médecin indisponible.'),{status:409});
     const apptId = randomUUID();
-    const startsAt = `${slot.slot_date}T${slot.slot_time}:00.000Z`;
+    const startsAt = startsCheck;
 
     await conn.execute(
-      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?)`,
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, record_shared_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?)`,
       [apptId, patientId, startsAt,
        `Dr. ${doctor.first_name} ${doctor.last_name}`,
-       doctor.specialty, doctor.city, doctorId]
+       doctor.specialty, doctor.city, doctorId, shareRecord ? new Date() : null]
     );
 
     await conn.commit();
@@ -706,53 +666,23 @@ export async function getLabResult(patientId, id) {
 
 /* ─── Profil médical ─────────────────────────────────────────── */
 
-// mysql2 renvoie déjà les colonnes JSON désérialisées ; ne parser que les chaînes.
-function safeJson(value, fallback = []) {
-  if (value == null) return fallback;
-  if (typeof value !== 'string') return value;
-  try { return JSON.parse(value); } catch { return fallback; }
-}
 
-export async function getMedicalProfile(patientId) {
-  const [[row]] = await pool.execute(
-    'SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]
-  );
-  if (!row) return { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
-  return {
-    allergies:       safeJson(row.allergies),
-    chronicDiseases: safeJson(row.chronic_diseases),
-    familyHistory:   safeJson(row.family_history),
-    surgicalHistory: safeJson(row.surgical_history),
-    updatedAt:       row.updated_at,
-  };
+export async function getMedicalProfile(patientId){
+ const [[row]]=await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id=?',[patientId]);
+ const [declarations]=await pool.execute("SELECT id,content,created_at,author_role FROM nova_medical_declarations WHERE patient_id=? ORDER BY sequence_no DESC",[patientId]);
+ const latest=declarations.find(d=>d.author_role==='patient');const personal=latest?(typeof latest.content==='string'?JSON.parse(latest.content):latest.content):{};
+ const original={allergies:medicalList(row?.allergies),chronicDiseases:medicalList(row?.chronic_diseases),familyHistory:medicalList(row?.family_history),surgicalHistory:medicalList(row?.surgical_history)};
+ const combined={};for(const key of Object.keys(original)) combined[key]=[...new Set([...original[key],...(personal[key]||[])])];
+ return {...combined,professionalOrHistorical:original,patientDeclarations:personal,provenance:declarations.map(d=>({id:d.id,source:d.author_role,createdAt:d.created_at})),updatedAt:row?.updated_at};
 }
-
-export async function updateMedicalProfile(patientId, changes) {
-  const current = await getMedicalProfile(patientId);
-  const next = {
-    allergies:       changes.allergies       ?? current.allergies,
-    chronicDiseases: changes.chronicDiseases ?? current.chronicDiseases,
-    familyHistory:   changes.familyHistory   ?? current.familyHistory,
-    surgicalHistory: changes.surgicalHistory ?? current.surgicalHistory,
-  };
-  const now = new Date().toISOString();
-  await pool.execute(
-    `INSERT INTO nova_medical_profile (patient_id, allergies, chronic_diseases, family_history, surgical_history, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       allergies = VALUES(allergies),
-       chronic_diseases = VALUES(chronic_diseases),
-       family_history = VALUES(family_history),
-       surgical_history = VALUES(surgical_history),
-       updated_at = VALUES(updated_at)`,
-    [patientId,
-     JSON.stringify(next.allergies),
-     JSON.stringify(next.chronicDiseases),
-     JSON.stringify(next.familyHistory),
-     JSON.stringify(next.surgicalHistory),
-     now]
-  );
-  return { ...next, updatedAt: now };
+export async function updateMedicalProfile(patientId,changes){
+ const conn=await pool.getConnection();
+ try{
+  await conn.beginTransaction();await conn.execute('SELECT id FROM nova_patients WHERE id=? FOR UPDATE',[patientId]);
+  const current=await getMedicalProfile(patientId);const next={...current.patientDeclarations,...changes};
+  await conn.execute("INSERT INTO nova_medical_declarations(id,patient_id,author_role,author_id,content) VALUES (?,?,'patient',?,?)",[randomUUID(),patientId,patientId,JSON.stringify(next)]);
+  await conn.commit();return getMedicalProfile(patientId);
+ }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }
 
 /* ─── Notes ──────────────────────────────────────────────────── */
@@ -811,10 +741,11 @@ export async function getEmergencyCard(patientId) {
   if (!patient) return null;
 
   const [[mpRow]] = await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
+  const declaredProfile = await getMedicalProfile(patientId);
   const mp = mpRow ? {
-    allergies:       safeJson(mpRow.allergies),
-    chronicDiseases: safeJson(mpRow.chronic_diseases),
-    surgicalHistory: safeJson(mpRow.surgical_history),
+    allergies:       medicalList(mpRow.allergies),
+    chronicDiseases: medicalList(mpRow.chronic_diseases),
+    surgicalHistory: medicalList(mpRow.surgical_history),
   } : { allergies: [], chronicDiseases: [], surgicalHistory: [] };
 
   const [activeTreatments] = await pool.execute(
@@ -838,9 +769,9 @@ export async function getEmergencyCard(patientId) {
       relationship: patient.emergency_relationship,
       phone: patient.emergency_phone,
     },
-    allergies:       mp.allergies,
-    chronicDiseases: mp.chronicDiseases,
-    surgicalHistory: mp.surgicalHistory,
+    allergies:       declaredProfile.allergies,
+    chronicDiseases: declaredProfile.chronicDiseases,
+    surgicalHistory: declaredProfile.surgicalHistory,
     currentMedications: activeTreatments.map(r => ({ name: r.name, dosage: r.dosage, diagnosis: r.diagnosis })),
   };
 }
@@ -959,7 +890,17 @@ async function getDashboardVitals(patientId) {
     .filter(Boolean);
 }
 
+/*
+ * Indicateur de suivi INTERNE, non clinique (docs/ARCHITECTURE_ROLES.md §4) :
+ * 100 moins des pénalités (constantes hors normes, prises manquées, vaccins à renouveler).
+ * Renvoie null (« Données insuffisantes ») si moins de 2 types de constantes mesurés en 90 jours,
+ * pour ne jamais afficher une appréciation favorable sur un dossier presque vide.
+ */
 async function calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }) {
+  const since = new Date(Date.now() - 90 * 86400000).toISOString();
+  const recentTypes = new Set(latestVitals.filter((v) => v.measuredAt && v.measuredAt >= since).map((v) => v.type));
+  if (recentTypes.size < 2) return null;
+
   const vitalPenalty = latestVitals.reduce((total, v) => {
     if (v.status === 'critical') return total + 12;
     if (v.status === 'watch')    return total + 5;
@@ -989,6 +930,7 @@ async function calculateHealthScore(patientId, { latestVitals, todayMedications,
 function mapPatient(row) {
   return {
     id: row.id,
+    hasPhoto: Boolean(row.photo_path),
     cmuNumber: row.cmu_number,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -1018,6 +960,7 @@ function mapVital(row) {
     value: Number.isNaN(numeric) ? row.value : numeric,
     unit: row.unit,
     measuredAt: row.measured_at,
+    sourceRole:row.source_role || 'legacy', authorId:row.author_id,
   };
 }
 
@@ -1147,8 +1090,11 @@ function getVitalStatus(vital) {
   const value = vitalToHistoryValue(vital);
   if (!Number.isFinite(value)) return 'normal';
   if (vital.type === 'blood_pressure') {
-    if (value >= 160 || value <= 90)  return 'critical';
-    if (value >= 140 || value <= 100) return 'watch';
+    // Seuils en mmHg ; la tension est souvent saisie en cmHg (« 12/8 » = 120/80).
+    const systolic = value < 30 ? value * 10 : value;
+    if (systolic >= 160 || systolic <= 90)  return 'critical';
+    if (systolic >= 140 || systolic <= 100) return 'watch';
+    return 'normal';
   }
   if (vital.type === 'blood_glucose') {
     if (value >= 1.26 || value < 0.7)  return 'critical';
@@ -1245,43 +1191,15 @@ export async function getPharmacyOrders(patientId) {
 }
 
 export async function createPharmacyOrder(patientId, payload) {
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  await pool.execute(
-    `INSERT INTO nova_pharmacy_orders (id, patient_id, pharmacy_id, prescription_id, status, notes, created_at)
-     VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-    [id, patientId, payload.pharmacyId, payload.prescriptionId || null, payload.notes || null, now]
-  );
-  const [[row]] = await pool.execute(
-    `SELECT po.*, ph.name AS pharmacy_name, ph.address AS pharmacy_address, ph.phone AS pharmacy_phone
-     FROM nova_pharmacy_orders po
-     JOIN nova_pharmacies ph ON ph.id = po.pharmacy_id
-     WHERE po.id = ?`,
-    [id]
-  );
-  return {
-    id: row.id,
-    pharmacyId: row.pharmacy_id,
-    pharmacyName: row.pharmacy_name,
-    pharmacyAddress: row.pharmacy_address,
-    pharmacyPhone: row.pharmacy_phone,
-    prescriptionId: row.prescription_id,
-    status: row.status,
-    notes: row.notes,
-    createdAt: row.created_at,
-  };
+ throw Object.assign(new Error('Transmission des commandes aux pharmacies non intégrée.'),{status:503});
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   CONSENTEMENTS — accès dossier médical
-   ═══════════════════════════════════════════════════════════════ */
 
 export async function getConsents(patientId) {
   const [rows] = await pool.execute(
     `SELECT c.*, d.first_name, d.last_name, d.specialty
      FROM nova_consents c
      JOIN nova_doctors d ON d.id = c.doctor_id
-     WHERE c.patient_id = ?
+     WHERE c.patient_id = ? AND (c.status<>'pending' OR c.responded_at IS NULL)
      ORDER BY c.requested_at DESC`,
     [patientId]
   );
@@ -1298,45 +1216,83 @@ export async function getConsents(patientId) {
   }));
 }
 
-export async function grantConsent(patientId, consentId) {
-  const [[consent]] = await pool.execute(
-    'SELECT id, status FROM nova_consents WHERE id = ? AND patient_id = ?',
-    [consentId, patientId]
-  );
-  if (!consent) { const e = new Error('Consentement introuvable.'); e.status = 404; throw e; }
-  if (consent.status === 'granted') return { id: consentId, status: 'granted', message: 'Déjà accordé.' };
-
-  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
-  await pool.execute(
-    'UPDATE nova_consents SET status = ?, responded_at = NOW(), expires_at = ? WHERE id = ?',
-    ['granted', expiresAt, consentId]
-  );
-  // Notifier le médecin
-  const [[c]] = await pool.execute('SELECT doctor_id FROM nova_consents WHERE id = ?', [consentId]);
-  const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [patientId]);
-  if (c?.doctor_id && pat) notifyDoctorConsent(c.doctor_id, `${pat.first_name} ${pat.last_name}`, true).catch(() => {});
-
-  return { id: consentId, status: 'granted' };
+export async function grantConsent(patientId,consentId){
+ const [[c]]=await pool.execute('SELECT doctor_id,status FROM nova_consents WHERE id=? AND patient_id=?',[consentId,patientId]);
+ if(!c)throw Object.assign(new Error('Demande introuvable.'),{status:404});
+ if(c.status!=='pending')throw Object.assign(new Error('Utilisez les actions de votre équipe de soins pour une nouvelle décision.'),{status:409});
+ return setDoctorDecision(patientId,c.doctor_id,'granted',consentId);
+}
+export async function revokeConsent(patientId,consentId){
+ const [[c]]=await pool.execute('SELECT doctor_id FROM nova_consents WHERE id=? AND patient_id=?',[consentId,patientId]);
+ if(!c)throw Object.assign(new Error('Demande introuvable.'),{status:404});
+ return setDoctorDecision(patientId,c.doctor_id,'revoked');
 }
 
-export async function revokeConsent(patientId, consentId) {
-  const [[consent]] = await pool.execute(
-    'SELECT id FROM nova_consents WHERE id = ? AND patient_id = ?',
-    [consentId, patientId]
-  );
-  if (!consent) { const e = new Error('Consentement introuvable.'); e.status = 404; throw e; }
+/* ═══════════════════════════════════════════════════════════════
+   ÉQUIPE DE SOINS — médecins ayant accès au dossier (règle services/access.js)
+   ═══════════════════════════════════════════════════════════════ */
 
-  await pool.execute(
-    'UPDATE nova_consents SET status = ?, responded_at = NOW() WHERE id = ?',
-    ['revoked', consentId]
+export async function getCareTeam(patientId) {
+  // Médecins ayant un lien quelconque avec le patient ; l'accès effectif est recalculé pour chacun.
+  const [candidates] = await pool.execute(
+    `SELECT d.id, d.first_name, d.last_name, d.specialty, d.city FROM nova_doctors d
+     WHERE d.id IN (
+       SELECT doctor_id FROM nova_consents WHERE patient_id = ?
+       UNION SELECT doctor_id FROM nova_appointments WHERE patient_id = ? AND doctor_id IS NOT NULL
+       UNION SELECT doctor_id FROM nova_consultations WHERE patient_id = ?
+       UNION SELECT doctor_id FROM nova_prescriptions WHERE patient_id = ? AND doctor_id IS NOT NULL
+       UNION SELECT doctor_id FROM nova_lab_requests WHERE patient_id = ?
+     )
+     ORDER BY d.last_name`,
+    [patientId, patientId, patientId, patientId, patientId]
   );
-  // Notifier le médecin
-  const [[c]] = await pool.execute('SELECT doctor_id FROM nova_consents WHERE id = ?', [consentId]);
-  const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [patientId]);
-  if (c?.doctor_id && pat) notifyDoctorConsent(c.doctor_id, `${pat.first_name} ${pat.last_name}`, false).catch(() => {});
-
-  return { id: consentId, status: 'revoked' };
+  const team = [];
+  for (const d of candidates) {
+    const [[decision]] = await pool.execute(
+      `SELECT status, responded_at FROM nova_consents
+       WHERE patient_id = ? AND doctor_id = ? AND status IN ('granted', 'revoked')
+       ORDER BY COALESCE(responded_at, requested_at) DESC LIMIT 1`,
+      [patientId, d.id]
+    );
+    const access = await hasDoctorPatientAccess(d.id, patientId);
+    team.push({
+      doctorId: d.id,
+      doctorName: `Dr. ${d.first_name} ${d.last_name}`,
+      specialty: d.specialty,
+      city: d.city,
+      hasAccess: access,
+      // Origine de l'accès, pour que le patient comprenne pourquoi ce médecin voit son dossier.
+      reason: decision?.status === 'revoked' ? 'revoked'
+        : decision?.status === 'granted' ? 'consent'
+          : access ? 'care' : 'none',
+      decidedAt: decision?.responded_at || null,
+    });
+  }
+  return team;
 }
+
+async function setDoctorDecision(patientId,doctorId,status,requestId=null){
+ const conn=await pool.getConnection();
+ try{
+  await conn.beginTransaction();await conn.execute('SELECT id FROM nova_patients WHERE id=? FOR UPDATE',[patientId]);
+  const [[doctor]]=await conn.execute('SELECT id FROM nova_doctors WHERE id=?',[doctorId]);
+  if(!doctor)throw Object.assign(new Error('Médecin introuvable.'),{status:404});
+  const [[last]]=await conn.execute("SELECT id,status,expires_at,COALESCE(responded_at,requested_at) decided_at FROM nova_consents WHERE doctor_id=? AND patient_id=? AND status IN ('granted','revoked') ORDER BY COALESCE(responded_at,requested_at) DESC LIMIT 1",[doctorId,patientId]);
+  if(requestId){const [[request]]=await conn.execute("SELECT responded_at FROM nova_consents WHERE id=? AND patient_id=? AND doctor_id=? AND status='pending' FOR UPDATE",[requestId,patientId,doctorId]);if(!request||request.responded_at&&last?.status!=='granted')throw Object.assign(new Error('Cette demande a déjà été traitée. Actualisez vos accès.'),{status:409});}
+  const instant=new Date(Math.max(Date.now(),last?.decided_at?new Date(last.decided_at).getTime()+1:0));
+  if(requestId)await conn.execute("UPDATE nova_consents SET responded_at=? WHERE id=? AND patient_id=? AND status='pending'",[instant,requestId,patientId]);
+  // Une décision répétée ne crée pas un nouvel événement ni une seconde notification.
+  if(last?.status===status&&(status==='revoked'||requestId||!last.expires_at||new Date(last.expires_at)>new Date())){await conn.commit();return {id:last.id,doctorId,status};}
+  const id=randomUUID(),expires=status==='granted'?new Date(instant.getTime()+365*86400000):null;
+  await conn.execute('INSERT INTO nova_consents(id,patient_id,doctor_id,status,scope,requested_at,responded_at,expires_at) VALUES (?,?,?,?,?,?,?,?)',[id,patientId,doctorId,status,JSON.stringify(['clinical_record']),instant,instant,expires]);
+  const [[patient]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[patientId]);
+  await notifyDoctorConsent(doctorId,`${patient.first_name} ${patient.last_name}`,status==='granted',conn);
+  await conn.commit();return {id,doctorId,status};
+ }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}
+
+export const revokeDoctorAccess = (patientId, doctorId) => setDoctorDecision(patientId, doctorId, 'revoked');
+export const grantDoctorAccess = (patientId, doctorId) => setDoctorDecision(patientId, doctorId, 'granted');
 
 /* ═══════════════════════════════════════════════════════════════
    ACCESS LOGS — qui a consulté mon dossier

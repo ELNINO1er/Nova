@@ -20,6 +20,14 @@ body {
   border-radius: 4px;
 }
 
+/* Champs qui ont déjà leur propre indicateur (bordure ou anneau rouge) : pas de second contour. */
+.field-wrap :focus-visible,
+input[class*="focus:ring"]:focus-visible,
+textarea[class*="focus:ring"]:focus-visible,
+select[class*="focus:ring"]:focus-visible {
+  outline: none;
+}
+
 /* Animations */
 @keyframes float {
   0%, 100% { transform: translateY(0px) rotate(0deg); }
