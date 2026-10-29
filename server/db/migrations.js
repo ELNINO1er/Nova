@@ -59,6 +59,10 @@ export async function migrate(conn) {
         // Accord de partage donné par le patient en réservant (prend effet à la confirmation).
         await column(conn,'nova_appointments','record_shared_at','DATETIME(3) NULL');
       }],
+      ['20261028_08_patient_photo',async()=>{
+        // Chemin relatif au dossier privé data/uploads (jamais servi statiquement).
+        await column(conn,'nova_patients','photo_path','VARCHAR(255) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

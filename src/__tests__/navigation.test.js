@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ROLE_PAGES, ROLE_SPACES, spaceOf } from '../navigation.js';
 
-// Pages volontairement hors espace : ouvertes depuis le header (SOS) ou le bouton flottant.
-const OUTSIDE_SPACES = { patient: ['urgence', 'assistant'] };
+// Pages volontairement hors espace : ouvertes depuis le header (SOS, cloche) ou le bouton flottant.
+const OUTSIDE_SPACES = { patient: ['urgence', 'assistant', 'notifications'] };
 
 describe('Espaces de navigation', () => {
   for (const role of Object.keys(ROLE_PAGES)) {
@@ -16,7 +16,7 @@ describe('Espaces de navigation', () => {
     });
   }
 
-  it('au plus 5 espaces par rôle', () => {
-    for (const spaces of Object.values(ROLE_SPACES)) expect(spaces.length).toBeLessThanOrEqual(5);
+  it('au plus 6 espaces par rôle', () => {
+    for (const spaces of Object.values(ROLE_SPACES)) expect(spaces.length).toBeLessThanOrEqual(6);
   });
 });

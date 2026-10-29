@@ -1,10 +1,10 @@
 import React from 'react';
-import { spaceOf } from '../navigation.js';
+import { SIDEBAR_SUBMENU_ROLES, spaceOf } from '../navigation.js';
 
 /* Onglets de l'espace courant : chaque onglet est une page existante (URL /role/page). */
 export default function SpaceTabs({ role, page, setPage, badges = {}, darkMode }) {
   const space = spaceOf(role, page);
-  if (!space || space.pages.length < 2) return null;
+  if (!space || space.pages.length < 2 || SIDEBAR_SUBMENU_ROLES.includes(role)) return null;
   const idle = darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100';
   return (
     <nav aria-label={space.label} className={`-mx-4 sm:mx-0 mb-5 px-4 sm:px-0 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>

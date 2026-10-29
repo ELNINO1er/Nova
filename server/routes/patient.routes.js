@@ -77,6 +77,7 @@ import { cacheFor } from '../middleware/cache.js';
 import { answerPatientAssistant } from '../services/ai.service.js';
 import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
 import { buildPatientSummaryPdf } from '../services/export.service.js';
+import { patientPhotoFile, removePatientPhoto, savePatientPhoto } from '../services/photo.service.js';
 
 const router = Router();
 router.use(requirePatient);
@@ -113,6 +114,27 @@ router.post('/assistant', validateBody(z.object({
 
 router.get('/profile', cacheFor(60), wrap(async (req, res) => {
   res.json(await getProfile(req.user.patientId));
+}));
+
+/* ─── Photo de profil (le patient la change ou la retire lui-même) ─── */
+router.get('/photo', wrap(async (req, res) => {
+  // Pas de photo : 204 (cas normal, pas une erreur).
+  const file = await patientPhotoFile(req.user.patientId);
+  res.set('Cache-Control', 'private, no-store');
+  if (!file) return res.status(204).end();
+  res.sendFile(file, (err) => { if (err && !res.headersSent) res.status(204).end(); });
+}));
+
+router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('patient.photo.update', 'patient'), wrap(async (req, res) => {
+  const result = await savePatientPhoto(req.user.patientId, req.body.photo);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
+}));
+
+router.delete('/photo', auditLog('patient.photo.remove', 'patient'), wrap(async (req, res) => {
+  const result = await removePatientPhoto(req.user.patientId);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
 }));
 
 router.patch('/profile', validateBody(z.object({

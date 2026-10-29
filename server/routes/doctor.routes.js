@@ -44,6 +44,7 @@ import {
 
 import { wrap, validateBody } from '../middleware/helpers.js';
 import { upload, verifyUploadedFile } from '../middleware/upload.js';
+import { decodePhoto, savePatientPhoto } from '../services/photo.service.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog } from '../middleware/audit.js';
@@ -87,8 +88,18 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
   emergencyPhone:        z.string().optional(),
   allergies:             z.array(z.string()).optional(),
   chronicDiseases:       z.array(z.string()).optional(),
+  // Photo prise à l'inscription (data URL réduite par le navigateur) ; le patient peut la changer ensuite.
+  photo:                 z.string().max(900000).optional(),
 })), auditLog('patient.create', 'patient'), wrap(async (req, res) => {
-  res.status(201).json(await createPatientByDoctor(req.user.doctorId, req.body));
+  const { photo, ...payload } = req.body;
+  const decoded = photo ? decodePhoto(photo) : null; // refus avant toute création si la photo est invalide
+  const created = await createPatientByDoctor(req.user.doctorId, payload);
+  let photoSaved = false;
+  if (decoded) {
+    try { await savePatientPhoto(created.patientId, decoded); photoSaved = true; }
+    catch (err) { console.error('[patient.create] photo non enregistrée', err.message); }
+  }
+  res.status(201).json({ ...created, photoSaved });
 }));
 
 router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('patient_record'), wrap(async (req, res) => {

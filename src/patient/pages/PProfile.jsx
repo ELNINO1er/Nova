@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, Phone, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown } from 'lucide-react';
+import { User, Calendar, Phone, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown, Camera, Trash2 } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import { PHOTO_ACCEPT, announcePhotoChange, preparePhoto, usePatientPhoto } from '../../utils/photo.js';
 
 export default function PProfile({ data, onSaved, card, sub, border, darkMode }) {
   const [edit, setEdit] = useState(false);
@@ -38,6 +39,26 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const photoSrc = usePatientPhoto(true);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+
+  const changePhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true); setPhotoError('');
+    try { await patientApi.updatePhoto(await preparePhoto(file)); announcePhotoChange(); }
+    catch (err) { setPhotoError(err.message || 'Photo non enregistrée.'); }
+    finally { setPhotoBusy(false); }
+  };
+  const deletePhoto = async () => {
+    if (!window.confirm('Retirer votre photo de profil ?')) return;
+    setPhotoBusy(true); setPhotoError('');
+    try { await patientApi.removePhoto(); announcePhotoChange(); }
+    catch (err) { setPhotoError(err.message || 'Suppression impossible.'); }
+    finally { setPhotoBusy(false); }
+  };
 
   const inputCls = `mt-1.5 w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`;
 
@@ -83,7 +104,22 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
     <div className="space-y-4">
       <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white flex flex-col md:flex-row md:items-center gap-4 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/20 rounded-full -translate-y-24 translate-x-24 blur-2xl"></div>
-        <div className="relative w-24 h-24 rounded-3xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl font-bold border-2 border-white/30">{profileInitials}</div>
+        <div className="relative shrink-0">
+          <div className="w-24 h-24 rounded-3xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl font-bold border-2 border-white/30 overflow-hidden">
+            {photoSrc ? <img src={photoSrc} alt="Votre photo de profil" className="w-full h-full object-cover" /> : profileInitials}
+          </div>
+          <label title={photoSrc ? 'Changer la photo' : 'Ajouter une photo'} className={`absolute -bottom-2 -right-2 w-9 h-9 rounded-full bg-white text-red-600 shadow-lg flex items-center justify-center cursor-pointer hover:bg-red-50 ${photoBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+            <Camera className="w-4 h-4" />
+            <span className="sr-only">{photoSrc ? 'Changer la photo' : 'Ajouter une photo'}</span>
+            <input type="file" accept={PHOTO_ACCEPT} onChange={changePhoto} disabled={photoBusy} className="sr-only" />
+          </label>
+          {photoSrc && (
+            <button type="button" onClick={deletePhoto} disabled={photoBusy} aria-label="Retirer la photo" title="Retirer la photo"
+              className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-white/90 text-slate-600 shadow flex items-center justify-center hover:text-red-600 disabled:opacity-60">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
         <div className="relative flex-1">
           <h2 className="text-2xl font-bold">{d.firstName} {d.lastName}</h2>
           <p className="text-red-100 text-sm font-mono">{d.cmu}</p>
@@ -95,6 +131,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
         </div>
         <div className="flex flex-col items-end gap-2">
           {saveError && <p className="text-xs text-red-200 bg-red-900/40 px-3 py-1 rounded-lg max-w-xs text-right">{saveError}</p>}
+          {photoError && <p role="alert" className="text-xs text-red-200 bg-red-900/40 px-3 py-1 rounded-lg max-w-xs text-right">{photoError}</p>}
           <div className="flex gap-2">
             <a href={patientApi.exportPdfUrl()} target="_blank" rel="noreferrer"
               className="relative bg-white/20 text-white px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:scale-105 shadow">

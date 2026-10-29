@@ -73,9 +73,10 @@ async function readBody(response) {
  * Requête API avec cookies de session.
  * Sur un 401 de session : un refresh puis une seule nouvelle tentative.
  * `silent: true` évite l'événement de déconnexion globale (vérification au démarrage).
+ * `responseType: 'blob'` renvoie le contenu binaire (ex. photo de profil).
  */
 export async function request(path, options = {}) {
-  const { silent = false, ...fetchOptions } = options;
+  const { silent = false, responseType, ...fetchOptions } = options;
   let response = await send(path, fetchOptions);
 
   if (response.status === 401) {
@@ -93,6 +94,7 @@ export async function request(path, options = {}) {
     }
   }
 
+  if (responseType === 'blob' && response.ok) return response.blob();
   const data = await readBody(response);
   if (!response.ok) {
     const error = new Error(data?.message || `Erreur ${response.status}`);

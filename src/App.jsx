@@ -3,6 +3,7 @@ import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOu
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import SpaceTabs from './layout/SpaceTabs.jsx';
+import NotificationBell from './layout/NotificationBell.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
@@ -11,6 +12,7 @@ import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
 import {useHasUnsaved,clearUnsaved} from './unsaved.js';
 import { useLocation, useNavigate,useBlocker } from 'react-router-dom';
 import { ROLE_PAGES } from './navigation.js';
+import { usePatientPhoto } from './utils/photo.js';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
@@ -43,7 +45,7 @@ const ACCOUNT_LINKS = {
 };
 
 /* Menu de compte (tous écrans) : identité, paramètres et déconnexion explicite. */
-function AccountMenu({ user, roleLabel, links, onNavigate, onLogout, loggingOut, darkMode, sub, border }) {
+function AccountMenu({ user, roleLabel, photoSrc, links, onNavigate, onLogout, loggingOut, darkMode, sub, border }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -59,7 +61,9 @@ function AccountMenu({ user, roleLabel, links, onNavigate, onLogout, loggingOut,
     <div ref={ref} className={`relative pl-2 sm:pl-3 border-l ${border}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Menu du compte"
         className={`flex items-center gap-2 rounded-xl p-1 ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-        <span className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold">{user?.avatar || 'U'}</span>
+        <span className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
+          {photoSrc ? <img src={photoSrc} alt="" className="w-full h-full object-cover" /> : (user?.avatar || 'U')}
+        </span>
         <span className="hidden lg:block text-left">
           <span className="block text-xs font-semibold leading-tight">{user?.name || 'Utilisateur'}</span>
           <span className={`block text-[10px] ${sub}`}>{roleLabel}</span>
@@ -129,6 +133,7 @@ export default function App() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const role = user?.role || 'patient';
+  const photoSrc = usePatientPhoto(auth === 'ok' && user?.role === 'patient' ? user.id : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,14 +269,18 @@ export default function App() {
             <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem('nova_darkMode', next); }} className={`p-2 rounded-lg ${hover}`} aria-label={darkMode ? 'Mode clair' : 'Mode sombre'}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            {/* Seul l'espace patient a une page de notifications. */}
-            {['patient','doctor'].includes(role) && (
+            {/* Patient : panneau de notifications sous la cloche ; médecin : page dédiée. */}
+            {role === 'patient' && (
+              <NotificationBell count={badges.notifications || 0} onCount={(notifications) => setBadges((b) => ({ ...b, notifications }))}
+                setPage={setPage} darkMode={darkMode} sub={sub} />
+            )}
+            {role === 'doctor' && (
               <button onClick={() => setPage('notifications')} className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
                 <Bell className="w-4 h-4" />
                 {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
               </button>
             )}
-            <AccountMenu user={user} roleLabel={roleLabel} links={ACCOUNT_LINKS[role] || []} onNavigate={setPage}
+            <AccountMenu user={user} roleLabel={roleLabel} photoSrc={photoSrc} links={ACCOUNT_LINKS[role] || []} onNavigate={setPage}
               onLogout={onLogout} loggingOut={loggingOut} darkMode={darkMode} sub={sub} border={border} />
           </div>
         </div>
@@ -288,7 +297,7 @@ export default function App() {
       <div className="flex-1 flex">
         {sbOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSbOpen(false)}></div>}
         <Sidebar role={role} page={page} setPage={(p) => { setPage(p); setSbOpen(false); }} sbOpen={sbOpen}
-          onCP={() => setShowCP(true)} badges={badges} {...props} />
+          onCP={() => setShowCP(true)} badges={badges} onLogout={onLogout} loggingOut={loggingOut} user={user} photoSrc={photoSrc} {...props} />
 
         <main className="flex-1 min-w-0">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">

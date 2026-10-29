@@ -930,6 +930,7 @@ async function calculateHealthScore(patientId, { latestVitals, todayMedications,
 function mapPatient(row) {
   return {
     id: row.id,
+    hasPhoto: Boolean(row.photo_path),
     cmuNumber: row.cmu_number,
     firstName: row.first_name,
     lastName: row.last_name,

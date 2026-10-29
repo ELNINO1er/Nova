@@ -78,6 +78,10 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   uploadDocument: (formData) => request('/patient/me/documents', { method: 'POST', body: formData }),
+  // Photo de profil : data URL réduite par utils/photo.js.
+  photo: () => request('/patient/me/photo', { responseType: 'blob' }),
+  updatePhoto: (photo) => request('/patient/me/photo', { method: 'PUT', body: JSON.stringify({ photo }) }),
+  removePhoto: () => request('/patient/me/photo', { method: 'DELETE' }),
   insurance: () => request('/patient/me/insurance'),
   payments: () => request('/patient/me/payments'),
   createPayment: (payload) => request('/patient/me/payments', {

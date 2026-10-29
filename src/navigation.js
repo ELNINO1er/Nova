@@ -13,19 +13,15 @@ export const ROLE_PAGES = {
 };
 
 /*
- * Espaces de travail par rôle (logique métier) : 4 à 5 entrées dans la barre latérale,
+ * Espaces de travail par rôle (logique métier) : 4 à 6 entrées dans la barre latérale,
  * chacune regroupant ses pages en onglets. Les identifiants de pages restent ceux de ROLE_PAGES
  * (URL /role/page inchangées). Pages hors espace : accessibles par le header
- * (SOS « urgence », bouton flottant « assistant »).
+ * (SOS « urgence », cloche « notifications », bouton flottant « assistant »).
  * Une page `b` porte le nom du compteur à afficher (badges.messages, badges.notifications).
  */
 export const ROLE_SPACES = {
   patient: [
-    { id: 'today', label: 'Aujourd’hui', Icon: Sun, pages: [
-      { id: 'dashboard', label: 'À faire', Icon: Home },
-      { id: 'notifications', label: 'Notifications', Icon: Bell, b: 'notifications' },
-      { id: 'wellness', label: 'Bien-être', Icon: Target },
-    ]},
+    { id: 'today', label: 'Aujourd’hui', Icon: Sun, pages: [{ id: 'dashboard', label: 'Aujourd’hui', Icon: Home }] },
     { id: 'record', label: 'Mon dossier', Icon: FolderHeart, pages: [
       { id: 'history', label: 'Consultations', Icon: ClipboardList },
       { id: 'dna', label: 'Infos médicales', Icon: Droplet },
@@ -46,6 +42,7 @@ export const ROLE_SPACES = {
       { id: 'doctors', label: 'Trouver un médecin', Icon: Stethoscope },
       { id: 'messages', label: 'Messages', Icon: MessageCircle, b: 'messages' },
     ]},
+    { id: 'wellness', label: 'Bien-être', Icon: Target, pages: [{ id: 'wellness', label: 'Bien-être', Icon: Target }] },
     { id: 'account', label: 'Partage et compte', Icon: Lock, pages: [
       { id: 'privacy', label: 'Accès au dossier', Icon: Lock },
       { id: 'profile', label: 'Identité', Icon: User },
@@ -103,6 +100,9 @@ export const ROLE_SPACES = {
     { id: 'situation', label: 'Situation sanitaire', Icon: BarChart3, pages: [{ id: 'dashboard', label: 'Indicateurs', Icon: BarChart3 }] },
   ],
 };
+
+// Rôles dont les pages d'un espace s'affichent en sous-menu dans la barre latérale (au lieu d'onglets en haut).
+export const SIDEBAR_SUBMENU_ROLES = ['patient'];
 
 export function spaceOf(role, page) {
   return ROLE_SPACES[role]?.find((s) => s.pages.some((p) => p.id === page)) || null;

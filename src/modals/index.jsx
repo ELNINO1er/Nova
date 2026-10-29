@@ -10,8 +10,10 @@ import {
   ClipboardList, Microscope, Syringe, ChevronLeft, CalendarClock,
   HeartPulse, Thermometer, StickyNote, Palette, KeyRound, Smartphone,
   Mail, UserPlus, PhoneCall, Paperclip, MoreVertical, ArrowRight,
-  HelpCircle, BookOpen, Pencil, HardDrive, Wifi
+  HelpCircle, BookOpen, Pencil, HardDrive, Wifi,
+  Camera
 } from 'lucide-react';
+import { PHOTO_ACCEPT, preparePhoto } from '../utils/photo.js';
 import { doctorApi } from '../api/doctorApi.js';
 import { patientApi } from '../api/patientApi.js';
 
@@ -204,6 +206,15 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
+  const [photo, setPhoto] = useState(null); // data URL réduite, envoyée avec la création
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try { setPhoto(await preparePhoto(file)); setError(''); }
+    catch (err) { setError(err.message); }
+  };
 
   const payload = {
     firstName: d.fn.trim(),
@@ -216,6 +227,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
     bloodType: d.bt || undefined,
     address: d.addr.trim() || undefined,
     city: d.city.trim() || undefined,
+    photo: photo || undefined,
   };
 
   const validateStep = () => {
@@ -277,6 +289,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
                 <p className="font-bold">Patient créé : {created.name}</p>
                 <p>CMU : {created.cmuNumber}</p>
+                {photo && !created.photoSaved && <p className="mt-1 font-semibold text-amber-800">La photo n’a pas pu être enregistrée : le patient pourra l’ajouter depuis son profil.</p>}
                 <p className="mt-1">Remettez ces identifiants au patient. Le mot de passe ne sera plus affiché ; le patient devra le changer à sa première connexion.</p>
               </div>
               <div className="rounded-xl bg-slate-950 text-white p-4 space-y-1">
@@ -294,6 +307,21 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
           {step === 1 && (
             <>
               <h4 className="font-bold">Identité</h4>
+              <div className="flex items-center gap-4">
+                <div className={`w-20 h-20 rounded-full overflow-hidden flex items-center justify-center shrink-0 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  {photo ? <img src={photo} alt="Photo du patient" className="w-full h-full object-cover" /> : <Camera className={`w-7 h-7 ${sub}`} />}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-2">
+                    <label className={`cursor-pointer px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+                      {photo ? 'Changer la photo' : 'Ajouter une photo'}
+                      <input type="file" accept={PHOTO_ACCEPT} capture="user" onChange={pickPhoto} className="sr-only" />
+                    </label>
+                    {photo && <button type="button" onClick={() => setPhoto(null)} className="px-3 py-2 rounded-lg text-xs font-semibold text-red-600">Retirer</button>}
+                  </div>
+                  <p className={`text-[11px] ${sub}`}>Facultatif. Aide à identifier le patient ; il pourra la changer lui-même.</p>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
