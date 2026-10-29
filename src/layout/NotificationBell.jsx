@@ -46,13 +46,13 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
 
   const unread = items ? items.filter((n) => !n.isRead).length : count;
   const panel = darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200';
-  const rowHover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50';
+  const rowHover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50/60';
 
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
         aria-label={count > 0 ? `Notifications, ${count} non lue${count > 1 ? 's' : ''}` : 'Notifications'}
-        className={`relative p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+        className={`relative p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50'}`}>
         <Bell className="w-4 h-4" />
         {count > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">{count > 9 ? '9+' : count}</span>}
       </button>
@@ -67,13 +67,13 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
           </div>
           <div className="max-h-96 overflow-y-auto p-1.5">
             {error && <p role="alert" className="px-3 py-4 text-sm text-red-600">{error}</p>}
-            {!error && !items && [0, 1, 2].map((i) => <div key={i} className={`animate-pulse h-14 m-1.5 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`} />)}
+            {!error && !items && [0, 1, 2].map((i) => <div key={i} className={`animate-pulse h-14 m-1.5 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
             {!error && items?.length === 0 && <p className={`px-3 py-8 text-center text-sm ${sub}`}>Aucune notification.</p>}
             {items?.map((n) => {
               const Icon = TYPE_ICON[n.type] || Bell;
               return (
                 <button key={n.id} type="button" onClick={() => openItem(n)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left ${rowHover}`}>
-                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${n.isRead ? (darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500') : 'bg-red-50 text-red-600'}`}><Icon className="w-4 h-4" /></span>
+                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${n.isRead ? (darkMode ? 'bg-slate-800 text-slate-400' : 'bg-white border border-red-100 text-red-400') : 'bg-red-50 text-red-600'}`}><Icon className="w-4 h-4" /></span>
                   <span className="flex-1 min-w-0">
                     <span className={`block text-sm ${n.isRead ? sub : 'font-semibold'}`}>{n.title}</span>
                     {n.body && <span className={`block text-xs ${sub} line-clamp-2`}>{n.body}</span>}

@@ -121,7 +121,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'stats'         && <DStats    data={apiData.stats}         loading={apiLoading.stats}         {...p} />}
       {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>setApiData(c=>({...c,notifications:v}))} {...p} />}
-      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} {...p} />}
+      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} viewerRole="doctor" {...p} />}
       {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Phone, Heart, HeartPulse, AlertTriangle, Shield, Siren, MapPin, Droplet, Users, ShieldCheck, Stethoscope, Download, PhoneCall, Pill, QrCode, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
-
+import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
 
 export default function PUrgence({ data, card, sub, border, darkMode }) {
   const [showQR, setShowQR]   = useState(false);
@@ -10,17 +10,10 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
 
   const urgenceNumbers = [
     // Numéros d'urgence de Côte d'Ivoire.
-    { label: 'SAMU',     number: '185', color: 'red',    icon: PhoneCall },
-    { label: 'Police',   number: '170', color: 'blue',   icon: Shield },
-    { label: 'Pompiers', number: '180', color: 'orange', icon: Siren },
+    { label: 'SAMU',     number: '185', hint: 'Urgence médicale', icon: PhoneCall },
+    { label: 'Police',   number: '170', hint: 'Secours et sécurité', icon: Shield },
+    { label: 'Pompiers', number: '180', hint: 'Incendie, accident', icon: Siren },
   ];
-
-  const colorMap = {
-    red:    'bg-red-600 hover:bg-red-700',
-    blue:   'bg-blue-600 hover:bg-blue-700',
-    orange: 'bg-orange-600 hover:bg-orange-700',
-    purple: 'bg-purple-600 hover:bg-purple-700',
-  };
 
   const fetchQR = async () => {
     setLoadQR(true);
@@ -38,11 +31,11 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
   const handlePrint = () => window.print();
 
   if (!data) return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-bold">SOS Urgence</h2>
-      <div className={`${card} border rounded-2xl p-6`}>
-        <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-48 rounded-xl`} />
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="SOS Urgence" sub={sub} />
+      <Card darkMode={darkMode}>
+        <div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />
+      </Card>
     </div>
   );
 
@@ -50,139 +43,150 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
     ? Math.floor((Date.now() - new Date(data.birthDate)) / (365.25 * 86400000))
     : null;
 
+  const sexLabel = data.sex === 'M' ? 'Homme' : data.sex === 'F' ? 'Femme' : data.sex;
+  const empty = (txt) => <p className={`text-sm ${sub}`}>{txt}</p>;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* QR modal */}
       {showQR && qrData && (
         <>
-          <button className="fixed inset-0 z-40 bg-slate-950/50" onClick={() => setShowQR(false)} aria-label="Fermer" />
-          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-6 shadow-2xl text-center`}>
-            <p className="font-bold mb-1">QR Code — Fiche Urgence</p>
-            <p className={`text-xs ${sub} mb-4`}>Scannez en cas d'urgence pour accéder aux infos vitales</p>
-            <img src={qrData.qr} alt="QR Urgence" className="mx-auto rounded-xl w-48 h-48" />
-            <p className={`text-[10px] ${sub} mt-3`}>{data.firstName} {data.lastName} · {data.bloodType || '?'} · {data.phone}</p>
-            <div className="flex gap-2 mt-4">
-              <button onClick={handlePrint} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5">
-                <Download className="w-4 h-4" /> Imprimer
-              </button>
-              <button onClick={() => setShowQR(false)} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Fermer</button>
+          <button type="button" className="fixed inset-0 z-40 bg-slate-950/50" onClick={() => setShowQR(false)} aria-label="Fermer" />
+          <Card darkMode={darkMode} role="dialog" aria-modal="true" aria-labelledby="purgence-qr-title"
+            className="fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 shadow-2xl text-center">
+            <p id="purgence-qr-title" className="font-semibold">QR Code — Fiche Urgence</p>
+            <p className={`text-xs mt-1 mb-4 ${sub}`}>Scannez en cas d'urgence pour accéder aux infos vitales</p>
+            <div className="mx-auto w-fit p-3 rounded-2xl border border-red-100 bg-white">
+              <img src={qrData.qr} alt="QR Urgence" className="w-48 h-48" />
             </div>
-          </div>
+            <p className={`text-xs mt-3 ${sub}`}>{data.firstName} {data.lastName} · {data.bloodType || '?'} · {data.phone}</p>
+            <div className="flex gap-2 mt-5">
+              <Button Icon={Download} onClick={handlePrint} darkMode={darkMode} className="flex-1">Imprimer</Button>
+              <Button variant="secondary" onClick={() => setShowQR(false)} darkMode={darkMode} className="flex-1">Fermer</Button>
+            </div>
+          </Card>
         </>
       )}
 
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-2xl font-bold">SOS Urgence</h2>
-          <p className={`text-sm ${sub}`}>Fiche médicale d'urgence · Accès immédiat</p>
-        </div>
-        <button onClick={fetchQR} disabled={loadQR}
-          className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
-          {loadQR ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
-          QR Code
-        </button>
-      </div>
+      <PageHeader title="SOS Urgence" sub={sub}
+        subtitle="Fiche médicale d'urgence · Accès immédiat"
+        actions={
+          <Button variant="secondary" onClick={fetchQR} disabled={loadQR} darkMode={darkMode}>
+            {loadQR
+              ? <span className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              : <QrCode className="w-4 h-4" />}
+            QR Code
+          </Button>
+        } />
 
-      {/* Identity card */}
-      <div className="bg-gradient-to-br from-red-600 via-red-700 to-red-900 text-white rounded-2xl p-5 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-20 translate-x-20 blur-2xl" />
-        <div className="relative">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5" />
-              <span className="text-xs font-bold tracking-wider uppercase">Fiche Urgence · NOVA</span>
+      {/* Numéros d'urgence : actions principales */}
+      <section aria-labelledby="purgence-numbers">
+        <h3 id="purgence-numbers" className="text-sm font-semibold mb-3">Appeler les secours</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5">
+          {urgenceNumbers.map(({ label, number, hint, icon: Icon }) => (
+            <a key={label} href={`tel:${number}`} aria-label={`Appeler ${label} au ${number}`}
+              className="group rounded-3xl bg-red-600 hover:bg-red-700 active:bg-red-700 text-white p-5 flex items-center sm:flex-col sm:items-start gap-4 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-red-300">
+              <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+                <Icon className="w-6 h-6" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-4xl font-bold leading-none tabular-nums">{number}</span>
+                <span className="block mt-1.5 text-sm font-semibold">{label}</span>
+                <span className="block text-xs text-red-100">{hint}</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-white text-red-700 text-xs font-semibold shrink-0">
+                <Phone className="w-3.5 h-3.5" /> Appeler
+              </span>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* Fiche médicale d'urgence : l'essentiel en un coup d'œil */}
+      <Card darkMode={darkMode} className="!p-0 overflow-hidden !border-red-200" aria-labelledby="purgence-card">
+        <div className={`px-5 pt-5 pb-4 border-b ${darkMode ? 'border-slate-800' : 'border-red-100'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <span id="purgence-card" className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-600">
+              <ShieldAlert className="w-4 h-4" /> Fiche urgence · NOVA
+            </span>
+            {data.cmuNumber && <span className={`text-xs font-mono break-all ${sub}`}>{data.cmuNumber}</span>}
+          </div>
+          <div className="flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-2xl font-bold tracking-tight break-words">{data.firstName} {data.lastName}</p>
+              {age && <p className={`text-sm mt-1 ${sub}`}>{age} ans · {sexLabel}</p>}
             </div>
-            <span className="text-xs font-mono opacity-70">{data.cmuNumber}</span>
-          </div>
-          <p className="text-2xl font-black">{data.firstName} {data.lastName}</p>
-          <div className="flex flex-wrap gap-4 mt-2 text-sm">
-            {age && <span>{age} ans · {data.sex === 'M' ? 'Homme' : data.sex === 'F' ? 'Femme' : data.sex}</span>}
-            <span className="font-bold text-lg">{data.bloodType || 'Groupe ?'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Numéros urgence */}
-      <div className="grid grid-cols-3 gap-3">
-        {urgenceNumbers.map(({ label, number, color, icon: Icon }) => (
-          <a key={label} href={`tel:${number}`}
-            className={`${colorMap[color]} text-white rounded-2xl p-4 flex flex-col items-center gap-2 transition-transform hover:scale-105 active:scale-95`}>
-            <Icon className="w-6 h-6" />
-            <span className="text-2xl font-black">{number.length <= 3 ? number : label}</span>
-            <span className="text-xs font-semibold opacity-90">{label}</span>
-          </a>
-        ))}
-      </div>
-
-      {/* Critical info grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Allergies */}
-        <div className={`${card} border rounded-2xl p-5`}>
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-            <h3 className="font-bold text-sm">Allergies</h3>
-          </div>
-          {data.allergies?.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {data.allergies.map((a, i) => (
-                <span key={i} className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">{a}</span>
-              ))}
+            <div className="rounded-2xl bg-red-600 text-white px-4 py-2 text-center shrink-0">
+              <p className="text-[11px] font-medium text-red-100">Groupe sanguin</p>
+              <p className="text-3xl font-bold leading-tight">{data.bloodType || '?'}</p>
             </div>
-          ) : <p className={`text-sm ${sub}`}>Aucune allergie connue</p>}
+          </div>
         </div>
 
-        {/* Maladies chroniques */}
-        <div className={`${card} border rounded-2xl p-5`}>
-          <div className="flex items-center gap-2 mb-3">
-            <HeartPulse className="w-4 h-4 text-orange-600" />
-            <h3 className="font-bold text-sm">Maladies chroniques</h3>
-          </div>
-          {data.chronicDiseases?.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {data.chronicDiseases.map((d, i) => (
-                <span key={i} className="px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">{d}</span>
-              ))}
-            </div>
-          ) : <p className={`text-sm ${sub}`}>Aucune maladie chronique</p>}
-        </div>
+        <dl className={`grid grid-cols-1 md:grid-cols-2 ${darkMode ? 'divide-slate-800' : 'divide-red-100'} divide-y md:divide-y-0`}>
+          <MedSection Icon={AlertTriangle} label="Allergies" count={data.allergies?.length} darkMode={darkMode} className="md:border-r md:border-b">
+            {data.allergies?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {data.allergies.map((a, i) => <Chip key={i} tone="alert">{a}</Chip>)}
+              </div>
+            ) : empty('Aucune allergie connue')}
+          </MedSection>
 
-        {/* Médicaments actuels */}
-        <div className={`${card} border rounded-2xl p-5`}>
-          <div className="flex items-center gap-2 mb-3">
-            <Pill className="w-4 h-4 text-blue-600" />
-            <h3 className="font-bold text-sm">Médicaments actuels</h3>
-          </div>
-          {data.currentMedications?.length ? (
-            <div className="space-y-1.5">
-              {data.currentMedications.map((m, i) => (
-                <div key={i} className={`flex items-center justify-between text-xs px-2 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                  <span className="font-semibold">{m.name}</span>
-                  <span className={sub}>{m.dosage}</span>
+          <MedSection Icon={HeartPulse} label="Maladies chroniques" count={data.chronicDiseases?.length} darkMode={darkMode} className="md:border-b">
+            {data.chronicDiseases?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {data.chronicDiseases.map((d, i) => <Chip key={i} tone="watch">{d}</Chip>)}
+              </div>
+            ) : empty('Aucune maladie chronique')}
+          </MedSection>
+
+          <MedSection Icon={Pill} label="Traitements en cours" count={data.currentMedications?.length} darkMode={darkMode} className="md:border-r">
+            {data.currentMedications?.length ? (
+              <ul className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-red-100'}`}>
+                {data.currentMedications.map((m, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0 text-sm">
+                    <span className="font-medium min-w-0 break-words">{m.name}</span>
+                    <span className={`text-xs shrink-0 ${sub}`}>{m.dosage}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : empty('Aucun traitement en cours')}
+          </MedSection>
+
+          <MedSection Icon={UserRound} label="Contact d'urgence" darkMode={darkMode}>
+            {data.emergencyContact?.name ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold break-words">{data.emergencyContact.name}</p>
+                  <p className={`text-xs mt-0.5 ${sub}`}>{data.emergencyContact.relationship}</p>
+                  <p className="text-sm mt-1 tabular-nums">{data.emergencyContact.phone}</p>
                 </div>
-              ))}
-            </div>
-          ) : <p className={`text-sm ${sub}`}>Aucun traitement en cours</p>}
-        </div>
+                <a href={`tel:${data.emergencyContact.phone}`} aria-label={`Appeler ${data.emergencyContact.name}`}
+                  className="h-10 px-4 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold inline-flex items-center gap-2 focus:outline-none focus-visible:ring-4 focus-visible:ring-red-300">
+                  <PhoneCall className="w-4 h-4" /> Appeler
+                </a>
+              </div>
+            ) : empty('Aucun contact renseigné')}
+          </MedSection>
+        </dl>
+      </Card>
 
-        {/* Contact urgence */}
-        <div className={`${card} border rounded-2xl p-5`}>
-          <div className="flex items-center gap-2 mb-3">
-            <PhoneCall className="w-4 h-4 text-emerald-600" />
-            <h3 className="font-bold text-sm">Contact d'urgence</h3>
-          </div>
-          {data.emergencyContact?.name ? (
-            <div className="space-y-1">
-              <p className="font-bold">{data.emergencyContact.name}</p>
-              <p className={`text-xs ${sub}`}>{data.emergencyContact.relationship}</p>
-              <a href={`tel:${data.emergencyContact.phone}`} className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5 mt-1">
-                <PhoneCall className="w-3.5 h-3.5" /> {data.emergencyContact.phone}
-              </a>
-            </div>
-          ) : <p className={`text-sm ${sub}`}>Aucun contact renseigné</p>}
-        </div>
-      </div>
+      <p className={`text-xs ${sub}`}>
+        Présentez cette fiche ou son QR code aux secours. Mettez-la à jour depuis votre profil et votre ADN médical.
+      </p>
     </div>
   );
 }
 
-// Lucide doesn't have QrCode in all versions — safe fallback
+/* Rubrique de la fiche : intitulé (avec nombre d'éléments) et contenu. */
+function MedSection({ Icon, label, count, children, darkMode, className = '' }) {
+  return (
+    <div className={`p-5 min-w-0 ${darkMode ? 'md:border-slate-800' : 'md:border-red-100'} ${className}`}>
+      <dt className="flex items-center justify-between gap-2 mb-3">
+        <span className="text-sm font-semibold flex items-center gap-2"><Icon className="w-4 h-4 text-red-600 shrink-0" />{label}</span>
+        {count > 0 && <span className="text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5">{count}</span>}
+      </dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}

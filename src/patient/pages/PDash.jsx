@@ -7,6 +7,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { usePatientPhoto } from '../../utils/photo.js';
 import { DashSkeleton } from '../../components/PatientModal.jsx';
 import { Avatar, Empty, dayKey, fmtDay, fmtTime, initialsOf } from '../../components/dashboard/kit.jsx';
+import { Card, Chip, Pills } from '../../components/patient/ui.jsx';
 
 /*
  * Accueil patient (« Aujourd'hui ») : disposition Nexus en rouge et blanc.
@@ -22,31 +23,9 @@ const VITALS = [
 const TABLES = [['labs', 'Analyses'], ['rx', 'Ordonnances'], ['meds', 'Prises du jour'], ['history', 'Historique']];
 const list = (r) => (Array.isArray(r) ? r : r?.data || []);
 
-// Deux couleurs : le rouge signale, le neutre informe.
-function Chip({ tone = 'neutral', children }) {
-  const cls = tone === 'alert' ? 'bg-red-600 text-white' : tone === 'watch' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600';
-  return <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${cls}`}>{children}</span>;
-}
 const VITAL_STATUS = { normal: ['Normal', 'neutral'], watch: ['À surveiller', 'watch'], critical: ['Critique', 'alert'] };
 
-function Card({ children, className = '', darkMode }) {
-  return <section className={`rounded-3xl border p-5 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/70'} ${className}`}>{children}</section>;
-}
 
-function Pills({ options, value, onChange, darkMode }) {
-  return (
-    <div className="flex flex-wrap gap-1.5" role="tablist">
-      {options.map(([id, label]) => (
-        <button key={id} type="button" role="tab" aria-selected={value === id} onClick={() => onChange(id)}
-          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors ${value === id
-            ? 'bg-red-600 border-red-600 text-white'
-            : darkMode ? 'border-slate-700 text-slate-300 hover:border-red-500' : 'border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-700'}`}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /* Demi-jauge de l'indicateur de suivi (0–100). */
 function SemiGauge({ value, darkMode }) {
@@ -54,7 +33,7 @@ function SemiGauge({ value, darkMode }) {
   const pct = value == null ? 0 : Math.max(0, Math.min(100, value)) / 100;
   return (
     <svg viewBox="0 0 200 108" className="w-full max-w-[15rem] mx-auto" aria-hidden="true">
-      <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="14" strokeLinecap="round" />
+      <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke={darkMode ? '#1e293b' : '#fee2e2'} strokeWidth="14" strokeLinecap="round" />
       <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#dc2626" strokeWidth="14" strokeLinecap="round"
         strokeDasharray={len} strokeDashoffset={len * (1 - pct)} style={{ transition: 'stroke-dashoffset .8s ease' }} />
     </svg>
@@ -206,7 +185,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
           <p className={`text-sm mt-1 ${sub}`}>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}{medsLeft ? ` · ${medsLeft} prise${medsLeft > 1 ? 's' : ''} à faire aujourd’hui` : ''}</p>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={onRefresh} aria-label="Actualiser" className={`w-11 h-11 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:bg-slate-50'}`}><RefreshCw className="w-4 h-4" /></button>
+          <button type="button" onClick={onRefresh} aria-label="Actualiser" className={`w-11 h-11 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:bg-red-50'}`}><RefreshCw className="w-4 h-4" /></button>
           <button type="button" onClick={() => setShowQR(true)} className="h-11 px-5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold flex items-center gap-2"><QrCode className="w-4 h-4" /> Pass Santé d’urgence</button>
         </div>
       </div>
@@ -261,7 +240,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
             {t.rows.length === 0 ? <Empty sub={sub}>{t.empty}</Empty> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className={darkMode ? 'bg-slate-800/40' : 'bg-slate-50/70'}>{t.cols.map((c, i) => <th key={i} className={head}>{c}</th>)}</tr></thead>
+                  <thead><tr className={darkMode ? 'bg-slate-800/40' : 'bg-red-50/50'}>{t.cols.map((c, i) => <th key={i} className={head}>{c}</th>)}</tr></thead>
                   <tbody>
                     {t.rows.map((r, i) => (
                       <tr key={i} className={row}>
@@ -278,7 +257,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
         {/* Colonne droite : profil puis rendez-vous */}
         <div className="xl:col-span-4 2xl:col-span-3 space-y-5">
           <Card darkMode={darkMode}>
-            <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-gradient-to-b from-red-50 to-white">
+            <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-red-50">
               {photoSrc
                 ? <img src={photoSrc} alt={`Photo de ${profile?.firstName || 'profil'}`} className="w-full h-full object-cover" />
                 : <div className="w-full h-full flex items-center justify-center"><span className="w-24 h-24 rounded-full bg-red-600 text-white text-3xl font-bold flex items-center justify-center">{initialsOf(`${profile?.firstName || ''} ${profile?.lastName || ''}`)}</span></div>}

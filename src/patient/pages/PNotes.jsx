@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { StickyNote, Plus, Edit3, Trash2, Save, X, Palette, Pencil, Star } from 'lucide-react';
+import { StickyNote, Plus, Trash2, Save, Pencil, Star } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate } from '../../utils/format.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
+import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import {
+  Button, Card, EmptyState, Highlight, IconButton, NoResults, PageHeader, Pills, SearchInput,
+} from '../../components/patient/ui.jsx';
+
+// Champs cherchables, du plus au moins important.
+const FIELDS = (n) => [n.t, n.c, searchableDate(n.at), n.p ? 'epinglee' : ''];
 
 export default function PNotes({ data, onReload, notify, card, sub, border, darkMode }) {
   const [ns, setNs] = useState([]);
   const [sel, setSel] = useState(null);
   const [edit, setEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useUrlQuery();
   useEffect(() => {
     if (!data) return;
     const apiNotes = data.map((note) => ({
@@ -17,18 +26,27 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
       c: note.content,
       col: note.color,
       u: formatRelativeDate(note.updatedAt),
+      at: note.updatedAt,
       p: note.pinned,
     }));
     setNs(apiNotes);
     if (!sel || !apiNotes.find(n => n.id === sel.id)) setSel(apiNotes[0] || null);
   }, [data]);
+  // Les codes couleur stockés sont conservés ; ils s'affichent en intensités de rouge (charte rouge et blanc).
   const cm = {
-    amber: { bg: 'bg-amber-100', t: 'text-amber-900', b: 'border-amber-300', tab: 'bg-amber-400' },
-    blue: { bg: 'bg-blue-100', t: 'text-blue-900', b: 'border-blue-300', tab: 'bg-blue-400' },
-    emerald: { bg: 'bg-emerald-100', t: 'text-emerald-900', b: 'border-emerald-300', tab: 'bg-emerald-400' },
-    red: { bg: 'bg-red-100', t: 'text-red-900', b: 'border-red-300', tab: 'bg-red-400' },
-    purple: { bg: 'bg-purple-100', t: 'text-purple-900', b: 'border-purple-300', tab: 'bg-purple-400' }
+    amber:   { bar: 'bg-red-200', swatch: 'bg-white border-2 border-red-200', name: 'Repère clair' },
+    blue:    { bar: 'bg-red-300', swatch: 'bg-red-100', name: 'Repère pâle' },
+    emerald: { bar: 'bg-red-400', swatch: 'bg-red-300', name: 'Repère moyen' },
+    red:     { bar: 'bg-red-600', swatch: 'bg-red-600', name: 'Repère vif' },
+    purple:  { bar: 'bg-red-700', swatch: 'bg-red-700', name: 'Repère foncé' },
   };
+  const tone = (col) => cm[col] || cm.amber;
+  const found = useSearch(ns, query, FIELDS);
+  // Pendant une recherche, la note affichée suit le premier résultat si elle n'en fait plus partie.
+  useEffect(() => {
+    if (query && found.length && !found.some(n => n.id === sel?.id)) { setSel(found[0]); setEdit(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const add = async () => {
     const created = await patientApi.createNote({ title: 'Nouvelle note', content: '', color: 'amber', pinned: false });
@@ -55,7 +73,7 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
     }
   };
   const updLocal = (ch) => {
-    const u = { ...sel, ...ch, u: 'A l\'instant' };
+    const u = { ...sel, ...ch, u: 'À l\'instant' };
     setSel(u); setNs(ns.map(n => n.id === u.id ? u : n));
   };
   const saveNote = async () => {
@@ -72,88 +90,124 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
 
   if (!data) {
     return (
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Bloc-notes</h2>
-        <div className={`${card} border rounded-2xl p-4 min-h-[600px]`}><div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-96 rounded-lg`}></div></div>
+      <div className="space-y-5">
+        <PageHeader title="Bloc-notes" sub={sub} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <Card darkMode={darkMode} className="space-y-3">{[0, 1, 2].map(i => <div key={i} className={`animate-pulse h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}</Card>
+          <Card darkMode={darkMode} className="lg:col-span-2"><div className={`animate-pulse h-72 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
+        </div>
       </div>
     );
   }
 
+  // Recherche puis filtre ; sans requête, les notes épinglées restent en tête (la recherche trie par pertinence).
+  const filtered = filter === 'pinned' ? found.filter(n => n.p) : found;
+  const sorted = query ? filtered : [...filtered].sort((a, b) => (b.p ? 1 : 0) - (a.p ? 1 : 0));
+  const pinnedCount = ns.filter(n => n.p).length;
+  const newNote = <Button Icon={Plus} onClick={add}>Nouvelle note</Button>;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div><h2 className="text-2xl font-bold">Bloc-notes</h2><p className={`text-sm ${sub}`}>{ns.length} note{ns.length > 1 ? 's' : ''}</p></div>
-        <button onClick={add} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
-          <Plus className="w-4 h-4" /> Nouvelle note
-        </button>
-      </div>
-      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4 ${card} border rounded-2xl p-4 min-h-[600px]`}>
-        <div className={`lg:col-span-1 lg:border-r ${border} lg:pr-4 space-y-2 max-h-[500px] overflow-y-auto`}>
-          {ns.sort((a, b) => (b.p ? 1 : 0) - (a.p ? 1 : 0)).map(n => {
-            const c = cm[n.col];
-            return (
-              <button key={n.id} onClick={() => { setSel(n); setEdit(false); }} className={`w-full p-3 rounded-xl border-l-4 ${c.b} ${sel?.id === n.id ? c.bg : darkMode ? 'bg-slate-800' : 'bg-slate-50'} text-left`}>
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <h4 className={`font-bold text-sm truncate ${sel?.id === n.id ? c.t : ''}`}>{n.t}</h4>
-                  {n.p && <Star className="w-3 h-3 text-amber-500 flex-shrink-0 fill-amber-500" />}
-                </div>
-                <p className={`text-xs ${sel?.id === n.id ? c.t + ' opacity-80' : sub} line-clamp-2 whitespace-pre-line`}>{n.c || 'Vide...'}</p>
-                <p className={`text-[10px] mt-1 ${sel?.id === n.id ? c.t + ' opacity-60' : sub}`}>{n.u}</p>
-              </button>
-            );
-          })}
+    <div className="space-y-5">
+      <PageHeader title="Bloc-notes" sub={sub} subtitle={`${ns.length} note${ns.length > 1 ? 's' : ''} personnelle${ns.length > 1 ? 's' : ''}`} actions={newNote} />
+
+      {ns.length === 0 ? (
+        <EmptyState Icon={StickyNote} title="Aucune note" darkMode={darkMode} action={newNote}>
+          Notez vos symptômes, vos questions pour le médecin ou vos rappels personnels.
+        </EmptyState>
+      ) : (
+        <>
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <SearchInput value={query} onChange={setQuery} count={sorted.length} darkMode={darkMode} className="w-full lg:max-w-md"
+            placeholder="Rechercher dans vos notes…" />
+          <div className="lg:ml-auto">
+            <Pills darkMode={darkMode} value={filter} onChange={setFilter}
+              options={[['all', 'Toutes', found.length], ['pinned', 'Épinglées', found.filter(n => n.p).length]]} />
+          </div>
         </div>
-        <div className="lg:col-span-2">
-          {sel ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                {edit ? (
-                  <input type="text" value={sel.t} onChange={(e) => updLocal({ t: e.target.value })}
-                    className={`flex-1 text-xl font-bold bg-transparent outline-none border-b-2 ${border} pb-1`} />
-                ) : (
-                  <h3 className="text-xl font-bold flex-1">{sel.t}</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <Card darkMode={darkMode} className="!p-3 self-start">
+            <div className="flex items-center justify-between px-2 pt-1 pb-3">
+              <p className="text-sm font-semibold">{query ? 'Résultats' : filter === 'pinned' ? 'Notes épinglées' : 'Toutes les notes'}</p>
+              <span className={`text-xs ${sub}`}>{sorted.length}{!query && filter === 'all' && pinnedCount ? ` · ${pinnedCount} épinglée${pinnedCount > 1 ? 's' : ''}` : ''}</span>
+            </div>
+            {query && sorted.length === 0 ? (
+              <NoResults query={query} onClear={() => setQuery('')} darkMode={darkMode} />
+            ) : sorted.length === 0 ? (
+              <p className={`text-sm px-2 pb-3 ${sub}`}>Aucune note épinglée.</p>
+            ) : (
+            <ul className="space-y-1.5 max-h-[32rem] overflow-y-auto">
+              {sorted.map(n => {
+                const active = sel?.id === n.id;
+                return (
+                  <li key={n.id}>
+                    <button type="button" onClick={() => { setSel(n); setEdit(false); }} aria-current={active ? 'true' : undefined}
+                      className={`relative w-full pl-5 pr-3 py-3 rounded-2xl text-left transition-colors overflow-hidden border ${active
+                        ? (darkMode ? 'bg-red-950/30 border-red-900' : 'bg-red-50 border-red-100')
+                        : (darkMode ? 'border-transparent hover:bg-slate-800/60' : 'border-transparent hover:bg-red-50/50')}`}>
+                      <span className={`absolute left-2 top-3 bottom-3 w-1 rounded-full ${tone(n.col).bar}`} aria-hidden="true" />
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className={`font-semibold text-sm truncate ${active ? 'text-red-700' : ''}`}><Highlight text={n.t || 'Sans titre'} query={query} /></h4>
+                        {n.p && <Star className="w-3.5 h-3.5 text-red-600 fill-red-600 shrink-0" aria-label="Épinglée" />}
+                      </div>
+                      <p className={`text-xs mt-1 line-clamp-2 whitespace-pre-line break-words ${sub}`}>{n.c ? <Highlight text={n.c} query={query} /> : 'Note vide'}</p>
+                      <p className="text-[11px] mt-1.5 text-slate-400">{n.u}</p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            )}
+          </Card>
+
+          <Card darkMode={darkMode} className="lg:col-span-2">
+            {sel ? (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  {edit ? (
+                    <input type="text" value={sel.t} onChange={(e) => updLocal({ t: e.target.value })} aria-label="Titre de la note"
+                      className={`flex-1 min-w-0 text-xl font-bold bg-transparent outline-none border-b-2 pb-1 focus:border-red-400 ${darkMode ? 'border-slate-700' : 'border-slate-200'}`} />
+                  ) : (
+                    <h3 className="text-xl font-bold flex-1 min-w-0 break-words"><Highlight text={sel.t || 'Sans titre'} query={query} /></h3>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <IconButton Icon={Star} label={sel.p ? 'Désépingler la note' : 'Épingler la note'} onClick={() => upd({ p: !sel.p })} darkMode={darkMode} />
+                    <IconButton Icon={edit ? Save : Pencil} label={edit ? 'Enregistrer la note' : 'Modifier la note'} tone={edit ? 'primary' : 'ghost'}
+                      onClick={() => edit ? saveNote() : setEdit(true)} darkMode={darkMode} />
+                    <IconButton Icon={Trash2} label="Supprimer la note" onClick={() => setPendingDelete(sel.id)} darkMode={darkMode} />
+                  </div>
+                </div>
+                {sel.p && <p className="text-xs font-semibold text-red-700 -mt-2">Note épinglée</p>}
+                {edit && (
+                  <div className="flex items-center gap-2" role="radiogroup" aria-label="Repère de la note">
+                    {Object.keys(cm).map(c => (
+                      <button key={c} type="button" role="radio" aria-checked={sel.col === c} aria-label={cm[c].name} title={cm[c].name}
+                        onClick={() => updLocal({ col: c })}
+                        className={`w-7 h-7 rounded-full ${cm[c].swatch} ${sel.col === c ? `ring-2 ring-offset-2 ring-red-600 ${darkMode ? 'ring-offset-slate-900' : ''}` : ''}`} />
+                    ))}
+                  </div>
                 )}
-                <div className="flex items-center gap-1">
-                  <button onClick={() => upd({ p: !sel.p })} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                    <Star className={`w-4 h-4 ${sel.p ? 'text-amber-500 fill-amber-500' : sub}`} />
-                  </button>
-                  <button onClick={() => edit ? saveNote() : setEdit(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                    {edit ? <Save className="w-4 h-4 text-emerald-600" /> : <Pencil className="w-4 h-4" />}
-                  </button>
-                  <button onClick={() => setPendingDelete(sel.id)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                    <Trash2 className="w-4 h-4 text-red-600" />
-                  </button>
-                </div>
+                <p className={`text-xs ${sub}`}>Mise à jour : {sel.u}</p>
+                {edit ? (
+                  <textarea value={sel.c} onChange={(e) => updLocal({ c: e.target.value })} placeholder="Écrivez…" aria-label="Contenu de la note"
+                    className={`w-full min-h-[22rem] p-4 rounded-2xl border text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-400 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
+                ) : (
+                  <div className={`relative pl-6 pr-4 py-4 rounded-2xl border min-h-[22rem] whitespace-pre-line text-sm leading-relaxed overflow-hidden ${darkMode ? 'border-slate-800' : 'border-slate-200/70'}`}>
+                    <span className={`absolute left-2.5 top-4 bottom-4 w-1 rounded-full ${tone(sel.col).bar}`} aria-hidden="true" />
+                    {sel.c ? <Highlight text={sel.c} query={query} /> : <span className="text-slate-400">Note vide. Cliquez sur le crayon pour écrire.</span>}
+                  </div>
+                )}
               </div>
-              {edit && (
-                <div className="flex gap-2">
-                  {Object.keys(cm).map(c => (
-                    <button key={c} onClick={() => updLocal({ col: c })} className={`w-6 h-6 rounded-full ${cm[c].tab} ${sel.col === c ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}></button>
-                  ))}
-                </div>
-              )}
-              <p className={`text-xs ${sub}`}>Mis à jour : {sel.u}</p>
-              {edit ? (
-                <textarea value={sel.c} onChange={(e) => updLocal({ c: e.target.value })} placeholder="Écrivez..."
-                  className={`w-full min-h-[400px] p-4 rounded-xl border text-sm leading-relaxed ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'} focus:outline-none focus:ring-2 focus:ring-red-500 resize-none`} />
-              ) : (
-                <div className={`p-4 rounded-xl ${cm[sel.col].bg} ${cm[sel.col].t} min-h-[400px] whitespace-pre-line text-sm leading-relaxed`}>
-                  {sel.c || <span className="opacity-50">Note vide.</span>}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center py-16">
-              <StickyNote className={`w-16 h-16 ${sub} mb-4`} />
-              <p className={`text-sm ${sub}`}>Sélectionnez ou créez une note</p>
-            </div>
-          )}
+            ) : (
+              <EmptyState Icon={StickyNote} title="Aucune note sélectionnée" darkMode={darkMode}>Sélectionnez une note dans la liste ou créez-en une nouvelle.</EmptyState>
+            )}
+          </Card>
         </div>
-      </div>
+        </>
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title="Supprimer la note"
-          message="Cette action retirera definitivement cette note."
+          message="Cette action retirera définitivement cette note."
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => del(pendingDelete)}
           card={card}
@@ -163,7 +217,3 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
     </div>
   );
 }
-
-/* ════════════════════════════════════════════════════════════════
-   ASSURANCE
-   ════════════════════════════════════════════════════════════════ */

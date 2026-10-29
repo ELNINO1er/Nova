@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Edit3, Trash2, X, Heart, UserPlus } from 'lucide-react';
+import { Users, Plus, Edit3, Trash2, X, UserPlus, Calendar, Smartphone, Mail } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
+import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import { Avatar, Button, Card, Chip, DataTable, EmptyState, Highlight, IconButton, NoResults, PageHeader, SearchInput, inputClass } from '../../components/patient/ui.jsx';
 
 const REL_OPTIONS = ['Conjoint(e)', 'Pere', 'Mere', 'Fils', 'Fille', 'Frere', 'Soeur', 'Autre'];
-const REL_COLORS = {
-  'Conjoint(e)': { bg: 'bg-pink-100 text-pink-700', dark: 'bg-pink-900/30 text-pink-300' },
-  'Pere': { bg: 'bg-blue-100 text-blue-700', dark: 'bg-blue-900/30 text-blue-300' },
-  'Mere': { bg: 'bg-purple-100 text-purple-700', dark: 'bg-purple-900/30 text-purple-300' },
-  'Fils': { bg: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-300' },
-  'Fille': { bg: 'bg-amber-100 text-amber-700', dark: 'bg-amber-900/30 text-amber-300' },
-  'Frere': { bg: 'bg-cyan-100 text-cyan-700', dark: 'bg-cyan-900/30 text-cyan-300' },
-  'Soeur': { bg: 'bg-rose-100 text-rose-700', dark: 'bg-rose-900/30 text-rose-300' },
-  'Autre': { bg: 'bg-slate-100 text-slate-700', dark: 'bg-slate-700 text-slate-300' },
-};
+/* Libellés accentués à l'affichage ; la valeur enregistrée reste inchangée. */
+const REL_LABELS = { Pere: 'Père', Mere: 'Mère', Frere: 'Frère', Soeur: 'Sœur' };
+const relLabel = (r) => REL_LABELS[r] || r;
+
+const fullName = (m) => `${m.firstName || ''} ${m.lastName || ''}`.trim();
+const fmtBirth = (v) => (v ? new Date(v).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
+const ageOf = (v) => (v ? Math.floor((Date.now() - new Date(v).getTime()) / 31557600000) : null);
+/* Champs cherchables d'un membre, du plus au moins important. */
+const FAMILY_FIELDS = (m) => [fullName(m), relLabel(m.relationship), m.phone, m.email, searchableDate(m.birthDate), m.notes];
 
 const emptyForm = { firstName: '', lastName: '', relationship: 'Conjoint(e)', birthDate: '', notes: '' };
 
@@ -23,6 +24,8 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   const [editingId, setEditingId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
+  const [query, setQuery] = useUrlQuery();
+  const results = useSearch(members, query, FAMILY_FIELDS);
 
   useEffect(() => {
     if (!data) return;
@@ -48,7 +51,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
 
   const save = async () => {
     if (!form.firstName.trim() || !form.lastName.trim()) {
-      notify?.('Veuillez remplir le nom et le prenom', 'error');
+      notify?.('Veuillez remplir le nom et le prénom', 'error');
       return;
     }
     try {
@@ -58,7 +61,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
         await patientApi.createFamilyMember(form);
       }
       onReload?.(await patientApi.familyMembers());
-      notify?.(editingId ? 'Membre modifie' : 'Membre ajoute');
+      notify?.(editingId ? 'Membre modifié' : 'Membre ajouté');
       setShowForm(false);
       resetForm();
     } catch (error) {
@@ -70,71 +73,72 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
     try {
       await patientApi.deleteFamilyMember(id);
       onReload?.(await patientApi.familyMembers());
-      notify?.('Membre supprime');
+      notify?.('Membre supprimé');
       setPendingDelete(null);
     } catch (error) {
       notify?.(error.message || 'Erreur suppression', 'error');
     }
   };
 
-  const relBadge = (rel) => {
-    const c = REL_COLORS[rel] || REL_COLORS['Autre'];
-    return (
-      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${darkMode ? c.dark : c.bg}`}>
-        {rel}
-      </span>
-    );
-  };
+  const closeForm = () => { setShowForm(false); resetForm(); };
+  const fieldCls = inputClass(darkMode);
+  const labelCls = 'block text-xs font-medium text-slate-500 space-y-1';
 
   if (!data) {
     return (
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Contacts familiaux</h2>
-        {[0, 1, 2].map(i => (
-          <div key={i} className={`${card} border rounded-2xl p-5`}>
-            <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-lg`}></div>
-          </div>
-        ))}
+      <div className="space-y-5">
+        <PageHeader title="Contacts familiaux" sub={sub} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {[0, 1].map(i => (
+            <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-2xl font-bold">Contacts familiaux</h2>
-          <p className={`text-sm ${sub}`}>Ces contacts n’accordent aucun accès à leur dossier. La délégation médicale n’est pas disponible.</p><p className={`text-sm ${sub}`}>{members.length} membre{members.length > 1 ? 's' : ''}</p>
-        </div>
-        <button onClick={() => { resetForm(); setShowForm(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-red-700">
-          <Plus className="w-4 h-4" /> Ajouter un membre
-        </button>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Contacts familiaux"
+        subtitle={`${members.length} membre${members.length > 1 ? 's' : ''} · Ces contacts n’accordent aucun accès à leur dossier. La délégation médicale n’est pas disponible.`}
+        sub={sub}
+        actions={<Button Icon={Plus} darkMode={darkMode} onClick={() => { resetForm(); setShowForm(true); }}>Ajouter un membre</Button>}
+      />
 
       {showForm && (
         <>
-          <button className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => { setShowForm(false); resetForm(); }} aria-label="Fermer"></button>
-          <div className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 ${card} border rounded-2xl p-5 shadow-2xl`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-red-600" />
+          <button type="button" className="fixed inset-0 z-40 bg-slate-950/45" onClick={closeForm} aria-label="Fermer"></button>
+          <div role="dialog" aria-modal="true" aria-labelledby="family-form-title"
+            className={`fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-3xl border p-6 shadow-2xl ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/70'}`}>
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <h3 id="family-form-title" className="font-semibold flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-red-600" />
                 {editingId ? 'Modifier le membre' : 'Nouveau membre'}
               </h3>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                <X className="w-4 h-4" />
-              </button>
+              <IconButton Icon={X} label="Fermer" darkMode={darkMode} onClick={closeForm} />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Prenom" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Nom" className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <select value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
-                {REL_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-              <input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className={`px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} />
-              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes (optionnel)" rows={2} className={`md:col-span-2 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} resize-none`} />
-              <div className="md:col-span-2 flex gap-2">
-                <button onClick={save} className="flex-1 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold">{editingId ? 'Modifier' : 'Ajouter'}</button>
-                <button onClick={() => { setShowForm(false); resetForm(); }} className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className={labelCls}><span>Prénom</span>
+                <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Prénom" className={fieldCls} />
+              </label>
+              <label className={labelCls}><span>Nom</span>
+                <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Nom" className={fieldCls} />
+              </label>
+              <label className={labelCls}><span>Lien</span>
+                <select value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} className={fieldCls}>
+                  {REL_OPTIONS.map(r => <option key={r} value={r}>{relLabel(r)}</option>)}
+                </select>
+              </label>
+              <label className={labelCls}><span>Date de naissance</span>
+                <input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className={fieldCls} />
+              </label>
+              <label className={`${labelCls} sm:col-span-2`}><span>Notes (optionnel)</span>
+                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes (optionnel)" rows={3} className={`${fieldCls} h-auto py-3 resize-none`} />
+              </label>
+              <div className="sm:col-span-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                <Button variant="secondary" darkMode={darkMode} onClick={closeForm}>Annuler</Button>
+                <Button darkMode={darkMode} onClick={save}>{editingId ? 'Modifier' : 'Ajouter'}</Button>
               </div>
             </div>
           </div>
@@ -142,53 +146,83 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
       )}
 
       {members.length === 0 ? (
-        <div className={`${card} border rounded-2xl p-8 flex flex-col items-center justify-center text-center`}>
-          <Users className={`w-16 h-16 ${sub} mb-4`} />
-          <p className="font-semibold mb-1">Aucun membre familial</p>
-          <p className={`text-sm ${sub}`}>Ajoutez des membres de votre famille pour un meilleur suivi medical.</p>
-        </div>
+        <EmptyState Icon={Users} title="Aucun membre familial" darkMode={darkMode}
+          action={<Button Icon={Plus} variant="secondary" darkMode={darkMode} onClick={() => { resetForm(); setShowForm(true); }}>Ajouter un membre</Button>}>
+          Ajoutez des membres de votre famille pour un meilleur suivi médical.
+        </EmptyState>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {members.map((m) => (
-            <div key={m.id} className={`${card} border rounded-2xl p-5`}>
-              <div className="flex items-start gap-4">
-                <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-100'} border`}>
-                  <Heart className="w-5 h-5 text-red-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-bold">{m.firstName} {m.lastName}</h4>
-                      <div className="mt-1">{relBadge(m.relationship)}</div>
-                    </div>
-                  </div>
-                  {m.birthDate && (
-                    <p className={`text-xs ${sub} mt-2`}>
-                      Ne(e) le {new Date(m.birthDate).toLocaleDateString('fr-FR')}
-                    </p>
-                  )}
-                  {m.notes && (
-                    <p className={`text-xs ${sub} mt-1 line-clamp-2`}>{m.notes}</p>
-                  )}
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => openEdit(m)} className={`px-3 py-1.5 rounded-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border text-xs font-semibold flex items-center gap-1`}>
-                      <Edit3 className="w-3 h-3" /> Modifier
-                    </button>
-                    <button onClick={() => setPendingDelete(m.id)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1">
-                      <Trash2 className="w-3 h-3" /> Suppr.
-                    </button>
-                  </div>
-                </div>
-              </div>
+        <Card darkMode={darkMode} className="!p-0 overflow-hidden">
+          <div className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold">Membres</h3>
+              <p className={`text-xs mt-0.5 ${sub}`}>{query ? `${results.length} sur ${members.length}` : `${members.length} au total`}</p>
             </div>
-          ))}
-        </div>
+            <SearchInput value={query} onChange={setQuery} count={results.length} darkMode={darkMode} className="w-full sm:w-80"
+              placeholder="Nom, lien, téléphone, email…" label="Rechercher un membre" />
+          </div>
+
+          {results.length === 0 ? (
+            <div className="p-4 sm:p-5"><NoResults query={query} onClear={() => setQuery('')} darkMode={darkMode} /></div>
+          ) : (
+            <>
+              {/* Tableau (écran large) */}
+              <div className="hidden md:block">
+                <DataTable
+                  darkMode={darkMode}
+                  columns={['Membre', 'Lien', 'Naissance', 'Téléphone', 'Email', <span key="ops" className="sr-only">Actions</span>]}
+                  rows={results.map((m) => [
+                    <span key="n" className="flex items-center gap-3 min-w-0">
+                      <Avatar name={fullName(m)} />
+                      <span className="min-w-0">
+                        <span className="block font-semibold truncate"><Highlight text={fullName(m)} query={query} /></span>
+                        {m.notes && <span className={`block text-xs font-normal truncate max-w-[16rem] ${sub}`}><Highlight text={m.notes} query={query} /></span>}
+                      </span>
+                    </span>,
+                    <Chip key="r" tone="watch"><Highlight text={relLabel(m.relationship)} query={query} /></Chip>,
+                    m.birthDate ? <span key="b">{fmtBirth(m.birthDate)}{ageOf(m.birthDate) != null && <span className="block text-xs">{ageOf(m.birthDate)} ans</span>}</span> : '—',
+                    m.phone ? <Highlight key="p" text={m.phone} query={query} /> : '—',
+                    m.email ? <Highlight key="e" text={m.email} query={query} /> : '—',
+                    <span key="a" className="flex justify-end gap-1.5">
+                      <IconButton Icon={Edit3} label={`Modifier ${fullName(m)}`} darkMode={darkMode} onClick={() => openEdit(m)} />
+                      <IconButton Icon={Trash2} label={`Supprimer ${fullName(m)}`} darkMode={darkMode} onClick={() => setPendingDelete(m.id)} />
+                    </span>,
+                  ])}
+                />
+              </div>
+
+              {/* Cartes (mobile) */}
+              <ul className="md:hidden">
+                {results.map((m, i) => (
+                  <li key={m.id} className={`p-4 ${i ? `border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'}` : ''}`}>
+                    <div className="flex items-start gap-3">
+                      <Avatar name={fullName(m)} size="lg" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold break-words"><Highlight text={fullName(m)} query={query} /></p>
+                        <div className="mt-1.5"><Chip tone="watch"><Highlight text={relLabel(m.relationship)} query={query} /></Chip></div>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <IconButton Icon={Edit3} label={`Modifier ${fullName(m)}`} darkMode={darkMode} onClick={() => openEdit(m)} />
+                        <IconButton Icon={Trash2} label={`Supprimer ${fullName(m)}`} darkMode={darkMode} onClick={() => setPendingDelete(m.id)} />
+                      </div>
+                    </div>
+                    <dl className={`mt-3 space-y-1.5 text-xs ${sub}`}>
+                      {m.birthDate && <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 shrink-0" /> Né(e) le {fmtBirth(m.birthDate)}</div>}
+                      {m.phone && <div className="flex items-center gap-1.5"><Smartphone className="w-3.5 h-3.5 shrink-0" /><Highlight text={m.phone} query={query} /></div>}
+                      {m.email && <div className="flex items-center gap-1.5 min-w-0"><Mail className="w-3.5 h-3.5 shrink-0" /><span className="break-all"><Highlight text={m.email} query={query} /></span></div>}
+                    </dl>
+                    {m.notes && <p className={`text-sm mt-2 line-clamp-2 ${sub}`}><Highlight text={m.notes} query={query} /></p>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Card>
       )}
 
       {pendingDelete && (
         <ConfirmDialog
           title="Supprimer le membre"
-          message="Cette action retirera definitivement ce membre de votre liste familiale."
+          message="Cette action retirera définitivement ce membre de votre liste familiale."
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => del(pendingDelete)}
           card={card}

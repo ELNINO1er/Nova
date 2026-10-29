@@ -1,121 +1,127 @@
 import React from 'react';
-import { Shield, Check, Phone, MapPin, Calendar, FileText, CheckCircle2, Stethoscope } from 'lucide-react';
-import { formatDate } from '../../utils/format.js';
+import { Shield, FileText, CheckCircle2, Stethoscope, Percent, CalendarClock } from 'lucide-react';
+import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import { Card, CardTitle, Chip, EmptyState, Field, Highlight, NoResults, PageHeader, SearchInput, StatTile } from '../../components/patient/ui.jsx';
+
+/* Champs cherchables d'une couverture, du plus au moins important. */
+const statusLabel = (ins) => (ins.status === 'active' ? 'Actif' : 'Expiré');
+const INSURANCE_FIELDS = (ins) => [ins.provider, ins.policyNumber, ins.holderName, ins.coverageType, statusLabel(ins), searchableDate(ins.validTo)];
+
+const fmtDate = (v, month = 'long') => (v ? new Date(v).toLocaleDateString('fr-FR', { day: '2-digit', month, year: 'numeric' }) : '—');
 
 export default function PInsurance({ data, card, sub, border, darkMode }) {
+  const [query, setQuery] = useUrlQuery();
+  const results = useSearch(data, query, INSURANCE_FIELDS);
+
   if (!data) return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-bold">Mes Assurances</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {[0,1].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-40 rounded-2xl`} />)}
+    <div className="space-y-5">
+      <PageHeader title="Mes assurances" sub={sub} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {[0, 1].map(i => (
+          <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-40 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
+        ))}
       </div>
     </div>
   );
 
-  const colorMap = {
-    blue:    { bg: 'from-blue-600 to-blue-800',    badge: 'bg-blue-100 text-blue-700' },
-    emerald: { bg: 'from-emerald-600 to-teal-700', badge: 'bg-emerald-100 text-emerald-700' },
-    red:     { bg: 'from-red-600 to-red-800',      badge: 'bg-red-100 text-red-700' },
-    amber:   { bg: 'from-amber-500 to-orange-600', badge: 'bg-amber-100 text-amber-700' },
-  };
-
-  const totalRate = data.length ? Math.round(data.reduce((s, i) => s + i.reimbursementRate, 0) / data.length) : 0;
+  const totalRate = data.length ? Math.round(data.reduce((s, i) => s + (Number(i.reimbursementRate) || 0), 0) / data.length) : 0;
+  const activeCount = data.filter((i) => i.status === 'active').length;
+  // Prochaine échéance parmi les couvertures actives.
+  const nextEnd = data
+    .filter((i) => i.status === 'active' && i.validTo)
+    .map((i) => i.validTo)
+    .sort((a, b) => new Date(a) - new Date(b))[0];
+  const line = darkMode ? 'border-slate-800' : 'border-slate-100';
+  const hl = (text) => <Highlight text={text} query={query} />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Mes Assurances</h2>
-          <p className={`text-sm ${sub}`}>Couvertures santé actives</p>
-        </div>
-        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold">
-          <Shield className="w-4 h-4" />
-          Taux moyen : {totalRate}%
-        </div>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Mes assurances" subtitle="Couvertures santé et remboursements" sub={sub} />
 
-      {data.length === 0 ? (
-        <div className={`${card} border rounded-2xl p-10 flex flex-col items-center text-center gap-3`}>
-          <Shield className={`w-10 h-10 ${sub}`} />
-          <p className={`text-sm ${sub}`}>Aucune assurance enregistrée</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {data.map((ins) => {
-            const c = colorMap[ins.logoColor] || colorMap.blue;
-            const isActive = ins.status === 'active';
-            const validTo = ins.validTo ? new Date(ins.validTo).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' }) : '—';
-            const validFrom = ins.validFrom ? new Date(ins.validFrom).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—';
-            return (
-              <div key={ins.id} className={`rounded-2xl overflow-hidden border ${darkMode ? 'border-slate-700' : 'border-slate-200'} shadow-sm`}>
-                {/* Header carte */}
-                <div className={`bg-gradient-to-r ${c.bg} text-white p-5`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center font-black text-lg">
-                      {ins.provider.slice(0, 2)}
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-white/60'}`}>
-                      {isActive ? 'Actif' : 'Expiré'}
-                    </span>
-                  </div>
-                  <p className="font-black text-xl tracking-wide">{ins.provider}</p>
-                  <p className="text-xs text-white/70 mt-1 font-mono">{ins.policyNumber}</p>
-                </div>
-                {/* Corps */}
-                <div className={`${darkMode ? 'bg-slate-900' : 'bg-white'} p-4 space-y-3`}>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs ${sub}`}>Titulaire</span>
-                    <span className="text-sm font-semibold">{ins.holderName}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs ${sub}`}>Couverture</span>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>{ins.coverageType}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs ${sub}`}>Validité</span>
-                    <span className="text-xs font-semibold">{validFrom} → {validTo}</span>
-                  </div>
-                  <div className={`pt-2 border-t ${border}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs ${sub}`}>Taux de remboursement</span>
-                      <span className="text-sm font-black text-emerald-600">{ins.reimbursementRate}%</span>
-                    </div>
-                    <div className={`w-full h-2 rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                      <div className="h-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500" style={{ width: `${ins.reimbursementRate}%` }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      {data.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <StatTile label="Taux moyen de remboursement" value={totalRate} unit="%" Icon={Percent} highlight darkMode={darkMode} />
+          <StatTile label="Couvertures actives" value={activeCount} unit={`sur ${data.length}`} Icon={Shield} darkMode={darkMode} />
+          <StatTile label="Prochaine échéance" value={nextEnd ? new Date(nextEnd).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }).replace('.', '') : '—'}
+            hint={nextEnd ? new Date(nextEnd).getFullYear() : 'Aucune couverture active'} Icon={CalendarClock} darkMode={darkMode} />
         </div>
       )}
 
+      {data.length === 0 ? (
+        <EmptyState Icon={Shield} title="Aucune assurance enregistrée" darkMode={darkMode} />
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <h3 className="font-semibold flex-1">Mes couvertures</h3>
+            <SearchInput value={query} onChange={setQuery} count={results.length} darkMode={darkMode} className="w-full sm:w-80"
+              placeholder="Assureur, n° de police, titulaire…" label="Rechercher une assurance" />
+          </div>
+
+          {results.length === 0 ? (
+            <NoResults query={query} onClear={() => setQuery('')} darkMode={darkMode} />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {results.map((ins) => {
+                const isActive = ins.status === 'active';
+                const rate = Math.max(0, Math.min(100, Number(ins.reimbursementRate) || 0));
+                return (
+                  <Card key={ins.id} darkMode={darkMode} className="!p-0 overflow-hidden">
+                    <div className="p-5 flex items-start gap-4">
+                      <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0 ${isActive ? 'bg-red-600 text-white' : darkMode ? 'bg-red-950/40 text-red-300' : 'bg-red-50 text-red-700'}`}>
+                        {(ins.provider || '').slice(0, 2).toUpperCase()}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-lg min-w-0 break-words">{hl(ins.provider)}</p>
+                          <Chip tone={isActive ? 'watch' : 'neutral'}>{statusLabel(ins)}</Chip>
+                        </div>
+                        <p className={`text-xs font-mono mt-0.5 break-all ${sub}`}>N° {hl(ins.policyNumber)}</p>
+                      </div>
+                    </div>
+
+                    <dl className={`grid grid-cols-2 gap-x-6 gap-y-4 px-5 py-4 border-t ${line}`}>
+                      <Field label="Titulaire">{ins.holderName ? hl(ins.holderName) : null}</Field>
+                      <Field label="Couverture">{ins.coverageType ? hl(ins.coverageType) : null}</Field>
+                      <Field label="Début">{fmtDate(ins.validFrom, 'short')}</Field>
+                      <Field label="Fin">{fmtDate(ins.validTo, 'short')}</Field>
+                    </dl>
+
+                    <div className={`px-5 py-4 border-t ${line}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-slate-500">Taux de remboursement</span>
+                        <span className="text-sm font-bold text-red-700 tabular-nums">{ins.reimbursementRate}%</span>
+                      </div>
+                      <div className={`w-full h-2 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} role="progressbar" aria-valuenow={rate} aria-valuemin={0} aria-valuemax={100} aria-label={`Taux de remboursement ${ins.provider || ''}`}>
+                        <div className="h-2 rounded-full bg-red-600" style={{ width: `${rate}%` }} />
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
       {/* Infos remboursement */}
-      <div className={`${card} border rounded-2xl p-5`}>
-        <h3 className="font-bold mb-4 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Processus de remboursement
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <Card darkMode={darkMode}>
+        <CardTitle Icon={CheckCircle2}>Processus de remboursement</CardTitle>
+        <ol className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           {[
-            { step: '1', title: 'Consultation',   desc: 'Demandez une fiche de soins lors de votre visite',         icon: Stethoscope },
-            { step: '2', title: 'Soumission',      desc: 'Envoyez les justificatifs à votre assureur',               icon: FileText },
-            { step: '3', title: 'Remboursement',   desc: 'Sous 5 à 10 jours ouvrés selon votre contrat',            icon: CheckCircle2 },
-          ].map(({ step, title, desc, icon: Icon }) => (
-            <div key={step} className={`flex gap-3 p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-              <div className="w-7 h-7 rounded-full bg-red-600 text-white text-xs font-black flex items-center justify-center flex-shrink-0">{step}</div>
+            { step: '1', title: 'Consultation',  desc: 'Demandez une fiche de soins lors de votre visite', icon: Stethoscope },
+            { step: '2', title: 'Soumission',    desc: 'Envoyez les justificatifs à votre assureur',      icon: FileText },
+            { step: '3', title: 'Remboursement', desc: 'Sous 5 à 10 jours ouvrés selon votre contrat',    icon: CheckCircle2 },
+          ].map(({ step, title, desc }) => (
+            <li key={step} className={`flex gap-3 p-4 rounded-2xl border ${darkMode ? 'border-slate-800' : 'border-red-100 bg-white'}`}>
+              <span className="w-8 h-8 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</span>
               <div>
                 <p className="font-semibold text-sm">{title}</p>
-                <p className={`text-xs ${sub} mt-0.5`}>{desc}</p>
+                <p className={`text-xs mt-0.5 ${sub}`}>{desc}</p>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
-      </div>
+        </ol>
+      </Card>
     </div>
   );
 }
-
-/* ════════════════════════════════════════════════════════════════
-   PHARMACIE CONNECTÉE
-   ════════════════════════════════════════════════════════════════ */

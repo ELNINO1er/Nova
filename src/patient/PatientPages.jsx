@@ -167,19 +167,19 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   return (
     <>
       {apiError[page] && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
             <span>Chargement impossible — {apiError[page]}</span>
           </div>
-          <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 flex-shrink-0">
+          <button onClick={retryCurrentPage} className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 flex-shrink-0">
             Réessayer
           </button>
         </div>
       )}
 
       {notice && (
-        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-red-100 bg-white text-slate-900'}`}>
           {notice.message}
         </div>
       )}

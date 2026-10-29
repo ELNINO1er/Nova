@@ -117,7 +117,7 @@ export function StatusChip({ status }) {
 
 export function Avatar({ name, size = 'md' }) {
   const s = size === 'lg' ? 'w-12 h-12 text-sm' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-xs';
-  return <span className={`${s} shrink-0 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold`}>{initialsOf(name)}</span>;
+  return <span className={`${s} shrink-0 rounded-full bg-red-600 text-white flex items-center justify-center font-bold`}>{initialsOf(name)}</span>;
 }
 
 export function Empty({ children, sub }) {

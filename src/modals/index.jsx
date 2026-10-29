@@ -41,7 +41,7 @@ export function QRModal({ onClose }) {
         {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}
         {!error && !card && <p className="text-sm text-slate-500 py-8 text-center">Chargement de votre fiche…</p>}
         {card && (
-          <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white">
+          <div className="bg-red-600 rounded-2xl p-6 text-white">
             <p className="text-xs text-red-100">URGENCE MÉDICALE</p>
             <h4 className="text-2xl font-bold mt-1">{card.firstName} {card.lastName}</h4>
             <p className="text-xs text-red-100">CMU {card.cmuNumber || '—'}</p>
@@ -78,7 +78,7 @@ export function AyaChat({ onClose }) {
   };
   return (
     <div className="fixed bottom-6 right-6 w-full max-w-sm h-[500px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50">
-      <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 rounded-t-2xl flex items-center justify-between">
+      <div className="bg-red-600 text-white p-4 rounded-t-2xl flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><Bot className="w-5 h-5" /></div>
           <div><h4 className="font-bold">Aya</h4><p className="text-[10px] text-red-100">Assistante IA Santé</p></div>

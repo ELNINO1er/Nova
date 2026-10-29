@@ -8,9 +8,9 @@ const ICONS = {
 };
 
 const STYLES = {
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  success: 'border-red-100 bg-white text-slate-900',
   error: 'border-red-200 bg-red-50 text-red-800',
-  info: 'border-blue-200 bg-blue-50 text-blue-800',
+  info: 'border-red-100 bg-white text-slate-900',
 };
 
 export default function Toast({ message, type = 'success', duration = 3000, onClose }) {
@@ -36,7 +36,7 @@ export default function Toast({ message, type = 'success', duration = 3000, onCl
         ${STYLES[type] || STYLES.info}`}
       role="alert"
     >
-      <Icon className="w-4 h-4 flex-shrink-0" />
+      <Icon className="w-4 h-4 flex-shrink-0 text-red-600" />
       <p className="text-xs font-bold flex-1">{message}</p>
       <button onClick={() => { setExiting(true); setTimeout(() => onClose?.(), 300); }}
         className="flex-shrink-0 opacity-60 hover:opacity-100" aria-label="Fermer">

@@ -4,6 +4,7 @@ import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import SpaceTabs from './layout/SpaceTabs.jsx';
 import NotificationBell from './layout/NotificationBell.jsx';
+import GlobalSearch from './layout/GlobalSearch.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
@@ -21,7 +22,7 @@ const PharmacyPages = lazy(() => import('./pharmacy/PharmacyPages.jsx'));
 const GovernorPages = lazy(() => import('./governor/GovernorPages.jsx'));
 
 const ROLE_META = {
-  patient:    { label: 'Espace patient',    Icon: User,        color: 'text-blue-700 bg-blue-50 border-blue-200' },
+  patient:    { label: 'Espace patient',    Icon: User,        color: 'text-red-700 bg-red-50 border-red-200' },
   doctor:     { label: 'Espace docteur',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
@@ -56,12 +57,12 @@ function AccountMenu({ user, roleLabel, photoSrc, links, onNavigate, onLogout, l
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
   }, [open]);
-  const item = `w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`;
+  const item = `w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50'}`;
   return (
     <div ref={ref} className={`relative pl-2 sm:pl-3 border-l ${border}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Menu du compte"
-        className={`flex items-center gap-2 rounded-xl p-1 ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-        <span className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
+        className={`flex items-center gap-2 rounded-xl p-1 ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50'}`}>
+        <span className="w-9 h-9 rounded-full bg-red-600 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
           {photoSrc ? <img src={photoSrc} alt="" className="w-full h-full object-cover" /> : (user?.avatar || 'U')}
         </span>
         <span className="hidden lg:block text-left">
@@ -233,32 +234,34 @@ export default function App() {
   const roleLabel = ROLE_META[role]?.label || 'Espace utilisateur';
   const bg = darkMode ? 'bg-slate-950' : 'bg-white';
   const text = darkMode ? 'text-slate-100' : 'text-slate-900';
-  const card = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200';
+  const card = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200';
   const sub = darkMode ? 'text-slate-400' : 'text-slate-600';
   const border = darkMode ? 'border-slate-800' : 'border-slate-200';
-  const hover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100';
+  const hover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50';
   const props = { card, sub, border, darkMode };
 
   return (
     <div className={`min-h-screen ${bg} ${text} flex flex-col`}>
       <header className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-950/90' : 'bg-white/90'} backdrop-blur-xl border-b ${border}`}>
-        <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+        <div className="px-3 sm:px-6 py-3 flex items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-3">
             <button onClick={() => setSbOpen(true)} className={`lg:hidden p-2 rounded-lg ${hover}`} aria-label="Ouvrir le menu"><Menu className="w-5 h-5" /></button>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center shadow-lg shadow-red-600/20">
+              <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center">
                 <HeartPulse className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
-              <div>
+              <div className="hidden min-[400px]:block">
                 <h1 className="font-bold text-lg tracking-tight">NOVA</h1>
                 <p className={`text-[10px] ${sub} -mt-1 hidden sm:block`}>Carnet Santé Ivoirien</p>
               </div>
             </div>
           </div>
-          <div className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : ROLE_META[role]?.color}`}>
-            <RoleIcon className="w-4 h-4" />
-            <span>{roleLabel}</span>
-          </div>
+          {role === 'patient' ? <GlobalSearch darkMode={darkMode} /> : (
+            <div className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : ROLE_META[role]?.color}`}>
+              <RoleIcon className="w-4 h-4" />
+              <span>{roleLabel}</span>
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             {role === 'patient' && (
               <button type="button" onClick={() => setPage('urgence')} aria-label="SOS urgence"
@@ -327,7 +330,7 @@ export default function App() {
       {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal onClose={() => setShowVid(false)} /></ErrorBoundary>}
 
       {role === 'patient' && page !== 'assistant' && (
-        <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-700 shadow-2xl shadow-red-600/40 flex items-center justify-center text-white hover:scale-110 z-30">
+        <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 flex items-center justify-center text-white hover:scale-110 z-30">
           <Bot className="w-6 h-6" />
         </button>
       )}

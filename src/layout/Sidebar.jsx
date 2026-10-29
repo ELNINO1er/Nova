@@ -29,7 +29,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
   const act = submenus
     ? (darkMode ? 'bg-red-950/50 text-red-300 font-semibold' : 'bg-red-50 text-red-700 font-semibold')
     : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-600/20';
-  const ina = darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100';
+  const ina = darkMode ? 'text-slate-300 hover:bg-slate-800' : submenus ? 'text-slate-700 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-100';
   const parentActive = darkMode ? 'text-red-300 hover:bg-slate-800' : 'text-red-700 hover:bg-red-50';
 
   return (
@@ -90,7 +90,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
       {role === 'patient' && onLogout && (
         <div className="p-3">
           {/* Carte utilisateur : photo, nom, paramètres et déconnexion. */}
-          <div className={`rounded-2xl p-4 text-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
+          <div className={`rounded-2xl p-4 text-center ${darkMode ? 'bg-slate-900' : 'bg-red-50/60'}`}>
             <span className="mx-auto w-16 h-16 rounded-full overflow-hidden bg-red-600 text-white text-xl font-bold flex items-center justify-center ring-4 ring-white">
               {photoSrc ? <img src={photoSrc} alt="" className="w-full h-full object-cover" /> : (user?.avatar || 'U')}
             </span>
@@ -98,7 +98,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
             <p className={`text-xs ${sub}`}>Espace patient</p>
             <div className="mt-3 flex justify-center gap-2">
               <button type="button" onClick={() => setPage('settings')} aria-label="Paramètres" title="Paramètres"
-                className={`w-10 h-10 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:bg-slate-100'}`}>
+                className={`w-10 h-10 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-red-100 bg-white hover:bg-red-50'}`}>
                 <Settings className="w-4 h-4" />
               </button>
               <button type="button" onClick={onLogout} disabled={loggingOut} aria-label="Se déconnecter" title="Se déconnecter"
@@ -111,8 +111,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
       )}
       {SUPPORT_HREF && (
         <div className={`p-3 border-t ${border}`}>
-          <div className="p-3 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-400/30 rounded-full -translate-y-10 translate-x-10 blur-2xl"></div>
+          <div className="p-3 rounded-xl bg-red-600 text-white relative overflow-hidden">
             <div className="relative">
               <Sparkles className="w-4 h-4 mb-1" />
               <p className="text-xs font-bold">Aide & Support</p>

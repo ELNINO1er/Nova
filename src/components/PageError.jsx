@@ -5,7 +5,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 export default function PageError({ message, onRetry, card = 'bg-white border-slate-200', sub = 'text-slate-500' }) {
   return (
     <div className={`${card} border rounded-2xl p-8 text-center space-y-3`}>
-      <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
+      <AlertCircle className="w-8 h-8 text-red-600 mx-auto" />
       <p className="font-bold">Impossible de charger cette page</p>
       {message && <p className={`text-sm ${sub}`}>{message}</p>}
       <button onClick={onRetry}
