@@ -3,7 +3,7 @@ import { Bell, Calendar, Microscope, MessageCircle, Pill, Syringe } from 'lucide
 import { patientApi } from '../api/patientApi.js';
 import { formatRelativeDate } from '../utils/format.js';
 
-const TYPE_ICON = { appointment: Calendar, medication: Pill, vaccine: Syringe, message: MessageCircle, result: Microscope };
+const TYPE_ICON = { appointment: Calendar, medication: Pill, prescription: Pill, vaccine: Syringe, message: MessageCircle, result: Microscope, lab_result: Microscope };
 
 /* Cloche du header patient : les notifications s'ouvrent dans un panneau, sans quitter la page. */
 export default function NotificationBell({ count = 0, onCount, setPage, darkMode, sub }) {

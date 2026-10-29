@@ -157,7 +157,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
       cols: ['Médicaments', 'Prescrit par', 'Date', 'Validité', 'Statut'],
       rows: prescriptions.slice(0, 5).map((p) => [
         (p.items || []).map((i) => `${i.name} ${i.dosage || ''}`.trim()).join(', ') || 'Ordonnance', p.doctorName || '—', fmtDay(p.issuedAt),
-        p.validUntil ? fmtDay(p.validUntil) : '—', p.status === 'active' ? <Chip tone="watch">Active</Chip> : <Chip>{p.status === 'dispensed' ? 'Délivrée' : p.status === 'expired' ? 'Expirée' : 'Terminée'}</Chip>]),
+        p.validUntil ? fmtDay(p.validUntil) : '—', p.status === 'active' ? <Chip tone="watch">Active</Chip> : p.status === 'partial' ? <Chip tone="watch">Délivrance partielle</Chip> : <Chip>{({ dispensed: 'Délivrée', expired: 'Expirée', cancelled: 'Annulée' })[p.status] || 'Terminée'}</Chip>]),
       page: 'prescriptions', empty: 'Aucune ordonnance.',
     },
     meds: {
@@ -260,7 +260,13 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
             <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-red-50">
               {photoSrc
                 ? <img src={photoSrc} alt={`Photo de ${profile?.firstName || 'profil'}`} className="w-full h-full object-cover" />
-                : <div className="w-full h-full flex items-center justify-center"><span className="w-24 h-24 rounded-full bg-red-600 text-white text-3xl font-bold flex items-center justify-center">{initialsOf(`${profile?.firstName || ''} ${profile?.lastName || ''}`)}</span></div>}
+                : (
+                  // Sans photo : initiales en haut (jamais sous la carte du nom) et invitation à en ajouter une.
+                  <div className="w-full h-full flex flex-col items-center pt-5 sm:pt-6 gap-2">
+                    <span className="w-20 h-20 rounded-full bg-red-600 text-white text-2xl font-bold flex items-center justify-center ring-4 ring-white">{initialsOf(`${profile?.firstName || ''} ${profile?.lastName || ''}`)}</span>
+                    <button type="button" onClick={() => setPage('profile')} className="text-xs font-semibold text-red-700 hover:text-red-800 underline-offset-2 hover:underline">Ajouter une photo</button>
+                  </div>
+                )}
               <div className={`absolute left-3 right-3 bottom-3 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-sm ${darkMode ? 'bg-slate-900/95' : 'bg-white/95'}`}>
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{profile ? `${profile.firstName} ${profile.lastName}` : '—'}</p>

@@ -20,8 +20,8 @@ const REASONS = {
 
 /* Champs cherchables par onglet, du plus au moins important. */
 const TEAM_FIELDS = (m) => [m.doctorName, m.specialty, m.city, (REASONS[m.reason] || REASONS.none)[0], m.hasAccess ? 'accès autorisé' : 'sans accès'];
-const CONSENT_FIELDS = (c) => [c.doctorName || 'Médecin', (STATUS_MAP[c.status] || STATUS_MAP.pending).label, searchableDate(c.updatedAt || c.grantedAt || c.createdAt)];
-const logUser = (l) => l.userName || l.user || 'Inconnu';
+const CONSENT_FIELDS = (c) => [c.doctorName || 'Médecin', (STATUS_MAP[c.status] || STATUS_MAP.pending).label, searchableDate(c.respondedAt || c.requestedAt)];
+const logUser = (l) => l.accessorName || l.userName || 'Inconnu';
 const logWhen = (l) => l.accessedAt || l.createdAt;
 const LOG_FIELDS = (l) => [logUser(l), l.action || 'Consultation', l.dataAccessed || l.resource, searchableDate(logWhen(l))];
 const TAB_LABELS = { team: 'Qui a accès', consents: 'Demandes', logs: 'Journal d’accès' };
@@ -44,9 +44,12 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
     setTeam(Array.isArray(data.careTeam) ? data.careTeam : []);
   }, [data]);
 
+  // Demande en attente : réponse à la demande ; accès révoqué : nouvel accord au médecin (l'API refuse de « ré-accorder » une demande close).
   const grant = async (id) => {
+    const consent = consents.find((c) => c.id === id);
     try {
-      await patientApi.grantConsent(id);
+      if (consent && consent.status !== 'pending' && consent.doctorId) await patientApi.grantDoctorAccess(consent.doctorId);
+      else await patientApi.grantConsent(id);
       onReload?.({ consents: await patientApi.consents(), accessLogs: await patientApi.accessLogs(), careTeam: await patientApi.careTeam() });
       notify?.('Consentement accordé');
     } catch (error) {

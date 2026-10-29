@@ -212,9 +212,8 @@ export default function App() {
     Promise.allSettled([patientApi.notifications(), patientApi.conversations()])
       .then(([notificationsResult, conversationsResult]) => {
         if (cancelled) return;
-        const notifications = notificationsResult.status === 'fulfilled' && Array.isArray(notificationsResult.value)
-          ? notificationsResult.value.filter((n) => !n.isRead).length
-          : 0;
+        const notifList = notificationsResult.status === 'fulfilled' ? (Array.isArray(notificationsResult.value) ? notificationsResult.value : notificationsResult.value?.data) : null;
+        const notifications = Array.isArray(notifList) ? notifList.filter((n) => !n.isRead).length : 0;
         const messages = conversationsResult.status === 'fulfilled' && Array.isArray(conversationsResult.value)
           ? conversationsResult.value.reduce((sum, c) => sum + Number(c.unreadCount || 0), 0)
           : 0;

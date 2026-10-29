@@ -44,7 +44,10 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     window.setTimeout(() => setNotice(null), 2600);
   };
 
-  const loadPage = (pageKey, force = false, listPage = pagination[pageKey]?.page || 1) => {
+  // Référence à jour de la pagination : les écouteurs globaux ne relisent pas un état périmé.
+  const paginationRef = useRef(pagination);
+  paginationRef.current = pagination;
+  const loadPage = (pageKey, force = false, listPage = paginationRef.current[pageKey]?.page || 1) => {
     const loaders = {
       dashboard: patientApi.dashboard,
       profile: patientApi.profile,
@@ -105,15 +108,17 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     loadPage(page,true);
   }, [page]);
 
-  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData({});loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
+  // Après une modification ou un retour sur l'onglet : la page courante reste affichée pendant son rechargement ; les autres seront rechargées à l'ouverture.
+  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData((current)=>({[page]:current[page]}));loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));
   };
   const replaceNotifications = (value) => {
     replacePageData('notifications', value);
-    if (Array.isArray(value)) {
-      onBadgesChange?.({ notifications: value.filter((n) => !n.isRead).length });
+    const list = Array.isArray(value) ? value : value?.data;
+    if (Array.isArray(list)) {
+      onBadgesChange?.({ notifications: list.filter((n) => !n.isRead).length });
     }
   };
   const replaceMessages = (value) => {

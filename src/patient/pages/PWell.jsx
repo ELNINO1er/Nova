@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Target, Plus, Minus, Activity, Droplet, Moon as MoonIcon, Heart, HeartPulse, CheckCircle2, Sun, X, Footprints, Scale, Apple } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
@@ -67,7 +67,15 @@ const HEALTH_TIPS = [
 const GOAL_FIELDS = (g) => [g.title, categoryOf(g).label, g.unit, g.completed ? 'terminé atteint' : 'en cours actif', g.type];
 const TIP_FIELDS = (t) => [t.title, t.category, t.tip];
 
-export default function PWell({ data, profile, onReload, notify, card, sub, border, darkMode }) {
+export default function PWell({ data, profile: profileProp, onReload, notify, card, sub, border, darkMode }) {
+  // Profil chargé ici s'il n'a pas été transmis (accès direct à la page, ou après une modification).
+  const [profile, setProfile] = useState(profileProp || null);
+  useEffect(() => {
+    if (profileProp) { setProfile(profileProp); return undefined; }
+    let alive = true;
+    patientApi.profile().then((p) => alive && setProfile(p)).catch(() => {});
+    return () => { alive = false; };
+  }, [profileProp]);
   const [showAdd, setShowAdd] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: '', target: '', unit: '', color: 'emerald' });
   const [saving, setSaving]   = useState(false);

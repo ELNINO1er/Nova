@@ -9,8 +9,10 @@ import {
 // Intensité du rouge = niveau d'attention : plein (critique), pâle (hors normes), blanc (normal).
 const statusTone = { normal: 'neutral', high: 'watch', low: 'watch', critical: 'alert' };
 const statusLabel = { normal: 'Normal', high: 'Élevé', low: 'Bas', critical: 'Critique' };
-const reportStatusTone = { completed: 'neutral', pending: 'watch', cancelled: 'neutral' };
-const reportStatusLabel = { completed: 'Terminé', pending: 'En attente', cancelled: 'Annulé' };
+// Statuts envoyés par l'API : available (résultat disponible), reviewed (lu par le médecin), pending, cancelled.
+const reportStatusTone = { available: 'watch', reviewed: 'neutral', completed: 'neutral', pending: 'watch', cancelled: 'neutral' };
+const reportStatusLabel = { available: 'Disponible', reviewed: 'Revu par le médecin', completed: 'Terminé', pending: 'En attente', cancelled: 'Annulé' };
+const isDone = (r) => ['available', 'reviewed', 'completed'].includes(r.status);
 
 const isAbnormal = (r) => (r.items || []).some(i => i.status !== 'normal');
 const EMPTY = [];
@@ -57,10 +59,11 @@ export default function PLabResults({ data, card, sub, border, darkMode }) {
     all: found.length,
     abnormal: found.filter(isAbnormal).length,
     pending: found.filter(r => r.status === 'pending').length,
-    completed: found.filter(r => r.status === 'completed').length,
+    completed: found.filter(isDone).length,
   };
   const shown = filter === 'all' ? found
     : filter === 'abnormal' ? found.filter(isAbnormal)
+    : filter === 'completed' ? found.filter(isDone)
     : found.filter(r => r.status === filter);
 
   return (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Calendar, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown, Camera, Trash2, IdCard } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import { useUnsaved } from '../../unsaved.js';
 import { PHOTO_ACCEPT, announcePhotoChange, preparePhoto, usePatientPhoto } from '../../utils/photo.js';
 import { Button, Card, CardTitle, Chip, Field, PageHeader, inputClass } from '../../components/patient/ui.jsx';
 
@@ -23,26 +24,32 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
     eName: '', eRel: '', ePhone: '',
   });
 
+  // Formulaire réinitialisé depuis le serveur, sauf pendant une modification (une actualisation ne l'écrase pas).
+  const fromData = (src) => ({
+      firstName: src.firstName || '',
+      lastName: src.lastName || '',
+      birthDate: src.birthDate || '',
+      sex: src.sex || '',
+      cmu: src.cmuNumber || '',
+      phone: src.phone || '',
+      email: src.email || '',
+      address: src.address || '',
+      city: src.city || '',
+      bloodType: src.bloodType || '',
+      weight: src.weightKg ? String(src.weightKg) : '',
+      height: src.heightCm ? String(src.heightCm) : '',
+      eName: src.emergencyContact?.name || '',
+      eRel: src.emergencyContact?.relationship || '',
+      ePhone: src.emergencyContact?.phone || '',
+  });
   useEffect(() => {
-    if (!data) return;
-    setD({
-      firstName: data.firstName || '',
-      lastName: data.lastName || '',
-      birthDate: data.birthDate || '',
-      sex: data.sex || '',
-      cmu: data.cmuNumber || '',
-      phone: data.phone || '',
-      email: data.email || '',
-      address: data.address || '',
-      city: data.city || '',
-      bloodType: data.bloodType || '',
-      weight: data.weightKg ? String(data.weightKg) : '',
-      height: data.heightCm ? String(data.heightCm) : '',
-      eName: data.emergencyContact?.name || '',
-      eRel: data.emergencyContact?.relationship || '',
-      ePhone: data.emergencyContact?.phone || '',
-    });
-  }, [data]);
+    if (!data || edit) return;
+    setD(fromData(data));
+    // fromData ne lit que son argument.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, edit]);
+  // Modifications non enregistrées : bloque l'actualisation automatique et avertit avant de quitter la page.
+  useUnsaved(edit, JSON.stringify(d));
 
   const profileInitials = `${d.firstName?.[0] || ''}${d.lastName?.[0] || ''}`.toUpperCase() || '—';
   const profileAge = d.birthDate ? Math.floor((Date.now() - new Date(d.birthDate).getTime()) / 31557600000) : null;
@@ -163,7 +170,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
               <FileDown className="w-4 h-4" /> Exporter PDF
             </a>
             {edit && (
-              <Button variant="secondary" Icon={X} darkMode={darkMode} onClick={() => { setEdit(false); setSaveError(''); }}>Annuler</Button>
+              <Button variant="secondary" Icon={X} darkMode={darkMode} onClick={() => { if (data) setD(fromData(data)); setEdit(false); setSaveError(''); }}>Annuler</Button>
             )}
             <Button Icon={edit ? Save : Edit3} disabled={saving} darkMode={darkMode} onClick={() => (edit ? saveProfile() : setEdit(true))}>
               {edit ? (saving ? 'Sauvegarde...' : 'Enregistrer') : 'Modifier'}
@@ -207,7 +214,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
           <dl className="mt-6 pt-5 border-t border-white/20 grid grid-cols-3 gap-3">
             {keyStats.map(([label, value, unit]) => (
               <div key={label} className="min-w-0">
-                <dt className="text-[11px] sm:text-xs text-red-100 truncate">{label}</dt>
+                <dt className="text-[11px] sm:text-xs text-red-100 leading-tight">{label}</dt>
                 <dd className="mt-1 flex items-baseline gap-1"><span className="text-xl sm:text-2xl font-bold tabular-nums">{value}</span>{unit && <span className="text-xs text-red-100">{unit}</span>}</dd>
               </div>
             ))}

@@ -73,8 +73,8 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
       </header>
 
       <dl className={`grid grid-cols-2 sm:grid-cols-3 gap-x-5 gap-y-3 px-5 py-4 border-b ${line}`}>
-        <div className="col-span-2 sm:col-span-1 min-w-0"><Label>Prescripteur</Label><dd className="text-sm font-semibold truncate"><Highlight text={p.doctorName} query={query} /></dd><dd className="text-xs text-slate-500 truncate"><Highlight text={p.doctorSpecialty} query={query} /></dd></div>
-        <div className="min-w-0"><Label>Patient</Label><dd className="text-sm truncate">{patientName() || '—'}</dd></div>
+        <div className="col-span-2 sm:col-span-1 min-w-0"><Label>Prescripteur</Label><dd className="text-sm font-semibold break-words"><Highlight text={p.doctorName} query={query} /></dd><dd className="text-xs text-slate-500 break-words"><Highlight text={p.doctorSpecialty} query={query} /></dd></div>
+        <div className="min-w-0"><Label>Patient</Label><dd className="text-sm break-words">{patientName() || '—'}</dd></div>
         <div className="min-w-0"><Label>Statut</Label><dd className="mt-0.5"><StatusMark tone={tone}>{label}</StatusMark></dd></div>
         <div className="min-w-0"><Label>Émise le</Label><dd className="font-mono text-sm tabular-nums">{fmt(p.issuedAt)}</dd></div>
         <div className="col-span-2 min-w-0"><Label>Validité</Label><div className="mt-1"><Validity p={p} /></div></div>

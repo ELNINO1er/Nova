@@ -5,9 +5,9 @@ import { ConfirmDialog } from '../../components/PatientModal.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { Avatar, Button, Card, Chip, DataTable, EmptyState, Highlight, IconButton, NoResults, PageHeader, SearchInput, inputClass } from '../../components/patient/ui.jsx';
 
-const REL_OPTIONS = ['Conjoint(e)', 'Pere', 'Mere', 'Fils', 'Fille', 'Frere', 'Soeur', 'Autre'];
-/* Libellés accentués à l'affichage ; la valeur enregistrée reste inchangée. */
-const REL_LABELS = { Pere: 'Père', Mere: 'Mère', Frere: 'Frère', Soeur: 'Sœur' };
+/* Codes enregistrés par l'API (nova_family_members.relationship) et leurs libellés. */
+const REL_OPTIONS = [['spouse', 'Conjoint(e)'], ['parent', 'Parent'], ['child', 'Enfant'], ['sibling', 'Frère / sœur'], ['other', 'Autre']];
+const REL_LABELS = Object.fromEntries(REL_OPTIONS);
 const relLabel = (r) => REL_LABELS[r] || r;
 
 const fullName = (m) => `${m.firstName || ''} ${m.lastName || ''}`.trim();
@@ -16,7 +16,7 @@ const ageOf = (v) => (v ? Math.floor((Date.now() - new Date(v).getTime()) / 3155
 /* Champs cherchables d'un membre, du plus au moins important. */
 const FAMILY_FIELDS = (m) => [fullName(m), relLabel(m.relationship), m.phone, m.email, searchableDate(m.birthDate), m.notes];
 
-const emptyForm = { firstName: '', lastName: '', relationship: 'Conjoint(e)', birthDate: '', notes: '' };
+const emptyForm = { firstName: '', lastName: '', relationship: 'spouse', birthDate: '', notes: '' };
 
 export default function PFamily({ data, onReload, notify, card, sub, darkMode }) {
   const [members, setMembers] = useState([]);
@@ -42,7 +42,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
     setForm({
       firstName: m.firstName || '',
       lastName: m.lastName || '',
-      relationship: m.relationship || 'Autre',
+      relationship: REL_LABELS[m.relationship] ? m.relationship : 'other',
       birthDate: m.birthDate ? m.birthDate.slice(0, 10) : '',
       notes: m.notes || '',
     });
@@ -54,11 +54,13 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
       notify?.('Veuillez remplir le nom et le prénom', 'error');
       return;
     }
+    // Champs vides non envoyés : une date vide serait refusée par la colonne DATE.
+    const payload = { ...form, firstName: form.firstName.trim(), lastName: form.lastName.trim(), birthDate: form.birthDate || undefined, notes: form.notes?.trim() || undefined };
     try {
       if (editingId) {
-        await patientApi.updateFamilyMember(editingId, form);
+        await patientApi.updateFamilyMember(editingId, payload);
       } else {
-        await patientApi.createFamilyMember(form);
+        await patientApi.createFamilyMember(payload);
       }
       onReload?.(await patientApi.familyMembers());
       notify?.(editingId ? 'Membre modifié' : 'Membre ajouté');
@@ -127,7 +129,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
               </label>
               <label className={labelCls}><span>Lien</span>
                 <select value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} className={fieldCls}>
-                  {REL_OPTIONS.map(r => <option key={r} value={r}>{relLabel(r)}</option>)}
+                  {REL_OPTIONS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
                 </select>
               </label>
               <label className={labelCls}><span>Date de naissance</span>
@@ -158,7 +160,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
               <p className={`text-xs mt-0.5 ${sub}`}>{query ? `${results.length} sur ${members.length}` : `${members.length} au total`}</p>
             </div>
             <SearchInput value={query} onChange={setQuery} count={results.length} darkMode={darkMode} className="w-full sm:w-80"
-              placeholder="Nom, lien, téléphone, email…" label="Rechercher un membre" />
+              placeholder="Nom, lien, date de naissance, notes…" label="Rechercher un membre" />
           </div>
 
           {results.length === 0 ? (
@@ -169,7 +171,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
               <div className="hidden md:block">
                 <DataTable
                   darkMode={darkMode}
-                  columns={['Membre', 'Lien', 'Naissance', 'Téléphone', 'Email', <span key="ops" className="sr-only">Actions</span>]}
+                  columns={['Membre', 'Lien', 'Naissance', <span key="ops" className="sr-only">Actions</span>]}
                   rows={results.map((m) => [
                     <span key="n" className="flex items-center gap-3 min-w-0">
                       <Avatar name={fullName(m)} />
@@ -180,8 +182,6 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
                     </span>,
                     <Chip key="r" tone="watch"><Highlight text={relLabel(m.relationship)} query={query} /></Chip>,
                     m.birthDate ? <span key="b">{fmtBirth(m.birthDate)}{ageOf(m.birthDate) != null && <span className="block text-xs">{ageOf(m.birthDate)} ans</span>}</span> : '—',
-                    m.phone ? <Highlight key="p" text={m.phone} query={query} /> : '—',
-                    m.email ? <Highlight key="e" text={m.email} query={query} /> : '—',
                     <span key="a" className="flex justify-end gap-1.5">
                       <IconButton Icon={Edit3} label={`Modifier ${fullName(m)}`} darkMode={darkMode} onClick={() => openEdit(m)} />
                       <IconButton Icon={Trash2} label={`Supprimer ${fullName(m)}`} darkMode={darkMode} onClick={() => setPendingDelete(m.id)} />

@@ -47,7 +47,7 @@ function ReportDocument({ e, query, darkMode }) {
       <dl className={`grid grid-cols-2 gap-x-5 gap-y-3 px-5 py-4 border-b ${line}`}>
         <div className="min-w-0">
           <Label>Médecin</Label>
-          <dd className="mt-1 flex items-center gap-2 min-w-0">{e.doctor && <Avatar name={e.doctor} size="sm" />}<span className="text-sm font-medium truncate"><Highlight text={e.doctor || '—'} query={query} /></span></dd>
+          <dd className="mt-1 flex items-center gap-2 min-w-0">{e.doctor && <Avatar name={e.doctor} size="sm" />}<span className="text-sm font-medium break-words min-w-0"><Highlight text={e.doctor || '—'} query={query} /></span></dd>
         </div>
         <div className="min-w-0">
           <Label>Date</Label>

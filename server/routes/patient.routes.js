@@ -82,20 +82,16 @@ import { patientPhotoFile, removePatientPhoto, savePatientPhoto } from '../servi
 const router = Router();
 router.use(requirePatient);
 
+// Libellés du formulaire (« Conjoint(e) », « Père », « Sœur »…) ramenés aux codes stockés.
 const familyRelationshipSchema = z.preprocess((value) => {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '').trim().toLowerCase()
+    .replace(/œ/g, 'oe').normalize('NFD').replace(/\p{M}/gu, '').replace(/\(e\)|\(s\)/g, '').trim();
   const aliases = {
-    enfant: 'child',
-    child: 'child',
-    conjoint: 'spouse',
-    epoux: 'spouse',
-    spouse: 'spouse',
-    parent: 'parent',
-    frere: 'sibling',
-    soeur: 'sibling',
-    sibling: 'sibling',
-    autre: 'other',
-    other: 'other',
+    enfant: 'child', fils: 'child', fille: 'child', child: 'child',
+    conjoint: 'spouse', conjointe: 'spouse', epoux: 'spouse', epouse: 'spouse', mari: 'spouse', femme: 'spouse', spouse: 'spouse',
+    parent: 'parent', pere: 'parent', mere: 'parent',
+    frere: 'sibling', soeur: 'sibling', sibling: 'sibling',
+    autre: 'other', other: 'other',
   };
   return aliases[normalized] || value;
 }, z.enum(['child', 'spouse', 'parent', 'sibling', 'other']));
@@ -400,7 +396,7 @@ router.get('/notes', wrap(async (req, res) => {
 router.post('/notes', validateBody(z.object({
   title:   z.string().min(1),
   content: z.string().default(''),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).default('amber'),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).default('amber'),
   pinned:  z.boolean().default(false),
 })), wrap(async (req, res) => {
   res.status(201).json(await createNote(req.user.patientId, req.body));
@@ -409,7 +405,7 @@ router.post('/notes', validateBody(z.object({
 router.patch('/notes/:id', validateBody(z.object({
   title:   z.string().min(1).optional(),
   content: z.string().optional(),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).optional(),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).optional(),
   pinned:  z.boolean().optional(),
 })), wrap(async (req, res) => {
   res.json(await updateNote(req.user.patientId, req.params.id, req.body));

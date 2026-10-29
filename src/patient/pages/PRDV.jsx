@@ -5,10 +5,16 @@ import { ConfirmDialog } from '../../components/PatientModal.jsx';
 import { PageHeader, Card, CardTitle, Chip, Button, IconButton, EmptyState, DateBlock, Avatar, Pills, SearchInput, Highlight, NoResults, inputClass } from '../../components/patient/ui.jsx';
 import { useSearch, useUrlQuery, searchableDate } from '../../utils/search.js';
 
+// Un champ datetime-local attend l'heure LOCALE (AAAA-MM-JJTHH:MM) ; l'API stocke de l'UTC.
+const toLocalInput = (iso) => {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 const defaultAppointmentDate = () => {
   const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  date.setUTCHours(9, 0, 0, 0);
-  return date.toISOString().slice(0, 16);
+  date.setHours(9, 0, 0, 0);
+  return toLocalInput(date);
 };
 
 /* Statut → [libellé, intensité de rouge, icône]. */
@@ -55,7 +61,7 @@ function MonthCalendar({ marked, selected, onSelect, darkMode, initial }) {
           return (
             <button key={k} type="button" onClick={() => onSelect(isSel ? null : k)} aria-pressed={isSel}
               aria-label={`${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}${has ? ', rendez-vous' : ''}`}
-              className={`relative mx-auto w-9 h-9 rounded-full text-xs flex items-center justify-center transition-colors ${outside ? 'text-slate-300' : ''} ${isSel
+              className={`relative mx-auto w-full max-w-9 aspect-square rounded-full text-xs flex items-center justify-center transition-colors ${outside ? 'text-slate-300' : ''} ${isSel
                 ? 'bg-red-600 text-white font-bold'
                 : isToday ? 'ring-1 ring-red-400 text-red-700 font-bold'
                   : has ? 'text-red-700 font-semibold' : ''} ${!isSel ? (darkMode ? 'hover:bg-red-950/40' : 'hover:bg-red-50') : ''}`}>
@@ -139,7 +145,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   const openEditRdv = (rdv) => {
     setEditingId(rdv.id);
     setForm({
-      startsAt: rdv.startsAt ? rdv.startsAt.slice(0, 16) : defaultAppointmentDate(),
+      startsAt: rdv.startsAt ? toLocalInput(rdv.startsAt) : defaultAppointmentDate(),
       doctorId: rdv.doctorId || '',
       mode: rdv.mode || (rdv.v ? 'video' : 'onsite'),
       shareRecord: true,
@@ -156,8 +162,12 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       return;
     }
     if (saving) return;
+    const startsAt = new Date(form.startsAt).toISOString();
+    const original = editingId ? (data || []).find((r) => r.id === editingId)?.startsAt : null;
+    // Heure inchangée : ne pas l'envoyer (sinon le rendez-vous confirmé repasserait « en attente »).
+    const unchanged = original && toLocalInput(original) === form.startsAt;
     const payload = {
-      startsAt: new Date(form.startsAt).toISOString(),
+      ...(unchanged ? {} : { startsAt }),
       doctorId: form.doctorId,
       mode: form.mode,
       ...(editingId ? {} : { shareRecord: true }),
@@ -253,8 +263,8 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
         </>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 space-y-3 min-w-0">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <div className="xl:col-span-2 space-y-3 min-w-0">
           {rs.length > 0 && (
             <div className="space-y-3">
               <SearchInput value={query} onChange={setQuery} darkMode={darkMode} count={visible.length}
