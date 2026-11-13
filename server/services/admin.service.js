@@ -74,67 +74,68 @@ export async function getAdminDashboard() {
 
 export async function getAdminUsers({ type = 'doctors', search = '', limit, offset, page }) {
   const term = likeSearch(search);
+  const skipSearch = term === '%%' ? 1 : 0;
   const limiter = applyLimit(limit, offset);
 
   if (type === 'patients') {
     const countSql = `SELECT COUNT(*) AS total FROM nova_patients
-      WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)`;
+      WHERE (? = 1 OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)`;
     const dataSql = `SELECT p.id, p.first_name AS firstName, p.last_name AS lastName, p.cmu_number AS cmuNumber,
         p.phone, p.email, p.city, p.birth_date AS birthDate, p.created_at AS createdAt,
         (SELECT u.id FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
         (SELECT u.phone FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
       FROM nova_patients p
-      WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)
+      WHERE (? = 1 OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)
       ORDER BY COALESCE(created_at, updated_at) DESC
       ${limiter}`;
-    const [[{ total }]] = await pool.execute(countSql, [term, term, term, term, term]);
-    const [rows] = await pool.execute(dataSql, [term, term, term, term, term]);
+    const [[{ total }]] = await pool.execute(countSql, [skipSearch, term, term, term, term]);
+    const [rows] = await pool.execute(dataSql, [skipSearch, term, term, term, term]);
     return paginatedResponse(rows, Number(total), { page, limit });
   }
 
   if (type === 'pharmacies') {
     const countSql = `SELECT COUNT(*) AS total FROM nova_pharmacies
-      WHERE (? = '%%' OR name LIKE ? OR city LIKE ? OR phone LIKE ?)`;
+      WHERE (? = 1 OR name LIKE ? OR city LIKE ? OR phone LIKE ?)`;
     const dataSql = `SELECT id, name, address, city, phone, is_open AS isOpen, is_duty AS isDuty,
         opens_at AS opensAt, closes_at AS closesAt, created_at AS createdAt
       FROM nova_pharmacies
-      WHERE (? = '%%' OR name LIKE ? OR city LIKE ? OR phone LIKE ?)
+      WHERE (? = 1 OR name LIKE ? OR city LIKE ? OR phone LIKE ?)
       ORDER BY COALESCE(created_at, name) DESC
       ${limiter}`;
-    const [[{ total }]] = await pool.execute(countSql, [term, term, term, term]);
-    const [rows] = await pool.execute(dataSql, [term, term, term, term]);
+    const [[{ total }]] = await pool.execute(countSql, [skipSearch, term, term, term]);
+    const [rows] = await pool.execute(dataSql, [skipSearch, term, term, term]);
     return paginatedResponse(rows, Number(total), { page, limit });
   }
 
   if (type === 'users') {
     const countSql = `SELECT COUNT(*) AS total FROM nova_users
-      WHERE (? = '%%' OR name LIKE ? OR phone LIKE ? OR role LIKE ?)`;
+      WHERE (? = 1 OR name LIKE ? OR phone LIKE ? OR role LIKE ?)`;
     const dataSql = `SELECT id, phone, role, patient_id AS patientId, doctor_id AS doctorId,
         pharmacy_id AS pharmacyId, name, avatar, created_at AS createdAt,
         (password_hash IS NOT NULL) AS hasPassword, must_change_password AS mustChangePassword,
         (locked_until IS NOT NULL AND locked_until > NOW()) AS isLocked
       FROM nova_users
-      WHERE (? = '%%' OR name LIKE ? OR phone LIKE ? OR role LIKE ?)
+      WHERE (? = 1 OR name LIKE ? OR phone LIKE ? OR role LIKE ?)
       ORDER BY created_at DESC
       ${limiter}`;
-    const [[{ total }]] = await pool.execute(countSql, [term, term, term, term]);
-    const [rows] = await pool.execute(dataSql, [term, term, term, term]);
+    const [[{ total }]] = await pool.execute(countSql, [skipSearch, term, term, term]);
+    const [rows] = await pool.execute(dataSql, [skipSearch, term, term, term]);
     return paginatedResponse(rows, Number(total), { page, limit });
   }
 
   const countSql = `SELECT COUNT(*) AS total FROM nova_doctors
-    WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)`;
+    WHERE (? = 1 OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)`;
   const dataSql = `SELECT d.id, d.first_name AS firstName, d.last_name AS lastName, d.specialty, d.sub_specialty AS subSpecialty,
       d.city, d.address, d.phone, d.email, d.rating, d.reviews_count AS reviewsCount, d.is_available AS isAvailable,
       d.created_at AS createdAt,
       (SELECT u.id FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
         (SELECT u.phone FROM nova_users u WHERE u.doctor_id = d.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
     FROM nova_doctors d
-    WHERE (? = '%%' OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)
+    WHERE (? = 1 OR first_name LIKE ? OR last_name LIKE ? OR specialty LIKE ? OR phone LIKE ?)
     ORDER BY COALESCE(created_at, last_name) DESC
     ${limiter}`;
-  const [[{ total }]] = await pool.execute(countSql, [term, term, term, term, term]);
-  const [rows] = await pool.execute(dataSql, [term, term, term, term, term]);
+  const [[{ total }]] = await pool.execute(countSql, [skipSearch, term, term, term, term]);
+  const [rows] = await pool.execute(dataSql, [skipSearch, term, term, term, term]);
   return paginatedResponse(rows, Number(total), { page, limit });
 }
 
