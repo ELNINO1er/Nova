@@ -71,7 +71,7 @@ function getCookie(req, name) {
 router.post('/password/login', async (req, res, next) => {
   try {
     const { phone, password } = z.object({
-      phone: z.string().min(8).max(20),
+      phone: z.union([z.string().min(8).max(20), z.string().email().max(254)]),
       password: z.string().min(1).max(128),
     }).parse(req.body);
 

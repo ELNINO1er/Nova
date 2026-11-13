@@ -76,6 +76,10 @@ export async function migrate(conn) {
       ['20261112_12_doctor_photo', async () => {
         await column(conn, 'nova_doctors', 'photo_path', 'VARCHAR(255) NULL');
       }],
+      ['20261113_13_admin_email', async () => {
+        await column(conn, 'nova_users', 'login_email', 'VARCHAR(254) NULL UNIQUE');
+        await conn.query('ALTER TABLE nova_users MODIFY phone VARCHAR(20) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

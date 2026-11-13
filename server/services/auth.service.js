@@ -229,13 +229,16 @@ export function passwordPolicyError(role, password) {
   return null;
 }
 
-export async function startPhonePasswordLogin(phone, password) {
-  const cleaned = normalizePhone(phone);
+export async function startPhonePasswordLogin(identifier, password) {
+  const email = String(identifier || '').trim().toLowerCase();
+  const byEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const cleaned = byEmail ? email : normalizePhone(identifier);
   if (!cleaned) return INVALID_PHONE_LOGIN;
   const [[user]] = await pool.execute(
     `SELECT u.*, d.email AS doctor_email
      FROM nova_users u LEFT JOIN nova_doctors d ON d.id = u.doctor_id
-     WHERE u.phone = ? AND u.deleted_at IS NULL AND u.disabled_at IS NULL LIMIT 1`,
+     WHERE ${byEmail ? "u.login_email = ? AND u.role = 'admin'" : 'u.phone = ?'}
+       AND u.deleted_at IS NULL AND u.disabled_at IS NULL LIMIT 1`,
     [cleaned]
   );
   if (!user) return INVALID_PHONE_LOGIN;

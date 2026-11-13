@@ -9,6 +9,7 @@ const isStrongRole = (role) => ['doctor', 'admin', 'governor'].includes(role);
 
 export default function Login({ setAuth, onLogin }) {
   const [step, setStep] = useState('login');
+  const [identifier, setIdentifier] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -32,14 +33,17 @@ export default function Login({ setAuth, onLogin }) {
     setStep(result.nextAction || 'verify_totp');
   };
 
+  const loginValue = identifier.trim();
+  const validLogin = /^(?:\d[\d\s]{8,}\d|[^\s@]+@[^\s@]+\.[^\s@]+)$/.test(loginValue) && (loginValue.includes('@') || loginValue.replace(/\s/g, '').length === 10);
+
   const submit = async () => {
     setError('');
-    if (cleanedPhone.length !== 10) return setError('Numéro invalide : 10 chiffres.');
+    if (!validLogin) return setError('Saisissez un numéro à 10 chiffres ou une adresse e-mail administrateur.');
     if (!password) return setError('Mot de passe requis.');
     setLoading(true);
     try {
       // Même formulaire pour tous ; le médecin enchaîne ensuite avec Authenticator.
-      const result = await authApi.loginWithPassword(cleanedPhone, password);
+      const result = await authApi.loginWithPassword(loginValue, password);
       if (result.user) return onLogin(result.user);
       setAccountRole(result.role || 'patient');
       useNextAction(result); // change_password, enroll_totp ou verify_totp
@@ -111,7 +115,7 @@ export default function Login({ setAuth, onLogin }) {
       {!['login', 'recovery_codes'].includes(step) && <Back onClick={reset} />}
       {step === 'login' && <>
         {notice && <p role="status" className="mb-4 text-sm text-red-700">{notice}</p>}
-        <LoginForm {...{ phone, setPhone, formatPhone, password, setPassword, error, loading, submit, cleanedPhone }} />
+        <LoginForm {...{ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }} />
         <button type="button" className="mt-4 text-sm font-semibold text-red-700 underline"
           onClick={() => { setNotice(''); setError(''); setStep('recover_patient'); }}>Mot de passe patient oublié</button>
       </>}
@@ -150,8 +154,8 @@ export default function Login({ setAuth, onLogin }) {
   </div>;
 }
 
-function LoginForm({ phone, setPhone, formatPhone, password, setPassword, error, loading, submit, cleanedPhone }) {
-  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre numéro de téléphone et votre mot de passe." /><div className="space-y-4"><Field label="Numéro de téléphone"><span className="text-sm font-semibold">+225</span><input type="tel" inputMode="numeric" value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} placeholder="07 49 15 77 41" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 outline-none" autoComplete="current-password" /><KeyRound className="w-5 h-5 text-slate-400" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || cleanedPhone.length !== 10}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : utilisez le mot de passe provisoire remis à la création du compte. En cas d’oubli, contactez l’assistance pour vérifier votre identité.</p></section>;
+function LoginForm({ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }) {
+  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 49 15 77 41" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 outline-none" autoComplete="current-password" /><KeyRound className="w-5 h-5 text-slate-400" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : utilisez le mot de passe provisoire remis à la création du compte. En cas d’oubli, contactez l’assistance pour vérifier votre identité.</p></section>;
 }
 
 function PasswordForm({ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong }) {
