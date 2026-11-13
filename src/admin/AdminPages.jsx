@@ -297,28 +297,57 @@ function AAudit({ data, onRefresh, card, sub, darkMode }) {
 /* Menu d'actions « ⋮ » d'une ligne : se ferme au clic extérieur ou avec Échap. */
 function RowMenu({ items, darkMode }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const trigger = useRef(null);
+  const menu = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
-    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const panel = menu.current;
+    const button = trigger.current;
+    panel.showPopover();
+    const anchor = button.getBoundingClientRect();
+    const gap = 4;
+    const margin = 8;
+    const below = window.innerHeight - anchor.bottom - gap - margin;
+    const above = anchor.top - gap - margin;
+    const opensAbove = panel.offsetHeight > below && above > below;
+    panel.style.maxHeight = `${Math.max(0, opensAbove ? above : below)}px`;
+    panel.style.left = `${Math.max(margin, anchor.right - panel.offsetWidth)}px`;
+    panel.style.top = `${opensAbove ? anchor.top - gap - panel.offsetHeight : anchor.bottom + gap}px`;
+    const close = (e) => {
+      if (!button.contains(e.target) && !panel.contains(e.target)) setOpen(false);
+    };
+    const esc = (e) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      button.focus();
+    };
+    const onScroll = (e) => { if (!panel.contains(e.target)) setOpen(false); };
+    const onResize = () => setOpen(false);
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      panel.hidePopover();
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
   }, [open]);
   const visible = items.filter(Boolean);
   return (
-    <div ref={ref} className="relative inline-block text-left">
-      <button type="button" aria-label="Actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+    <div className="inline-block text-left">
+      <button ref={trigger} type="button" aria-label="Actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
         className={`w-9 h-9 inline-flex items-center justify-center rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
         <MoreVertical className="w-4 h-4" />
       </button>
       {open && (
-        <div role="menu" className={`absolute right-0 top-full mt-1 z-30 min-w-[16rem] rounded-xl border shadow-xl py-1 ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div ref={menu} popover="manual" role="menu" className={`fixed inset-auto m-0 w-max min-w-64 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border shadow-xl py-1 ${darkMode ? 'bg-slate-900 text-slate-100 border-slate-700' : 'bg-white text-slate-900 border-slate-200'}`}>
           {visible.map((it) => (
             <button key={it.label} type="button" role="menuitem" disabled={it.disabled}
               onClick={() => { setOpen(false); it.onClick(); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left whitespace-nowrap disabled:opacity-40 ${it.danger ? 'text-red-600' : ''} ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left disabled:opacity-40 ${it.danger ? 'text-red-600' : ''} ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
               <it.Icon className="w-4 h-4 shrink-0" /> {it.label}
             </button>
           ))}
