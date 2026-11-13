@@ -34,10 +34,10 @@ export async function createNotification(opts,conn=pool) {
   const id = randomUUID();
   const now = new Date().toISOString();
   await conn.execute(
-    `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, source_user_id, source_role, is_read, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, link_target_id, source_user_id, source_role, is_read, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     [id, opts.patientId || '', opts.userId || null, opts.targetRole || null,
-     opts.type, opts.title, opts.body || null, opts.linkPage || null,
+     opts.type, opts.title, opts.body || null, opts.linkPage || null, opts.linkTargetId || null,
      opts.sourceUserId || null, opts.sourceRole || null, now]
   );
   return id;
@@ -126,7 +126,7 @@ export async function notifyDoctorAppointment(doctorId, patientName, date, conn=
 }
 
 /** Notification → patient : rendez-vous confirmé ou annulé par le médecin. */
-export async function notifyPatientAppointmentStatus(patientId, doctorName, status, dateStr, conn=pool) {
+export async function notifyPatientAppointmentStatus(patientId, doctorName, status, dateStr, appointmentId, conn=pool) {
   const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ? AND deleted_at IS NULL', [patientId]);
   return createNotification({
     patientId,
@@ -136,6 +136,7 @@ export async function notifyPatientAppointmentStatus(patientId, doctorName, stat
     title: status === 'confirmed' ? 'Rendez-vous confirmé' : 'Rendez-vous annulé',
     body: `${doctorName} a ${status === 'confirmed' ? 'confirmé' : 'annulé'} votre rendez-vous du ${dateStr}.`,
     linkPage: 'rdv',
+    linkTargetId: appointmentId,
   },conn);
 }
 

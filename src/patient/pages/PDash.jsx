@@ -27,19 +27,6 @@ const VITAL_STATUS = { normal: ['Normal', 'neutral'], watch: ['À surveiller', '
 
 
 
-/* Demi-jauge de l'indicateur de suivi (0–100). */
-function SemiGauge({ value, darkMode }) {
-  const r = 80; const len = Math.PI * r;
-  const pct = value == null ? 0 : Math.max(0, Math.min(100, value)) / 100;
-  return (
-    <svg viewBox="0 0 200 108" className="w-full max-w-[15rem] mx-auto" aria-hidden="true">
-      <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke={darkMode ? '#1e293b' : '#fee2e2'} strokeWidth="14" strokeLinecap="round" />
-      <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#dc2626" strokeWidth="14" strokeLinecap="round"
-        strokeDasharray={len} strokeDashoffset={len * (1 - pct)} style={{ transition: 'stroke-dashoffset .8s ease' }} />
-    </svg>
-  );
-}
-
 /* Colonnes des dernières mesures : la plus récente en rouge plein, repère pointillé à sa hauteur. */
 function VitalBars({ points, unit, darkMode, sub }) {
   if (!points.length) return <Empty sub={sub}>Aucune mesure enregistrée pour cette constante.</Empty>;
@@ -124,15 +111,13 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
 
   const profile = data?.profile;
   const vitals = data?.latestVitals || [];
-  const score = data?.healthScore ?? null;
-  const scoreLabel = score == null ? 'Données insuffisantes' : score >= 80 ? 'Bon suivi' : score >= 60 ? 'À surveiller' : 'Points d’attention';
   const current = vitals.find((v) => v.type === vital);
   const points = (current?.history || []).slice(-7)
     .map((p) => ({ at: p.measuredAt, value: Number.parseFloat(p.value), label: String(p.value) }))
     .filter((p) => Number.isFinite(p.value));
   if (points.length && current) points[points.length - 1].label = String(current.value);
   const meds = data?.todayMedications || [];
-  const medsLeft = meds.filter((m) => m.intake?.status !== 'taken').length;
+  const medsLeft = meds.filter((m) => !m.intake).length;
   const age = ageOf(profile?.birthDate);
   const lastVisit = history.find((h) => h.type === 'consultation');
 
@@ -182,7 +167,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Bonjour{profile?.firstName ? `, ${profile.firstName}` : ''}</h2>
-          <p className={`text-sm mt-1 ${sub}`}>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}{medsLeft ? ` · ${medsLeft} prise${medsLeft > 1 ? 's' : ''} à faire aujourd’hui` : ''}</p>
+          <p className={`text-sm mt-1 ${sub}`}>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}{medsLeft ? ` · ${medsLeft} prise${medsLeft > 1 ? 's' : ''} à renseigner aujourd’hui` : ''}</p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onRefresh} aria-label="Actualiser" className={`w-11 h-11 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:bg-red-50'}`}><RefreshCw className="w-4 h-4" /></button>
@@ -193,25 +178,16 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
         <div className="xl:col-span-8 2xl:col-span-9 space-y-5 min-w-0">
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] gap-5">
-            {/* Indicateur de suivi */}
             <Card darkMode={darkMode} className="flex flex-col">
-              <div className="flex items-start justify-between">
-                <h3 className="font-semibold leading-snug">Suivi de<br />ma santé</h3>
-                <button type="button" onClick={() => setPage('vitals')} aria-label="Voir mes constantes" className="flex items-center gap-1 text-sm font-semibold text-red-600"><ArrowUpRight className="w-4 h-4" />{score ?? '—'}</button>
-              </div>
-              <div className="relative mt-4">
-                <SemiGauge value={score} darkMode={darkMode} />
-                <div className="absolute inset-x-0 bottom-0 text-center">
-                  <p className={`text-[11px] ${sub}`}>Indicateur / 100</p>
-                  <p className="text-4xl font-bold tabular-nums leading-tight">{score ?? '—'}</p>
+              <h3 className="font-semibold">Mes prises aujourd’hui</h3>
+              {meds.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-4xl font-bold tabular-nums text-red-700">{medsLeft}</p>
+                  <p className={`mt-1 text-sm ${sub}`}>{medsLeft === 1 ? 'prise à renseigner' : 'prises à renseigner'} sur {meds.length}</p>
                 </div>
-              </div>
-              <p className="text-center mt-2"><Chip tone={score != null && score < 60 ? 'alert' : score != null && score < 80 ? 'watch' : 'neutral'}>{scoreLabel}</Chip></p>
-              <p className={`text-xs text-center mt-4 ${sub}`}>
-                {score == null ? 'Mesurez au moins deux constantes pour obtenir votre indicateur.' : 'Calculé à partir de vos constantes, prises et vaccins. Ce n’est pas un avis médical.'}
-              </p>
-              <button type="button" onClick={() => setPage('vitals')} className="mt-auto pt-5">
-                <span className="block w-full py-3 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">Voir mes constantes</span>
+              ) : <p className={`mt-5 text-sm ${sub}`}>Aucune prise prévue aujourd’hui.</p>}
+              <button type="button" onClick={() => setPage('pilulier')} className="mt-auto pt-5">
+                <span className="block w-full py-3 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">Ouvrir mon pilulier</span>
               </button>
             </Card>
 

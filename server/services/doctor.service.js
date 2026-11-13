@@ -18,11 +18,11 @@ export async function getDoctorDashboard(doctorId) {
 
   const [[doctor]]         = await pool.execute(`SELECT * FROM nova_doctors WHERE id = ?`, [doctorId]);
   const [todayAppts]       = await pool.execute(
-    `SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type
+    `SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.photo_path IS NOT NULL AS has_photo
      , (${currentAccess.sql}) AS has_access
      FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${currentAccess.sql}) AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
-    [...currentAccess.params, doctorId, ...currentAccess.params, `${todayStr}%`]
+     WHERE a.doctor_id = ? AND p.deleted_at IS NULL AND a.starts_at LIKE ? ORDER BY a.starts_at ASC`,
+    [...currentAccess.params, doctorId, `${todayStr}%`]
   );
   const dashAccess = doctorAccessClause(doctorId, 'p.id');
   const [[{ totalPatients }]] = await pool.execute(
@@ -94,7 +94,7 @@ export async function getDoctorPatient(doctorId, patientId) {
     [patientId, doctorId]
   );
   const [prescriptions] = await pool.execute(
-    `SELECT * FROM nova_prescriptions WHERE patient_id = ? ORDER BY issued_at DESC LIMIT 5`, [patientId]
+    `SELECT * FROM nova_prescriptions WHERE patient_id = ? AND deleted_at IS NULL ORDER BY issued_at DESC LIMIT 5`, [patientId]
   );
   const [labResults] = await pool.execute(
     `SELECT * FROM nova_lab_results WHERE patient_id = ? ORDER BY performed_at DESC LIMIT 5`, [patientId]
@@ -120,12 +120,12 @@ export async function getDoctorPatient(doctorId, patientId) {
 export async function getDoctorAppointments(doctorId, query = {}) {
   const access = doctorAccessClause(doctorId, 'p.id');
   let sql = `
-    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone,
+    SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.phone, p.photo_path IS NOT NULL AS has_photo,
            (${access.sql}) AS has_access
     FROM nova_appointments a JOIN nova_patients p ON p.id = a.patient_id
-    WHERE a.doctor_id = ? AND (a.status = 'requested' OR ${access.sql})`;
+    WHERE a.doctor_id = ? AND p.deleted_at IS NULL`;
   // Une demande reste visible pour être acceptée ou refusée, mais sans ouvrir le dossier.
-  const args = [...access.params, doctorId, ...access.params];
+  const args = [...access.params, doctorId];
   if (query.date)   { sql += ' AND a.starts_at LIKE ?'; args.push(`${query.date}%`); }
   if (query.status) { sql += ' AND a.status = ?'; args.push(query.status); }
   sql += ' ORDER BY a.starts_at DESC';
@@ -137,9 +137,9 @@ export async function updateDoctorAppointment(doctorId,id,changes){
   const result=await withDoctorSchedule(doctorId,async(conn)=>{
     const [[row]]=await conn.execute('SELECT * FROM nova_appointments WHERE id=? AND doctor_id=? FOR UPDATE',[id,doctorId]);
     if(!row) return null;
+    const [[patient]] = await conn.execute('SELECT id FROM nova_patients WHERE id = ? AND deleted_at IS NULL', [row.patient_id]);
+    if (!patient) return null;
     if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'doctor');
-    // Répondre à une demande ne nécessite pas d'accès : c'est l'acceptation qui ouvre le dossier.
-    if(row.status!=='requested') await assertDoctorPatientAccess(doctorId,row.patient_id);
     let startsAt=row.starts_at;
     if(changes.startsAt&&new Date(changes.startsAt).toISOString()!==row.starts_at){
       startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);await assertDoctorSlotFree(doctorId,startsAt,id,conn);
@@ -150,8 +150,10 @@ export async function updateDoctorAppointment(doctorId,id,changes){
     const [[updated]]=await conn.execute('SELECT a.*,p.first_name,p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id=a.patient_id WHERE a.id=?',[id]);return updated;
   });
   if(!result) return null;
-  notifyPatientAppointmentStatus(result.patient_id,'Votre medecin',result.status,result.starts_at).catch(()=>{});
-  return mapApptWithPatient(result);
+  if (changes.status) {
+    notifyPatientAppointmentStatus(result.patient_id, 'Votre médecin', result.status, result.starts_at, result.id).catch(() => {});
+  }
+  return mapApptWithPatient({ ...result, has_access: await hasDoctorPatientAccess(doctorId, result.patient_id) });
 }
 
 /* ─── Consultations ──────────────────────────────────────────── */
@@ -435,6 +437,7 @@ function mapApptWithPatient(r) {
     mode:        r.mode,
     status:      r.status,
     recordShared: true,
+    hasPhoto: Boolean(r.has_photo),
   };
 }
 

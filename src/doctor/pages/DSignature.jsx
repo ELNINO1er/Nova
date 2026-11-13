@@ -86,7 +86,7 @@ export default function DSignature({ data, loading, onSave, notify, doctorName, 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-2xl font-bold flex items-center gap-2"><Edit3 className="w-6 h-6 text-indigo-600" /> Signature électronique</h2>
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Edit3 className="w-6 h-6 text-red-600" /> Signature électronique</h2>
         <p className={`text-sm ${sub}`}>Image de votre signature manuscrite, enregistrée sur votre compte</p>
       </div>
 
@@ -112,7 +112,7 @@ export default function DSignature({ data, loading, onSave, notify, doctorName, 
           <p className={`text-xs ${sub} text-center`}>Signez avec votre souris ou votre doigt (écran tactile)</p>
           <button onClick={handleSave} disabled={saving}
             className={`w-full py-2.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-all
-              ${saved ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+              ${saved ? 'bg-red-600 hover:bg-red-700' : 'bg-red-600 hover:bg-red-700'}`}>
             {saving
               ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Enregistrement...</>
               : saved
@@ -158,7 +158,7 @@ export default function DSignature({ data, loading, onSave, notify, doctorName, 
             </div>
           </div>
           {!signatureData && (
-            <div className={`flex items-start gap-2 p-3 rounded-xl border text-xs ${darkMode ? 'bg-amber-900/20 border-amber-700/50 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+            <div className={`flex items-start gap-2 p-3 rounded-xl border text-xs ${darkMode ? 'bg-red-900/20 border-red-700/50 text-red-400' : 'bg-red-50 border-red-200 text-red-700'}`}>
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>Aucune signature enregistrée. Dessinez et sauvegardez pour l'afficher sur vos ordonnances.</span>
             </div>
@@ -168,7 +168,7 @@ export default function DSignature({ data, loading, onSave, notify, doctorName, 
 
       {/* Infos légales */}
       <div className={`${card} border rounded-2xl p-4`}>
-        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-blue-600" /> Ce que fait (et ne fait pas) cette signature</h3>
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-red-600" /> Ce que fait (et ne fait pas) cette signature</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { icon: '🖊️', t: 'Image enregistrée', d: 'Votre tracé est conservé sur votre compte, accessible à vous seul.' },

@@ -109,7 +109,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   }, [page]);
 
   // Après une modification ou un retour sur l'onglet : la page courante reste affichée pendant son rechargement ; les autres seront rechargées à l'ouverture.
-  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData((current)=>({[page]:current[page]}));loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
+  useEffect(()=>{const update=()=>{if(hasUnsavedData())return;for(const key of Object.keys(generations.current))generations.current[key]++;setApiData((current)=>({[page]:current[page]}));loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));

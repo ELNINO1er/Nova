@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   changeInitialDoctorPassword, changeInitialPassword, changeOwnPassword, phoneExists, sendOtp,
-  startPhonePasswordLogin, verifyOtp,
+  startPhonePasswordLogin, verifyOtp, issuePatientRecoveryCode, recoverPatientPassword,
 } from '../services/auth.service.js';
 import { verifyTotpEnrollment, verifyTotpLogin } from '../services/mfa.service.js';
 import {
@@ -95,7 +95,28 @@ router.post('/password/change', async (req, res, next) => {
       challengeId: z.string().uuid(),
       newPassword: z.string().min(8).max(128),
     }).parse(req.body);
-    return await completeLogin(res, await changeInitialPassword(challengeId, newPassword));
+    const result = await changeInitialPassword(challengeId, newPassword);
+    if (result.nextAction) return res.set('Cache-Control', 'no-store').json(result);
+    return await completeLogin(res, result.user);
+  } catch (err) { next(err); }
+});
+
+router.post('/patient/recovery-code', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'patient') return res.status(403).json({ error: 'forbidden', message: 'Accès réservé aux patients.' });
+    const { currentPassword } = z.object({ currentPassword: z.string().min(1).max(128) }).parse(req.body);
+    return res.set('Cache-Control', 'no-store').json(await issuePatientRecoveryCode(req.user.id, currentPassword));
+  } catch (err) { next(err); }
+});
+
+router.post('/patient/password/recover', async (req, res, next) => {
+  try {
+    const { phone, code, newPassword } = z.object({
+      phone: z.string().min(8).max(20),
+      code: z.string().min(32).max(48),
+      newPassword: z.string().min(8).max(128),
+    }).parse(req.body);
+    return res.set('Cache-Control', 'no-store').json(await recoverPatientPassword(phone, code, newPassword));
   } catch (err) { next(err); }
 });
 
@@ -145,8 +166,8 @@ router.post('/otp/verify', async (req, res, next) => {
     const { user } = result;
     // Les médecins doivent s'authentifier via le flux dédié (mot de passe + OTP),
     // pas via l'OTP téléphone générique — sinon le mot de passe est contournable.
-    if (user.role === 'doctor') {
-      return res.status(403).json({ error: 'forbidden', message: 'Veuillez utiliser la connexion médecin dédiée.' });
+    if (['doctor', 'admin'].includes(user.role)) {
+      return res.status(403).json({ error: 'forbidden', message: 'Veuillez utiliser le mot de passe et Authenticator.' });
     }
     const tokenPayload = { id: user.id, role: user.role, patientId: user.patientId, doctorId: user.doctorId, pharmacyId: user.pharmacyId || null };
     const token = signAccessToken(tokenPayload);

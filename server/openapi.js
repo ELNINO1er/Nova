@@ -134,7 +134,6 @@ export const openApiSpec = {
               'application/json': {
                 example: {
                   profile: patientProfileExample,
-                  healthScore: 82,
                   latestVitals: [
                     { id: 'vital-1', type: 'blood_pressure', label: 'Tension', value: '12/8', unit: 'mmHg', measuredAt: '2026-04-28T07:30:00.000Z' },
                     { id: 'vital-2', type: 'blood_glucose', label: 'Glycémie', value: 0.95, unit: 'g/L', measuredAt: '2026-04-28T07:35:00.000Z' },

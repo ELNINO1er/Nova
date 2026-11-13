@@ -13,14 +13,13 @@ export async function getPharmacyDashboard(pharmacyId) {
     'SELECT * FROM nova_pharmacies WHERE id = ?', [pharmacyId]
   );
 
-  const [[{ todayCount }]] = await pool.execute(
-    `SELECT COUNT(*) AS todayCount FROM nova_dispenses
-     WHERE pharmacy_id = ? AND DATE(dispensed_at) = CURDATE()`,
-    [pharmacyId]
-  );
-
-  const [[{ totalCount }]] = await pool.execute(
-    `SELECT COUNT(*) AS totalCount FROM nova_dispenses WHERE pharmacy_id = ?`,
+  const [[counts]] = await pool.execute(
+    `SELECT COUNT(*) AS total,
+            COUNT(CASE WHEN DATE(dispensed_at) = CURDATE() THEN 1 END) AS today,
+            COUNT(CASE WHEN status = 'full' THEN 1 END) AS complete,
+            COUNT(CASE WHEN status = 'partial' THEN 1 END) AS partial,
+            COUNT(CASE WHEN status = 'refused' THEN 1 END) AS refused
+     FROM nova_dispenses WHERE pharmacy_id = ?`,
     [pharmacyId]
   );
 
@@ -35,10 +34,11 @@ export async function getPharmacyDashboard(pharmacyId) {
 
   return {
     pharmacy: pharmacy ? {
-      id: pharmacy.id, name: pharmacy.name, city: pharmacy.city, phone: pharmacy.phone,
+      id: pharmacy.id, name: pharmacy.name, city: pharmacy.city, phone: pharmacy.phone, address: pharmacy.address,
     } : null,
-    todayDispenses: todayCount,
-    totalDispenses: totalCount,
+    todayDispenses: Number(counts.today),
+    totalDispenses: Number(counts.total),
+    dispenseCounts: { full: Number(counts.complete), partial: Number(counts.partial), refused: Number(counts.refused) },
     recentDispenses: recentDispenses.map(r => ({
       id: r.id,
       patientName: displayName(r.first_name, r.last_name),
@@ -72,62 +72,36 @@ export function assertQrMatches(qrToken, prescriptionId) {
 }
 
 export async function verifyPrescriptionQR(qrToken) {
-  let decoded;
-  try {
-    decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
-  } catch {
-    const err = new Error('QR ordonnance invalide ou expiré.');
-    // 422 et non 401 : le pharmacien est bien authentifié, c'est le QR qui est refusé.
-    err.status = 422;
-    err.code = 'invalid_qr';
-    throw err;
-  }
-  if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
-    const err = new Error('QR ordonnance invalide.');
-    err.status = 422;
-    throw err;
-  }
-  const prescriptionId = decoded.prescriptionId;
-
-  const [[rx]] = await pool.execute(
-    `SELECT p.id, p.patient_id, p.doctor_name, p.doctor_specialty, p.issued_at, p.valid_until, p.status,
-            pat.first_name, pat.last_name, pat.cmu_number
-     FROM nova_prescriptions p
-     JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.id = ?`,
-    [prescriptionId]
-  );
+  const prescriptionId = decodePrescriptionQr(qrToken);
+  const rx = await getPrescriptionForPharmacy(prescriptionId);
   if (!rx) return null;
-
-  // Vérifier si déjà délivrée
-  const [[dispense]] = await pool.execute(
-    `SELECT id, status, dispensed_at FROM nova_dispenses WHERE prescription_id = ? ORDER BY dispensed_at DESC LIMIT 1`,
-    [prescriptionId]
-  );
-
-  const isExpired = rx.valid_until && String(rx.valid_until).slice(0,10) < new Date().toISOString().slice(0,10);
+  const dispense = rx.dispenseHistory[0];
+  const isExpired = Boolean(rx.validUntil && String(rx.validUntil).slice(0, 10) < new Date().toISOString().slice(0, 10));
+  const alreadyFull = rx.status === 'dispensed' || rx.dispenseHistory.some(entry => entry.status === 'full');
+  const quantitiesMissing = !rx.items.length || rx.items.some(item => item.remaining == null);
 
   return {
     id: rx.id,
-    patientName: displayName(rx.first_name, rx.last_name),
-    cmuNumber: maskIdentifier(rx.cmu_number),
-    doctorName: rx.doctor_name,
-    doctorSpecialty: rx.doctor_specialty,
-    issuedAt: rx.issued_at,
-    validUntil: rx.valid_until,
+    patientName: rx.patientName,
+    cmuNumber: rx.cmuNumber,
+    doctorName: rx.doctorName,
+    doctorSpecialty: rx.doctorSpecialty,
+    issuedAt: rx.issuedAt,
+    validUntil: rx.validUntil,
     status: rx.status,
     isExpired,
-    isAlreadyDispensed: dispense?.status === 'full',
+    isAlreadyDispensed: alreadyFull,
     lastDispense: dispense ? {
       id: dispense.id,
       status: dispense.status,
-      dispensedAt: dispense.dispensed_at,
+      dispensedAt: dispense.dispensedAt,
     } : null,
     verification: {
       authentic: true,
       expired: isExpired,
-      alreadyFull: dispense?.status === 'full',
-      canDispense: !isExpired && dispense?.status !== 'full' && DISPENSABLE_STATUSES.includes(rx.status),
+      alreadyFull,
+      quantitiesMissing,
+      canDispense: !isExpired && !alreadyFull && !quantitiesMissing && DISPENSABLE_STATUSES.includes(rx.status),
     },
   };
 }
@@ -140,7 +114,7 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
             pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.id = ?`,
+     WHERE p.id = ? AND p.deleted_at IS NULL AND pat.deleted_at IS NULL`,
     [prescriptionId]
   );
   if (!rx) return null;

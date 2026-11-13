@@ -90,7 +90,7 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
                 <th className="py-2 pr-3 font-semibold">Médicament</th>
                 <th className="py-2 pr-3 font-semibold">Posologie</th>
                 <th className="py-2 pr-3 font-semibold">Durée</th>
-                <th className="py-2 font-semibold text-right">Quantité</th>
+                <th className="py-2 font-semibold text-right">Prescrit / restant</th>
               </tr>
             </thead>
             <tbody>
@@ -101,7 +101,7 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
                     <td className="py-2.5 pr-3 min-w-[9rem]"><span className="font-semibold"><Highlight text={it.name} query={query} /></span>{it.dosage && <span className="text-slate-500"> · <Highlight text={it.dosage} query={query} /></span>}</td>
                     <td className="py-2.5 pr-3 min-w-[8rem] text-slate-600"><Highlight text={it.frequency || '—'} query={query} /></td>
                     <td className="py-2.5 pr-3 whitespace-nowrap text-slate-600">{it.duration || '—'}</td>
-                    <td className="py-2.5 text-right whitespace-nowrap font-mono tabular-nums text-slate-600">{it.quantityPrescribed ?? '—'} {it.quantityPrescribed != null ? it.quantityUnit : ''}</td>
+                    <td className="py-2.5 text-right whitespace-nowrap font-mono tabular-nums text-slate-600">{it.quantityPrescribed == null ? '—' : `${it.quantityPrescribed} / ${it.remaining ?? '—'} ${it.quantityUnit || ''}`}</td>
                   </tr>
                   {it.instructions && (
                     <tr className={`border-b ${line}`}><td /><td colSpan={4} className="pb-2.5 text-xs text-red-700"><span className="inline-flex gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /><Highlight text={it.instructions} query={query} /></span></td></tr>

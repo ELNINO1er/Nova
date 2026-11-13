@@ -64,3 +64,37 @@ async function removeFile(relative) {
   const target = relative && resolveInUploads(relative);
   if (target) await unlink(target).catch(() => {});
 }
+
+export async function doctorPhotoFile(doctorId) {
+  const [[row]] = await pool.execute('SELECT photo_path FROM nova_doctors WHERE id = ?', [doctorId]);
+  return row?.photo_path ? resolveInUploads(row.photo_path) : null;
+}
+
+// Conserve l'ancien fichier tant que la nouvelle référence n'est pas enregistrée.
+export async function updateDoctorPhoto(doctorId, photo) {
+  const decoded = photo === null ? null : decodePhoto(photo);
+  const relative = decoded ? path.posix.join('doctor-photos', doctorId, `photo-${randomUUID()}${decoded.ext}`) : null;
+  const conn = await pool.getConnection();
+  let previous;
+  try {
+    await conn.beginTransaction();
+    [[previous]] = await conn.execute('SELECT photo_path FROM nova_doctors WHERE id = ? FOR UPDATE', [doctorId]);
+    if (!previous) throw Object.assign(new Error('Profil médecin introuvable.'), { status: 404 });
+    if (decoded) {
+      const target = resolveInUploads(relative);
+      if (!target) throw invalid('Emplacement de photo invalide.');
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, decoded.buffer, { flag: 'wx' });
+    }
+    await conn.execute('UPDATE nova_doctors SET photo_path = ? WHERE id = ?', [relative, doctorId]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    await removeFile(relative);
+    throw err;
+  } finally {
+    conn.release();
+  }
+  await removeFile(previous.photo_path);
+  return { hasPhoto: Boolean(relative) };
+}

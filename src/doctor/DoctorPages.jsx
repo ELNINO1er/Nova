@@ -1,6 +1,5 @@
 import {hasUnsavedData} from '../unsaved.js';
 import React, { useState, useEffect, useRef } from 'react';
-import { UserPlus, Plus } from 'lucide-react';
 import { doctorApi } from '../api/doctorApi.js';
 
 import DDash from './pages/DDash.jsx';
@@ -68,7 +67,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
   };
 
   useEffect(() => { loadPage(page,true); }, [page]);
-  useEffect(()=>{const update=()=>{for(const key of Object.keys(generations.current))generations.current[key]++;setApiData({});loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
+  useEffect(()=>{const update=()=>{if(hasUnsavedData())return;for(const key of Object.keys(generations.current))generations.current[key]++;setApiData((current)=>({[page]:current[page]}));loadPage(page,true);};const focus=()=>{if(!hasUnsavedData())update();};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',focus);return ()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',focus);};},[page]);
 
   useEffect(() => {
     if (!patientCreatedTick) return;
@@ -86,24 +85,6 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
 
   return (
     <div className="space-y-5">
-      {/* En-tête commun (le tableau de bord a le sien) */}
-      {page !== 'dashboard' && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Cockpit Clinique</h2>
-          <p className={`text-sm ${sub}`}>{[doctorName, doctorSpec].filter(Boolean).join(' • ')}</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={onCP}
-            className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} border px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2`}>
-            <UserPlus className="w-4 h-4" /> Nouveau patient
-          </button>
-          <button onClick={() => setPage('consultations')}
-            className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:bg-red-700 shadow-lg shadow-red-600/20">
-            <Plus className="w-4 h-4" /> Nouvelle consultation
-          </button>
-        </div>
-      </div>}
-
       {/* Toast */}
       {notice && (
         <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all

@@ -20,6 +20,7 @@ export default function Login({ setAuth, onLogin }) {
   const [recoveryCodes, setRecoveryCodes] = useState([]);
   const [pendingUser, setPendingUser] = useState(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const cleanedPhone = phone.replace(/\s/g, '');
   const formatPhone = (value) => value.replace(/\D/g, '').slice(0, 10).replace(/(\d{2})(?=\d)/g, '$1 ').trim();
@@ -58,7 +59,10 @@ export default function Login({ setAuth, onLogin }) {
         setPassword(newPassword);
         setNewPassword(''); setConfirmPassword('');
       } else {
-        onLogin((await authApi.changeInitialPassword(challengeId, newPassword)).user);
+        const result = await authApi.changeInitialPassword(challengeId, newPassword);
+        if (result.user) onLogin(result.user);
+        else useNextAction(result);
+        setNewPassword(''); setConfirmPassword('');
       }
     } catch (err) { setError(err.message || 'Modification impossible.'); }
     finally { setLoading(false); }
@@ -77,6 +81,24 @@ export default function Login({ setAuth, onLogin }) {
     finally { setLoading(false); }
   };
 
+  const recoverPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!simplePassword(newPassword) || newPassword !== confirmPassword) {
+      return setError('Vérifiez les règles du nouveau mot de passe et sa confirmation.');
+    }
+    setLoading(true);
+    try {
+      await authApi.recoverPatientPassword(cleanedPhone, code, newPassword);
+      reset();
+      setNotice('Mot de passe modifié. Connectez-vous avec le nouveau.');
+    } catch (err) {
+      setError(err.message || 'Récupération impossible.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const reset = () => {
     setStep('login'); setAuth('login'); setPassword(''); setNewPassword(''); setConfirmPassword(''); setCode(''); setChallengeId(''); setError(''); setLoading(false);
   };
@@ -87,7 +109,39 @@ export default function Login({ setAuth, onLogin }) {
     </aside>
     <main className="flex-1 flex items-center justify-center p-6 sm:p-12"><div className="w-full max-w-md"><div className="lg:hidden flex justify-center mb-8"><Brand /></div>
       {!['login', 'recovery_codes'].includes(step) && <Back onClick={reset} />}
-      {step === 'login' && <LoginForm {...{ phone, setPhone, formatPhone, password, setPassword, error, loading, submit, cleanedPhone }} />}
+      {step === 'login' && <>
+        {notice && <p role="status" className="mb-4 text-sm text-red-700">{notice}</p>}
+        <LoginForm {...{ phone, setPhone, formatPhone, password, setPassword, error, loading, submit, cleanedPhone }} />
+        <button type="button" className="mt-4 text-sm font-semibold text-red-700 underline"
+          onClick={() => { setNotice(''); setError(''); setStep('recover_patient'); }}>Mot de passe patient oublié</button>
+      </>}
+      {step === 'recover_patient' && (
+        <form className="space-y-4" onSubmit={recoverPassword}>
+          <Header title="Récupérer mon compte patient" text="Utilisez le code de secours généré depuis vos paramètres." />
+          <label className="block text-sm">Numéro de téléphone
+            <input type="tel" autoComplete="username" value={phone} onChange={e => setPhone(formatPhone(e.target.value))}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Code de secours
+            <input value={code} onChange={e => setCode(e.target.value)} autoComplete="off" maxLength={48}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Nouveau mot de passe
+            <input type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Confirmer le mot de passe
+            <input type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <p className="text-xs text-slate-600">Au moins 8 caractères, dont une lettre et un chiffre.</p>
+          <Error value={error} />
+          <button type="submit" disabled={loading || cleanedPhone.length !== 10}
+            className="w-full rounded-xl bg-red-700 px-4 py-3 font-semibold text-white disabled:opacity-50">
+            {loading ? 'Vérification…' : 'Réinitialiser mon mot de passe'}
+          </button>
+        </form>
+      )}
       {step === 'change_password' && <PasswordForm {...{ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong: isStrongRole(accountRole) }} />}
       {step === 'enroll_totp' && <Enrollment {...{ enrollment, code, setCode, error, loading, verifyTotp }} />}
       {step === 'verify_totp' && <Verification {...{ code, setCode, error, loading, verifyTotp }} />}

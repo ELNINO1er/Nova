@@ -61,8 +61,75 @@ describe('Règles d’accès', () => {
     await doctorSvc.updateDoctorAppointment(DOCTOR, appt.id, { status: 'confirmed' });
     expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(true);
 
+    await patient.revokeDoctorAccess(PATIENT, DOCTOR);
+    expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(false);
+
+    const withoutShare = await patient.createAppointment(PATIENT, {
+      startsAt: new Date(Date.parse(startsAt) + 86400000).toISOString(),
+      doctorId: DOCTOR,
+      shareRecord: false,
+    });
+    createdAppointments.push(withoutShare.id);
+    await doctorSvc.updateDoctorAppointment(DOCTOR, withoutShare.id, { status: 'confirmed' });
+    expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(false);
+    expect((await doctorSvc.getDoctorAppointments(DOCTOR)).find(a => a.id === withoutShare.id))
+      .toMatchObject({ status: 'confirmed', recordShared: false, bloodType: null });
+
     await patient.updateAppointment(PATIENT, appt.id, { status: 'cancelled' });
     expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(false);
+  });
+
+  it('permet au patient de réinitialiser son mot de passe avec un code à usage unique', async () => {
+    const bcrypt = (await import('bcrypt')).default;
+    const auth = await import('../services/auth.service.js');
+    const id = randomUUID();
+    const phone = `08${String(Date.now()).slice(-8)}`;
+    const previousPassword = 'AncienTest2026!';
+    await pool.execute(
+      "INSERT INTO nova_users (id, phone, code_hash, password_hash, role, name, created_at) VALUES (?, ?, 'x', ?, 'patient', 'Patient fictif', NOW())",
+      [id, phone, await bcrypt.hash(previousPassword, 10)]
+    );
+    try {
+      await expect(auth.issuePatientRecoveryCode(id, 'incorrect')).rejects.toMatchObject({ status: 400 });
+      const { code } = await auth.issuePatientRecoveryCode(id, previousPassword);
+      await expect(auth.recoverPatientPassword(phone, code, 'NouveauTest2026!')).resolves.toEqual({ ok: true });
+      await expect(auth.recoverPatientPassword(phone, code, 'AutreTest2026!')).rejects.toMatchObject({ code: 'invalid_recovery' });
+      const [[user]] = await pool.execute('SELECT password_hash, patient_recovery_hash, session_version FROM nova_users WHERE id = ?', [id]);
+      expect(await bcrypt.compare('NouveauTest2026!', user.password_hash)).toBe(true);
+      expect(user.patient_recovery_hash).toBeNull();
+      expect(Number(user.session_version)).toBe(1);
+    } finally {
+      await pool.execute('DELETE FROM nova_users WHERE id = ?', [id]);
+    }
+  });
+
+  it('exige Authenticator pour la connexion administrateur', async () => {
+    const bcrypt = (await import('bcrypt')).default;
+    const auth = await import('../services/auth.service.js');
+    const mfa = await import('../services/mfa.service.js');
+    const id = randomUUID();
+    const phone = `06${String(Date.now()).slice(-8)}`;
+    const password = 'AdminFictif2026!';
+    await pool.execute(
+      "INSERT INTO nova_users (id, phone, code_hash, password_hash, role, name, created_at) VALUES (?, ?, 'x', ?, 'admin', 'Admin fictif', NOW())",
+      [id, phone, await bcrypt.hash(password, 10)]
+    );
+    try {
+      const provisional = await auth.startPhonePasswordLogin(phone, password);
+      expect(provisional).toMatchObject({ nextAction: 'change_password', role: 'admin' });
+      const newPassword = 'AdminFictifNouveau2026!';
+      const setup = await auth.changeInitialPassword(provisional.challengeId, newPassword);
+      expect(setup).toMatchObject({ nextAction: 'enroll_totp', role: 'admin' });
+      expect(setup.user).toBeUndefined();
+      const enrolled = await mfa.verifyTotpEnrollment(setup.challengeId, mfa.generateTotpCode(setup.secret));
+      expect(enrolled.user).toMatchObject({ id, role: 'admin' });
+      const login = await auth.startPhonePasswordLogin(phone, newPassword);
+      expect(login).toMatchObject({ nextAction: 'verify_totp', role: 'admin' });
+      expect(login.user).toBeUndefined();
+    } finally {
+      await pool.execute('DELETE FROM nova_auth_challenges WHERE user_id = ?', [id]);
+      await pool.execute('DELETE FROM nova_users WHERE id = ?', [id]);
+    }
   });
 
   it('la réinitialisation d’un compte sensible attend un second administrateur', async () => {

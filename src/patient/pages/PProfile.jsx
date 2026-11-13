@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { User, Calendar, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown, Camera, Trash2, IdCard } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -128,12 +129,12 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
         <label className="block min-w-0">
           <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">{Icon && <Icon className="w-3.5 h-3.5" />}{label}</span>
           {key === 'sex' ? (
-            <select value={d.sex} onChange={(e) => setD({ ...d, sex: e.target.value })} className={inputCls}>
+            <NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({ ...d, sex: e.target.value })} className={inputCls}>
               <option value="">—</option>
               <option value="M">Homme</option>
               <option value="F">Femme</option>
               {d.sex && !['M', 'F'].includes(d.sex) && <option value={d.sex}>{d.sex}</option>}
-            </select>
+            </NovaSelect>
           ) : (
             <input type={type} value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} className={inputCls} />
           )}

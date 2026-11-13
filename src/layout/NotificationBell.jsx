@@ -34,7 +34,7 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
 
   const openItem = async (n) => {
     setOpen(false);
-    if (n.linkPage) setPage(n.linkPage);
+    if (n.linkPage) setPage(n.linkPage, n.linkTargetId);
     if (!n.isRead) {
       try { await patientApi.markNotificationRead(n.id); apply(await patientApi.notifications()); } catch { /* reste non lue */ }
     }

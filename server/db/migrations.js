@@ -63,6 +63,19 @@ export async function migrate(conn) {
         // Chemin relatif au dossier privé data/uploads (jamais servi statiquement).
         await column(conn,'nova_patients','photo_path','VARCHAR(255) NULL');
       }],
+      ['20261112_09_admin_mfa', async () => {
+        // Les sessions créées avant l'obligation MFA ne sont plus valides.
+        await conn.query("UPDATE nova_users SET session_version = session_version + 1 WHERE role = 'admin'");
+      }],
+      ['20261112_10_notification_target', async () => {
+        await column(conn, 'nova_notifications', 'link_target_id', 'VARCHAR(36) NULL');
+      }],
+      ['20261112_11_patient_recovery', async () => {
+        await column(conn, 'nova_users', 'patient_recovery_hash', 'CHAR(64) NULL');
+      }],
+      ['20261112_12_doctor_photo', async () => {
+        await column(conn, 'nova_doctors', 'photo_path', 'VARCHAR(255) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

@@ -198,8 +198,8 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 
 /* ─── Rendez-vous ────────────────────────────────────────────── */
 
-// Réserver = accepter que ce médecin consulte le dossier une fois le rendez-vous confirmé (révocable).
-const SHARE_RECORD = z.literal(true, { error: 'Acceptez le partage de votre dossier avec ce médecin pour réserver.' });
+// Un partage facultatif ne prend effet qu'une fois le rendez-vous confirmé.
+const SHARE_RECORD = z.boolean().optional().default(false);
 
 router.get('/appointments', wrap(async (req, res) => {
   res.json(await getAppointments(req.user.patientId));

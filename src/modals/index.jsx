@@ -1,3 +1,4 @@
+import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart, Activity, Pill, Calendar, FileText, User, Stethoscope,
@@ -326,7 +327,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
                 <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Sexe *</label><select value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="M">Masculin</option><option value="F">Féminin</option></select></div>
+                <div><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
               </div>
             </>
           )}
@@ -357,7 +358,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               <h4 className="font-bold">Données médicales</h4>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={`text-xs ${sub}`}>N° CMU</label><input type="text" value={d.cmu} onChange={(e) => setD({...d, cmu: e.target.value})} placeholder="CI-2026-XXXX" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Groupe sanguin</label><select value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g}>{g}</option>)}</select></div>
+                <div><label className={`text-xs ${sub}`}>Groupe sanguin</label><NovaSelect darkMode={darkMode} value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g}>{g}</option>)}</NovaSelect></div>
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -391,9 +392,9 @@ export function CreateDoctorModal({ onClose, darkMode, sub, border }) {
             <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
             <div><label className={`text-xs ${sub}`}>N° Ordre *</label><input type="text" placeholder="CI-XXX-2024-0000" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
             <div><label className={`text-xs ${sub}`}>Spécialité *</label>
-              <select className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
+              <NovaSelect darkMode={darkMode} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>
                 <option>Médecine générale</option><option>Cardiologie</option><option>Endocrinologie</option><option>Pédiatrie</option><option>Gynécologie</option><option>ORL</option>
-              </select>
+              </NovaSelect>
             </div>
             <div className="col-span-2"><label className={`text-xs ${sub}`}>Établissement *</label><input type="text" placeholder="CHU Treichville" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
             <div className="col-span-2">

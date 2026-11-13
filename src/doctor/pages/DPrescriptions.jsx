@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import {useDialogFocus} from '../../components/useDialogFocus.js';
 import {useUnsaved} from '../../unsaved.js';
 import React, { useState, useEffect, useRef } from 'react';
@@ -78,12 +79,12 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
           </div>
           <div>
             <label htmlFor="rx-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
-            <select id="rx-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value,consultationId:'' }))} className={inp}>
+            <NovaSelect darkMode={darkMode} id="rx-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value,consultationId:'' }))} className={inp}>
               <option value="">Sélectionner un patient...</option>
               {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
-            </select>
+            </NovaSelect>
           </div>
-          <label className="block text-sm">Consultation validée associée (facultatif)<select className={inp} value={form.consultationId||''} onChange={e=>setForm({...form,consultationId:e.target.value})}><option value="">Prescription indépendante</option>{consultations.filter(c=>c.patientId===form.patientId&&c.status==='completed').map(c=><option key={c.id} value={c.id}>{formatDate(c.startedAt)} — {c.motif||'Consultation'}</option>)}</select></label>
+          <label className="block text-sm">Consultation validée associée (facultatif)<NovaSelect darkMode={darkMode} className={inp} value={form.consultationId||''} onChange={e=>setForm({...form,consultationId:e.target.value})}><option value="">Prescription indépendante</option>{consultations.filter(c=>c.patientId===form.patientId&&c.status==='completed').map(c=><option key={c.id} value={c.id}>{formatDate(c.startedAt)} — {c.motif||'Consultation'}</option>)}</NovaSelect></label>
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Médicaments *</label>
@@ -143,14 +144,14 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
         </div>
       ) : prescriptions.map(rx => (
         <div key={rx.id} className={`${card} border rounded-2xl p-4 flex items-center gap-4`}>
-          <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-            <FileDown className="w-5 h-5 text-purple-600" />
+          <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+            <FileDown className="w-5 h-5 text-red-600" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold truncate">{rx.patientName}</p>
             <p className={`text-xs ${sub}`}>{rx.cmuNumber}</p>
             <div className="flex items-center gap-3 mt-1 flex-wrap">
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rx.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rx.status === 'active' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
                 {({active:'Active',partial:'Délivrance partielle',dispensed:'Délivrée',cancelled:'Annulée',expired:'Expirée'})[rx.status]||rx.status}
               </span>
               <p className={`text-xs ${sub}`}>{new Date(rx.issuedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
@@ -241,7 +242,7 @@ ${rx.validUntil ? `<p style="margin-top:14px;font-size:11px;color:#64748b">Valab
                     {item.frequency && <p className={`text-xs ${sub}`}>Fréq: <strong>{item.frequency}</strong></p>}
                     {item.duration  && <p className={`text-xs ${sub}`}>Durée: <strong>{item.duration}</strong></p>}
                   </div>
-                  {item.instructions && <p className="text-xs text-blue-600 mt-1">{item.instructions}</p>}
+                  {item.instructions && <p className="text-xs text-red-600 mt-1">{item.instructions}</p>}
                 </div>
               ))}
             </div>

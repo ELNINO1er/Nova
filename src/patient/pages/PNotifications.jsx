@@ -140,7 +140,7 @@ export default function PNotifications({ data, onReload, notify, setPage, card, 
                           <div role="button" tabIndex={0}
                             aria-label={`${isUnread ? 'Non lue : ' : ''}${n.title}`}
                             onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.currentTarget.click();}}}
-                            onClick={() => { markRead(n.id); if (n.linkPage) setPage?.(n.linkPage); }}
+                            onClick={() => { markRead(n.id); if (n.linkPage) setPage?.(n.linkPage, n.linkTargetId); }}
                             className={`px-5 py-4 flex items-start gap-3 sm:gap-4 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-500/50 ${isUnread ? (darkMode ? 'bg-red-950/20 hover:bg-red-950/30' : 'bg-red-50/60 hover:bg-red-50') : (darkMode ? 'hover:bg-slate-800/40' : 'hover:bg-red-50/40')}`}>
                             <IconBadge Icon={Icon} solid={isUnread} />
                             <div className="flex-1 min-w-0">

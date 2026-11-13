@@ -352,7 +352,6 @@ export async function listResetRequests() {
 /* Le second administrateur approuve ou refuse ; le demandeur ne peut pas valider sa propre demande. */
 export async function decideResetRequest(requestId, adminUserId, approve) {
   const conn = await pool.getConnection();
-  let user;
   try {
     await conn.beginTransaction();
     const [[request]] = await conn.execute(
@@ -362,33 +361,39 @@ export async function decideResetRequest(requestId, adminUserId, approve) {
     if (request.requested_by === adminUserId) {
       throw Object.assign(new Error('Un second administrateur doit valider cette réinitialisation.'), { status: 403, code: 'same_admin' });
     }
+    let result = { rejected: true };
+    if (approve) {
+      const [[user]] = await conn.execute(
+        'SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL FOR UPDATE',
+        [request.target_user_id]
+      );
+      if (!user) { await conn.rollback(); return null; }
+      result = await applyPasswordReset(user, conn);
+    }
     await conn.execute(
       'UPDATE nova_reset_requests SET status = ?, decided_by = ?, decided_at = NOW(3) WHERE id = ?',
       [approve ? 'approved' : 'rejected', adminUserId, requestId]
     );
-    [[user]] = await conn.execute('SELECT id, role, name, phone FROM nova_users WHERE id = ? AND deleted_at IS NULL', [request.target_user_id]);
     await conn.commit();
+    return result;
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
-  if (!approve) return { rejected: true };
-  if (!user) return null;
-  return applyPasswordReset(user);
 }
 
-async function applyPasswordReset(user) {
+async function applyPasswordReset(user, db = pool) {
   const password = provisionalFor(user.role);
   const passwordHash = await bcrypt.hash(password, 12);
-  await pool.execute(
+  await db.execute(
     `UPDATE nova_users
      SET password_hash = ?, must_change_password = 1, failed_login_attempts = 0, locked_until = NULL, session_version=session_version+1
      WHERE id = ?`,
     [passwordHash, user.id]
   );
-  await pool.execute('UPDATE nova_auth_challenges SET used_at=NOW() WHERE user_id=? AND used_at IS NULL',[user.id]);
+  await db.execute('UPDATE nova_auth_challenges SET used_at=NOW() WHERE user_id=? AND used_at IS NULL',[user.id]);
   return { user: { id: user.id, role: user.role, name: user.name, phone: user.phone }, provisionalPassword: password };
 }
 

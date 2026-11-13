@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { patientApi } from '../api/patientApi.js';
+import { doctorApi } from '../api/doctorApi.js';
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
 export const PHOTO_ACCEPT = ACCEPTED.join(',');
@@ -30,26 +31,37 @@ export async function preparePhoto(file) {
 
 export const announcePhotoChange = () => window.dispatchEvent(new Event('nova:photo-changed'));
 
-/* URL locale de la photo du patient connecté (null s'il n'en a pas) ; suit les changements. */
-export function usePatientPhoto(enabled) {
-  const [src, setSrc] = useState(null);
+export function usePrivatePhoto(load, key) {
+  const [result, setResult] = useState(null);
   useEffect(() => {
-    if (!enabled) return undefined;
-    let current = null;
+    if (!key) return undefined;
     let alive = true;
-    const load = () => patientApi.photo()
-      .then((blob) => {
-        if (!alive) return;
-        if (!blob?.size) throw new Error('no_photo');
-        const next = URL.createObjectURL(blob);
-        if (current) URL.revokeObjectURL(current);
-        current = next;
-        setSrc(next);
-      })
-      .catch(() => { if (alive) { if (current) URL.revokeObjectURL(current); current = null; setSrc(null); } });
-    load();
-    window.addEventListener('nova:photo-changed', load);
-    return () => { alive = false; window.removeEventListener('nova:photo-changed', load); if (current) URL.revokeObjectURL(current); };
-  }, [enabled]);
-  return src;
+    let generation = 0;
+    let url = null;
+    const refresh = async () => {
+      const current = ++generation;
+      let blob;
+      try { blob = await load(); } catch { /* Les initiales restent disponibles. */ }
+      if (!alive || current !== generation) return;
+      if (url) URL.revokeObjectURL(url);
+      url = blob?.size ? URL.createObjectURL(blob) : null;
+      setResult({ key, src: url });
+    };
+    refresh();
+    window.addEventListener('nova:photo-changed', refresh);
+    return () => {
+      alive = false;
+      window.removeEventListener('nova:photo-changed', refresh);
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [load, key]);
+  return key && result?.key === key ? result.src : null;
+}
+
+export function usePatientPhoto(userId) {
+  return usePrivatePhoto(patientApi.photo, userId);
+}
+
+export function useDoctorPhoto(userId) {
+  return usePrivatePhoto(doctorApi.photo, userId);
 }

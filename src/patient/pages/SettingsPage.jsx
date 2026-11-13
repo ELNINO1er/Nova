@@ -257,6 +257,8 @@ export default function SettingsPage({ data, card, sub, darkMode, setPage, api: 
 /* Changement de mot de passe : « Annuler » et « Enregistrer » en haut à droite (seule rubrique à enregistrement explicite). */
 function PasswordSection({ sub, darkMode, strong, title = 'Changer mon mot de passe' }) {
   const [form, setForm] = useState({ current: '', next: '', confirm: '' });
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [state, setState] = useState({ saving: false, error: '', ok: '' });
   const valid = strong
     ? form.next.length >= 12 && /[a-z]/.test(form.next) && /[A-Z]/.test(form.next) && /\d/.test(form.next) && /[^A-Za-z0-9]/.test(form.next)
@@ -276,7 +278,20 @@ function PasswordSection({ sub, darkMode, strong, title = 'Changer mon mot de pa
       setState({ saving: false, error: err.message || 'Modification impossible.', ok: '' });
     }
   };
-  const cancel = () => { setForm({ current: '', next: '', confirm: '' }); setState({ saving: false, error: '', ok: '' }); };
+  const issueRecovery = async () => {
+    setRecoveryBusy(true);
+    setState({ saving: false, error: '', ok: '' });
+    try {
+      const { code } = await request('/auth/patient/recovery-code', {
+        method: 'POST', body: JSON.stringify({ currentPassword: form.current }),
+      });
+      setRecoveryCode(code);
+      setForm(current => ({ ...current, current: '' }));
+    } catch (err) {
+      setState({ saving: false, error: err.message, ok: '' });
+    } finally { setRecoveryBusy(false); }
+  };
+  const cancel = () => { setRecoveryCode(''); setForm({ current: '', next: '', confirm: '' }); setState({ saving: false, error: '', ok: '' }); };
   const input = `mt-1 ${inputClass(darkMode)}`;
   const label = 'block text-xs font-medium text-slate-500';
   return (
@@ -294,6 +309,17 @@ function PasswordSection({ sub, darkMode, strong, title = 'Changer mon mot de pa
         <label className={label}>Confirmation<input type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
       </div>
       <p className={`text-xs ${sub} flex items-start gap-1.5`}><Shield className="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-600" />{strong ? '12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.' : '8 caractères minimum, avec au moins une lettre et un chiffre.'}</p>
+      {!strong && <div className="space-y-2 border-t pt-4">
+        <p className="text-sm font-medium">Code de secours</p>
+        <p className={`text-xs ${sub}`}>Saisissez votre mot de passe actuel pour générer un code à usage unique. Un nouveau code remplace le précédent.</p>
+        <Button type="button" variant="secondary" darkMode={darkMode} onClick={issueRecovery}
+          disabled={!form.current || state.saving || recoveryBusy}>{recoveryBusy ? 'Génération…' : 'Générer un code de secours'}</Button>
+        {recoveryCode && <div role="status" className="rounded-xl border border-red-200 p-3 text-sm">
+          <p className="mb-1">Conservez ce code hors de NOVA. Il ne sera plus affiché.</p>
+          <code className="select-all break-all font-bold">{recoveryCode}</code>
+          <button type="button" className="ml-2 underline" onClick={() => setRecoveryCode('')}>Masquer</button>
+        </div>}
+      </div>}
       {state.error && <p role="alert" className="text-sm text-red-700">{state.error}</p>}
       {state.ok && <p role="status" className="text-sm font-medium text-red-700">{state.ok}</p>}
     </form>

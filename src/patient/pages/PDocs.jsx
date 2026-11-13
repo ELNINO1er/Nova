@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useRef } from 'react';
 import { FileText, Plus, Trash2, Download, Upload, AlertTriangle, CheckCircle2, ClipboardList, FileDown, HardDrive, Microscope, Lock } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -149,13 +150,13 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
             </label>
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Catégorie</span>
-              <select value={docForm.category} onChange={e => setDocForm(f => ({ ...f, category: e.target.value }))}
+              <NovaSelect darkMode={darkMode} value={docForm.category} onChange={e => setDocForm(f => ({ ...f, category: e.target.value }))}
                 className={`mt-1 ${inputClass(darkMode)}`}>
                 <option value="prescription">Ordonnance</option>
                 <option value="lab">Analyse</option>
                 <option value="consultation">Consultation</option>
                 <option value="vaccine">Certificat</option>
-              </select>
+              </NovaSelect>
             </label>
           </div>
 

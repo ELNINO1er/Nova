@@ -82,3 +82,70 @@ select[class*="focus:ring"]:focus-visible {
 @supports (padding: env(safe-area-inset-bottom)) {
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 }
+
+/* Surfaces communes des écrans de travail NOVA. */
+.nova-workspace {
+  --workspace-bg: #fffafa;
+  --workspace-tint: #fff1f2;
+  --workspace-accent: #991b1b;
+  background: var(--workspace-bg);
+}
+
+.nova-workspace[data-theme="dark"] {
+  --workspace-bg: #020617;
+  --workspace-tint: #1e293b;
+  --workspace-accent: #fecaca;
+}
+
+.nova-section-label {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: fit-content;
+  margin-bottom: 1rem;
+  padding: .45rem .7rem;
+  border-radius: .5rem;
+  background: var(--workspace-tint);
+  color: var(--workspace-accent);
+  font-size: .75rem;
+  font-weight: 600;
+}
+
+.nova-workspace :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"]), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  color-scheme: light;
+}
+
+.nova-workspace[data-theme="dark"] :where(input, select, textarea) {
+  color-scheme: dark;
+}
+
+.nova-workspace :where(table:not(.print-area table)) {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.nova-workspace :where(thead:not(.print-area thead)) {
+  background: var(--workspace-tint);
+  color: var(--workspace-accent);
+}
+
+.nova-workspace :where(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: #b91c1c;
+}
+
+.nova-select { position: relative; display: inline-block; width: 100%; min-width: 0; vertical-align: middle; }
+.nova-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: .65rem; width: 100%; min-height: 2.75rem; text-align: left; }
+.nova-select-trigger svg { flex: none; }
+.nova-select-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+.nova-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nova-select-menu { position: absolute; z-index: 45; top: calc(100% + .25rem); inset-inline: 0; display: block; max-height: 14rem; overflow: auto; overscroll-behavior: contain; padding: .25rem; border: 1px solid #fecaca; border-radius: .75rem; background: #fff; color: #0f172a; box-shadow: 0 8px 22px #0f172a24; }
+.nova-select-menu[data-above="true"] { top: auto; bottom: calc(100% + .25rem); }
+.nova-select-menu [role="option"] { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 2.75rem; padding: .45rem .65rem; border-radius: .5rem; font-size: .875rem; cursor: pointer; overflow-wrap: anywhere; }
+.nova-select-menu [aria-selected="true"], .nova-select-menu [data-active="true"] { background: #fee2e2; color: #991b1b; }
+.nova-select-menu [data-active="true"] { box-shadow: inset 0 0 0 1px #f87171; }
+.nova-select-menu [aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.nova-select-empty { display: block; padding: .65rem; font-size: .875rem; }
+.nova-select[data-dark] .nova-select-menu { background: #0f172a; color: #f1f5f9; border-color: #475569; }
+.nova-select[data-dark] :is([aria-selected="true"], [data-active="true"]) { background: #450a0a; color: #fecaca; }

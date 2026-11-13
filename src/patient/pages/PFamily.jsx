@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { Users, Plus, Edit3, Trash2, X, UserPlus, Calendar, Smartphone, Mail } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -128,9 +129,9 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
                 <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Nom" className={fieldCls} />
               </label>
               <label className={labelCls}><span>Lien</span>
-                <select value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} className={fieldCls}>
+                <NovaSelect darkMode={darkMode} value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} className={fieldCls}>
                   {REL_OPTIONS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-                </select>
+                </NovaSelect>
               </label>
               <label className={labelCls}><span>Date de naissance</span>
                 <input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className={fieldCls} />

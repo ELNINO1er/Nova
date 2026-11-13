@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { randomUUID, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, randomInt } from 'node:crypto';
 import { pool } from '../db/database.js';
 import { sendSms } from './sms.provider.js';
 import { normalizePhone } from './phone.js';
@@ -270,9 +270,9 @@ export async function startPhonePasswordLogin(phone, password) {
       role: user.role,
     };
   }
-  if (user.role === 'doctor') {
+  if (['doctor', 'admin'].includes(user.role)) {
     const next = !user.mfa_enabled || !user.mfa_secret_enc ? await startTotpEnrollment(user) : await startTotpLogin(user.id);
-    return { ...next, role: 'doctor' };
+    return { ...next, role: user.role };
   }
   return { user: toSessionUser(user) };
 }
@@ -314,7 +314,13 @@ export async function changeInitialPassword(challengeId, newPassword) {
      WHERE id = ?`,
     [passwordHash, user.id]
   );
-  return toSessionUser(user);
+  if (user.role === 'admin') {
+    const next = user.mfa_enabled && user.mfa_secret_enc
+      ? await startTotpLogin(user.id)
+      : await startTotpEnrollment(user);
+    return { ...next, role: user.role };
+  }
+  return { user: toSessionUser(user) };
 }
 
 export async function phoneExists(phone) {
@@ -328,4 +334,59 @@ export async function phoneExists(phone) {
  */
 export async function cleanupExpiredOtps() {
   await pool.execute('DELETE FROM nova_otp WHERE expires_at < NOW()');
+}
+
+function recoveryDigest(code) {
+  return createHash('sha256').update(String(code).replace(/[\s-]/g, '').toUpperCase()).digest('hex');
+}
+
+export async function issuePatientRecoveryCode(userId, currentPassword) {
+  const [[user]] = await pool.execute(
+    "SELECT password_hash FROM nova_users WHERE id = ? AND role = 'patient' AND disabled_at IS NULL AND deleted_at IS NULL",
+    [userId]
+  );
+  if (!user?.password_hash || !(await bcrypt.compare(currentPassword, user.password_hash))) {
+    throw Object.assign(new Error('Mot de passe actuel incorrect.'), { status: 400 });
+  }
+  const code = randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g).join('-');
+  const [updated] = await pool.execute(
+    "UPDATE nova_users SET patient_recovery_hash = ? WHERE id = ? AND password_hash = ? AND role = 'patient' AND disabled_at IS NULL AND deleted_at IS NULL",
+    [recoveryDigest(code), userId, user.password_hash]
+  );
+  if (updated.affectedRows !== 1) throw Object.assign(new Error('Le compte a changé. Reconnectez-vous.'), { status: 409 });
+  return { code };
+}
+
+export async function recoverPatientPassword(phone, code, newPassword) {
+  const policyError = passwordPolicyError('patient', newPassword);
+  if (policyError) throw Object.assign(new Error(policyError), { status: 422 });
+  const hash = recoveryDigest(code);
+  const invalid = () => Object.assign(new Error('Numéro ou code de secours invalide.'), { status: 400, code: 'invalid_recovery' });
+  const [[account]] = await pool.execute(
+    "SELECT id FROM nova_users WHERE phone = ? AND patient_recovery_hash = ? AND role = 'patient' AND disabled_at IS NULL AND deleted_at IS NULL",
+    [normalizePhone(phone), hash]
+  );
+  if (!account) throw invalid();
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [updated] = await conn.execute(
+      `UPDATE nova_users SET password_hash = ?, patient_recovery_hash = NULL,
+          must_change_password = 0, password_changed_at = NOW(), failed_login_attempts = 0,
+          locked_until = NULL, session_version = session_version + 1
+       WHERE id = ? AND patient_recovery_hash = ? AND role = 'patient'
+         AND disabled_at IS NULL AND deleted_at IS NULL`,
+      [passwordHash, account.id, hash]
+    );
+    if (updated.affectedRows !== 1) throw invalid();
+    await conn.execute('UPDATE nova_auth_challenges SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [account.id]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  return { ok: true };
 }

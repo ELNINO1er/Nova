@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { medicalList } from './medical-profile.js';
-import { hasDoctorPatientAccess } from './access.js';
+import { getDoctorAccessDetails } from './access.js';
 import { notifyDoctorConsent, notifyDoctorAppointment, notifyDoctorAppointmentChange } from './notification.service.js';
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
@@ -36,7 +36,6 @@ export async function getDashboard(patientId) {
 
   return {
     profile,
-    healthScore: await calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }),
     latestVitals,
     nextAppointment,
     todayMedications,
@@ -393,27 +392,44 @@ export async function markConversationRead(patientId, conversationId) {
 
 /* ─── Ordonnances ────────────────────────────────────────────── */
 
+const prescriptionItemTotals = `SELECT i.*, COALESCE((
+  SELECT SUM(di.quantity_dispensed)
+  FROM nova_dispense_items di JOIN nova_dispenses d ON d.id = di.dispense_id
+  WHERE di.prescription_item_id = i.id AND d.status <> 'refused'
+), 0) AS dispensed_quantity FROM nova_prescription_items i`;
+
+function patientPrescriptionItem(item) {
+  const quantity = item.quantity_prescribed;
+  const dispensed = Number(item.dispensed_quantity);
+  return {
+    id: item.id, name: item.name, dosage: item.dosage, frequency: item.frequency,
+    duration: item.duration, instructions: item.instructions, quantityPrescribed: quantity,
+    quantityUnit: item.quantity_unit, quantityDispensed: dispensed,
+    remaining: quantity == null ? null : Math.max(0, Number(quantity) - dispensed),
+  };
+}
+
 export async function getPrescriptions(patientId, query = {}) {
   const [rows] = query.status
     ? await pool.execute(
-        'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND status = ? ORDER BY issued_at DESC',
+        'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND deleted_at IS NULL AND status = ? ORDER BY issued_at DESC',
         [patientId, query.status]
       )
     : await pool.execute(
-        'SELECT * FROM nova_prescriptions WHERE patient_id = ? ORDER BY issued_at DESC',
+        'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND deleted_at IS NULL ORDER BY issued_at DESC',
         [patientId]
       );
 
   if (!rows.length) return [];
   const pIds = rows.map(r => r.id);
   const [allItems] = await pool.execute(
-    `SELECT * FROM nova_prescription_items WHERE prescription_id IN (${pIds.map(() => '?').join(',')})`,
+    `${prescriptionItemTotals} WHERE i.prescription_id IN (${pIds.map(() => '?').join(',')})`,
     pIds
   );
   const itemsByPrescription = new Map();
   for (const i of allItems) {
     const list = itemsByPrescription.get(i.prescription_id) || [];
-    list.push({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions,quantityPrescribed:i.quantity_prescribed,quantityUnit:i.quantity_unit });
+    list.push(patientPrescriptionItem(i));
     itemsByPrescription.set(i.prescription_id, list);
   }
   return rows.map(row => ({
@@ -430,12 +446,12 @@ export async function getPrescriptions(patientId, query = {}) {
 
 export async function getPrescription(patientId, id) {
   const [[row]] = await pool.execute(
-    'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND id = ?',
+    'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND id = ? AND deleted_at IS NULL',
     [patientId, id]
   );
   if (!row) return null;
   const [items] = await pool.execute(
-    'SELECT * FROM nova_prescription_items WHERE prescription_id = ?',
+    `${prescriptionItemTotals} WHERE i.prescription_id = ?`,
     [id]
   );
   return {
@@ -446,14 +462,7 @@ export async function getPrescription(patientId, id) {
     validUntil: row.valid_until,
     status: row.status,
     notes: row.notes,
-    items: items.map((i) => ({
-      id: i.id,
-      name: i.name,
-      dosage: i.dosage,
-      frequency: i.frequency,
-      duration: i.duration,
-      instructions: i.instructions,quantityPrescribed:i.quantity_prescribed,quantityUnit:i.quantity_unit,
-    })),
+    items: items.map(patientPrescriptionItem),
   };
 }
 
@@ -589,7 +598,7 @@ export async function getNotifications(patientId, query = {}) {
   );
   return paginatedResponse(rows.map((r) => ({
     id: r.id, type: r.type, title: r.title, body: r.body,
-    linkPage: r.link_page, isRead: Boolean(r.is_read), createdAt: r.created_at,
+    linkPage: r.link_page, linkTargetId: r.link_target_id, isRead: Boolean(r.is_read), createdAt: r.created_at,
   })), total, pg);
 }
 
@@ -896,35 +905,6 @@ async function getDashboardVitals(patientId) {
  * Renvoie null (« Données insuffisantes ») si moins de 2 types de constantes mesurés en 90 jours,
  * pour ne jamais afficher une appréciation favorable sur un dossier presque vide.
  */
-async function calculateHealthScore(patientId, { latestVitals, todayMedications, nextAppointment }) {
-  const since = new Date(Date.now() - 90 * 86400000).toISOString();
-  const recentTypes = new Set(latestVitals.filter((v) => v.measuredAt && v.measuredAt >= since).map((v) => v.type));
-  if (recentTypes.size < 2) return null;
-
-  const vitalPenalty = latestVitals.reduce((total, v) => {
-    if (v.status === 'critical') return total + 12;
-    if (v.status === 'watch')    return total + 5;
-    return total;
-  }, 0);
-
-  const missedMeds   = todayMedications.filter((m) => m.intake?.status === 'missed').length;
-  const waitingMeds  = todayMedications.filter((m) => !m.intake).length;
-
-  const [[{ total: dueVaccines }]] = await pool.execute(
-    `SELECT COUNT(*) AS total FROM nova_vaccinations WHERE patient_id = ? AND status = 'due_soon'`,
-    [patientId]
-  );
-
-  const score = 100
-    - vitalPenalty
-    - missedMeds * 4
-    - waitingMeds * 2
-    - Number(dueVaccines) * 3
-    - (nextAppointment ? 0 : 4);
-
-  return Math.max(0, Math.min(100, score));
-}
-
 /* ─── Mappers ────────────────────────────────────────────────── */
 
 function mapPatient(row) {
@@ -1254,17 +1234,15 @@ export async function getCareTeam(patientId) {
        ORDER BY COALESCE(responded_at, requested_at) DESC LIMIT 1`,
       [patientId, d.id]
     );
-    const access = await hasDoctorPatientAccess(d.id, patientId);
+    const access = await getDoctorAccessDetails(d.id, patientId);
     team.push({
       doctorId: d.id,
       doctorName: `Dr. ${d.first_name} ${d.last_name}`,
       specialty: d.specialty,
       city: d.city,
-      hasAccess: access,
-      // Origine de l'accès, pour que le patient comprenne pourquoi ce médecin voit son dossier.
-      reason: decision?.status === 'revoked' ? 'revoked'
-        : decision?.status === 'granted' ? 'consent'
-          : access ? 'care' : 'none',
+      hasAccess: Boolean(access),
+      reason: access?.reason || (decision?.status === 'revoked' ? 'revoked' : 'none'),
+      expiresAt: access?.expiresAt || null,
       decidedAt: decision?.responded_at || null,
     });
   }
@@ -1279,10 +1257,16 @@ async function setDoctorDecision(patientId,doctorId,status,requestId=null){
   if(!doctor)throw Object.assign(new Error('Médecin introuvable.'),{status:404});
   const [[last]]=await conn.execute("SELECT id,status,expires_at,COALESCE(responded_at,requested_at) decided_at FROM nova_consents WHERE doctor_id=? AND patient_id=? AND status IN ('granted','revoked') ORDER BY COALESCE(responded_at,requested_at) DESC LIMIT 1",[doctorId,patientId]);
   if(requestId){const [[request]]=await conn.execute("SELECT responded_at FROM nova_consents WHERE id=? AND patient_id=? AND doctor_id=? AND status='pending' FOR UPDATE",[requestId,patientId,doctorId]);if(!request||request.responded_at&&last?.status!=='granted')throw Object.assign(new Error('Cette demande a déjà été traitée. Actualisez vos accès.'),{status:409});}
-  const instant=new Date(Math.max(Date.now(),last?.decided_at?new Date(last.decided_at).getTime()+1:0));
+  const [[booking]] = await conn.execute(
+    'SELECT MAX(record_shared_at) AS shared_at FROM nova_appointments WHERE patient_id = ? AND doctor_id = ?',
+    [patientId, doctorId]
+  );
+  const instant = new Date(Math.max(Date.now(),
+    last?.decided_at ? new Date(last.decided_at).getTime() + 1 : 0,
+    booking?.shared_at ? new Date(booking.shared_at).getTime() : 0));
   if(requestId)await conn.execute("UPDATE nova_consents SET responded_at=? WHERE id=? AND patient_id=? AND status='pending'",[instant,requestId,patientId]);
-  // Une décision répétée ne crée pas un nouvel événement ni une seconde notification.
-  if(last?.status===status&&(status==='revoked'||requestId||!last.expires_at||new Date(last.expires_at)>new Date())){await conn.commit();return {id:last.id,doctorId,status};}
+  // Un retrait doit être daté à nouveau : un partage de rendez-vous a pu intervenir depuis le précédent.
+  if(last?.status===status&&(status==='granted' && (requestId||!last.expires_at||new Date(last.expires_at)>new Date()))){await conn.commit();return {id:last.id,doctorId,status};}
   const id=randomUUID(),expires=status==='granted'?new Date(instant.getTime()+365*86400000):null;
   await conn.execute('INSERT INTO nova_consents(id,patient_id,doctor_id,status,scope,requested_at,responded_at,expires_at) VALUES (?,?,?,?,?,?,?,?)',[id,patientId,doctorId,status,JSON.stringify(['clinical_record']),instant,instant,expires]);
   const [[patient]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[patientId]);
@@ -1382,7 +1366,7 @@ export async function deleteFamilyMember(patientId, memberId) {
 
 export async function getPrescriptionQR(patientId, prescriptionId) {
   const [[rx]] = await pool.execute(
-    'SELECT * FROM nova_prescriptions WHERE id = ? AND patient_id = ?',
+    'SELECT * FROM nova_prescriptions WHERE id = ? AND patient_id = ? AND deleted_at IS NULL',
     [prescriptionId, patientId]
   );
   if (!rx) return null;

@@ -132,12 +132,18 @@ runIf('Intégration lot 1', () => {
       const first=await pharmacy.dispensePrescription(actor.pharmacy_id,actor.id,make('initial-'+rx.id,4));
       const again=await pharmacy.dispensePrescription(actor.pharmacy_id,actor.id,make('initial-'+rx.id,4));
       expect(again.id).toBe(first.id);expect(first.status).toBe('partial');
+      expect((await patient.getPrescription(PATIENT, rx.id)).items[0]).toMatchObject({ remaining: 6 });
+      expect((await pharmacy.getPrescriptionForPharmacy(rx.id)).items[0]).toMatchObject({ remaining: 6 });
       await expect(pharmacy.dispensePrescription(actor.pharmacy_id,actor.id,make('foreign-'+rx.id,1,'foreign-line'))).rejects.toMatchObject({status:422});
       await expect(pharmacy.dispensePrescription(actor.pharmacy_id,actor.id,make('excess-'+rx.id,7))).rejects.toMatchObject({status:409});
       const results=await Promise.allSettled([1,2].map(n=>pharmacy.dispensePrescription(actor.pharmacy_id,actor.id,make('last-'+n+rx.id,6))));
       expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
       const [[total]]=await pool.execute('SELECT SUM(i.quantity_dispensed) n FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=?',[rx.id]);
       expect(Number(total.n)).toBe(10);
+      await pool.execute('UPDATE nova_prescriptions SET deleted_at = NOW() WHERE id = ?', [rx.id]);
+      expect(await patient.getPrescription(PATIENT, rx.id)).toBeNull();
+      expect(await patient.getPrescriptionQR(PATIENT, rx.id)).toBeNull();
+      expect(await pharmacy.verifyPrescriptionQR(qrToken)).toBeNull();
     }finally{
       await pool.execute('DELETE i FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=?',[rx.id]);
       await pool.execute('DELETE FROM nova_dispenses WHERE prescription_id=?',[rx.id]);

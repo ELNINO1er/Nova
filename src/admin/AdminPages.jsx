@@ -1,11 +1,13 @@
+import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
-  Activity, AlertCircle, Building2, CheckCircle2, Copy, Database, Download, KeyRound, Lock,
-  MoreVertical, Pill, RefreshCw, Search, ServerCog, ShieldCheck, Stethoscope, User, UserPlus, Users, X,
+  Activity, AlertCircle, ArrowUpRight, Building2, CalendarDays, CheckCircle2, Copy, Database, Download, KeyRound, Lock,
+  MoreVertical, RefreshCw, Search, ServerCog, ShieldCheck, Stethoscope, User, UserPlus, Users, X,
 } from 'lucide-react';
 import { adminApi } from '../api/adminApi.js';
 import PageError from '../components/PageError.jsx';
-import { ColumnChart, Empty, KpiCard, MiniCalendar, Panel } from '../components/dashboard/kit.jsx';
+import { dayKey, Empty, KpiCard, MiniCalendar } from '../components/dashboard/kit.jsx';
 
 /* ============== ADMIN PAGES ============== */
 
@@ -22,7 +24,7 @@ const ROLE_NAMES = { patient: 'Patient', doctor: 'Médecin', pharmacist: 'Pharma
 // « 0710000001 » → « 07 10 00 00 01 » ; les autres formats sont affichés tels quels.
 const fmtPhone = (value) => (/^\d{10}$/.test(String(value || '')) ? String(value).replace(/(\d{2})(?=\d)/g, '$1 ') : (value || '—'));
 
-export default function AdminPages({ page, card, sub, border, darkMode }) {
+export default function AdminPages({ page, setPage, card, sub, border, darkMode }) {
   const p = { card, sub, border, darkMode };
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -51,13 +53,13 @@ export default function AdminPages({ page, card, sub, border, darkMode }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      {page !== 'dashboard' && <div>
         <h2 className="text-2xl font-bold">{title}</h2>
         <p className={`text-sm ${sub}`}>{subtitle}</p>
-      </div>
+      </div>}
       {needsData && error && !data && <PageError message={error} onRetry={retry} card={card} sub={sub} />}
       {needsData && !error && !data && <Skeleton darkMode={darkMode} />}
-      {page === 'dashboard' && data && <ADash data={data} {...p} />}
+      {page === 'dashboard' && data && <ADash data={data} setPage={setPage} onRefresh={retry} {...p} />}
       {page === 'audit' && data && <AAudit data={data} onRefresh={retry} {...p} />}
       {page === 'users' && <AUsers {...p} />}
       {page === 'system' && data && <ASystem data={data} {...p} />}
@@ -78,52 +80,145 @@ function StatCard({ label, value, hint, Icon, card, sub }) {
   return <KpiCard label={label} value={Number(value || 0).toLocaleString('fr-FR')} hint={hint} Icon={Icon} card={card} sub={sub} />;
 }
 
-function ADash({ data, card, sub, darkMode }) {
-  const k = data.kpis || {};
-  const cities = (data.cities || []).map((c) => ({ label: c.city, value: Number(c.patients || 0) }));
-  const totalPatients = cities.reduce((s, c) => s + c.value, 0);
-  const leader = cities[0];
+const ADMIN_AREAS = [
+  { title: 'Patients', target: 'patients', page: 'users', count: 'patients', Icon: Users },
+  { title: 'Médecins', target: 'doctors', page: 'users', count: 'doctors', Icon: Stethoscope },
+  { title: 'Pharmacies', target: 'pharmacies', page: 'users', count: 'pharmacies', Icon: Building2 },
+  { title: 'Comptes', target: 'accounts', page: 'users', count: 'users', Icon: KeyRound },
+  { title: 'Journal d’audit', page: 'audit', Icon: Lock },
+  { title: 'Système', page: 'system', Icon: ServerCog },
+];
+const adminNumber = new Intl.NumberFormat('fr-FR');
+const dateShort = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+const weekDay = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
+const fold = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function AdminPanel({ title, action, children, className = '' }) {
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-      <div className="xl:col-span-2 space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Patients" value={k.patients} hint="Dossiers enregistrés" Icon={Users} card={card} sub={sub} />
-          <StatCard label="Médecins" value={k.doctors} hint="Professionnels inscrits" Icon={Stethoscope} card={card} sub={sub} />
-          <StatCard label="Pharmacies" value={k.pharmacies} hint="Officines partenaires" Icon={Building2} card={card} sub={sub} />
-          <StatCard label="Comptes" value={k.users} hint="Tous rôles confondus" Icon={KeyRound} card={card} sub={sub} />
-        </div>
-        <Panel title="Patients par ville"
-          subtitle={`${totalPatients.toLocaleString('fr-FR')} patients répartis dans ${cities.length} ville${cities.length > 1 ? 's' : ''}`}
-          action={leader && totalPatients ? <div className="text-right"><p className="text-2xl font-bold leading-none">{Math.round((leader.value / totalPatients) * 100)} %</p><p className={`text-xs mt-1 ${sub}`}>à {leader.label}</p></div> : null}
-          card={card} sub={sub}>
-          {cities.length ? <ColumnChart data={cities} valueLabel="patient(s)" height="15rem" darkMode={darkMode} /> : <Empty sub={sub}>Aucun patient enregistré.</Empty>}
-        </Panel>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Consultations" value={k.consultationsToday} hint="Aujourd’hui" Icon={Activity} card={card} sub={sub} />
-          <StatCard label="Commandes" value={k.openPharmacyOrders} hint="Pharmacie, en cours" Icon={Pill} card={card} sub={sub} />
-          <StatCard label="Accès dossiers" value={k.access24h} hint="Dernières 24 h" Icon={ShieldCheck} card={card} sub={sub} />
-          <StatCard label="Actions auditées" value={k.audit24h} hint="Dernières 24 h" Icon={Lock} card={card} sub={sub} />
-        </div>
+    <section className={`min-w-0 rounded-xl border border-red-100 bg-white p-4 group-data-[theme=dark]:border-slate-800 group-data-[theme=dark]:bg-slate-900 ${className}`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-bold">{title}</h2>{action}
       </div>
-      <div className="space-y-5">
-        <Panel title="Activité récente" subtitle="Dernières actions d’administration" card={card} sub={sub}>
-          {(data.recentAudit || []).length === 0 ? <Empty sub={sub}>Aucune action enregistrée.</Empty> : (
-            <ol className="relative ml-2 border-l-2 border-red-100 space-y-4">
-              {data.recentAudit.map((a) => (
-                <li key={a.id} className="ml-4">
-                  <span className="absolute -left-[7px] mt-1.5 w-3 h-3 rounded-full bg-red-600 ring-4 ring-red-50" />
-                  <p className="text-sm font-semibold">{actionLabel(a.action)}</p>
-                  <p className={`text-xs ${sub}`}>{ROLE_NAMES[a.userRole] || a.userRole || 'Système'}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{formatDate(a.createdAt)}</p>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
-        <Panel title="Calendrier" card={card} sub={sub}>
-          <MiniCalendar darkMode={darkMode} />
-        </Panel>
+      {children}
+    </section>
+  );
+}
+
+function AdminLink({ children, onClick }) {
+  return <button type="button" onClick={onClick} className="inline-flex min-h-8 items-center gap-1 text-xs font-semibold text-red-700 hover:underline group-data-[theme=dark]:text-red-300">
+    {children}<ArrowUpRight size={13} aria-hidden="true" />
+  </button>;
+}
+
+function ADash({ data, setPage, onRefresh, sub, darkMode }) {
+  const [selected, setSelected] = useState(null);
+  const [query, setQuery] = useState('');
+  const k = data.kpis || {};
+  const recent = data.recentAudit || [];
+  const cities = data.cities || [];
+  const marked = new Set(recent.map(a => dayKey(a.createdAt)));
+  const activity = selected ? recent.filter(a => dayKey(a.createdAt) === selected) : recent;
+  const today = dayKey(new Date());
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() + i - 6);
+    return date;
+  });
+  const needle = fold(query.trim());
+  const shortcuts = ADMIN_AREAS.filter(area => fold(area.title).includes(needle));
+  const openArea = area => setPage(area.page, area.target);
+  const red = 'text-red-700 group-data-[theme=dark]:text-red-300';
+  const tint = 'border-red-100 bg-red-50/70 group-data-[theme=dark]:border-slate-800 group-data-[theme=dark]:bg-slate-950/70';
+  const stats = [
+    { label: 'Consultations', value: k.consultationsToday, hint: 'Aujourd’hui', Icon: Activity },
+    { label: 'Accès aux dossiers', value: k.access24h, hint: 'Dernières 24 h', Icon: ShieldCheck },
+    { label: 'Actions auditées', value: k.audit24h, hint: 'Dernières 24 h', Icon: Lock },
+  ];
+
+  return (
+    <div data-theme={darkMode ? 'dark' : 'light'} className="group grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(16rem,0.32fr)]">
+      <div className="min-w-0 space-y-4">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">Tableau de bord</h1>
+          <button type="button" onClick={onRefresh} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold ${tint} ${red}`}>
+            <RefreshCw size={14} aria-hidden="true" /> Actualiser
+          </button>
+        </header>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {ADMIN_AREAS.filter(area => area.count).map(({ Icon, ...area }) => (
+            <button key={area.count} type="button" onClick={() => openArea(area)}
+              className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-red-100 bg-white p-3 text-left hover:border-red-300 group-data-[theme=dark]:border-slate-800 group-data-[theme=dark]:bg-slate-900">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-red-100 text-red-800"><Icon size={17} aria-hidden="true" /></span>
+              <span className="min-w-0"><span className={`block text-xs ${sub}`}>{area.title}</span><strong className="text-lg tabular-nums">{adminNumber.format(k[area.count] ?? 0)}</strong></span>
+            </button>
+          ))}
+        </div>
+
+        <AdminPanel title="Activité récente" action={<AdminLink onClick={() => setPage('audit')}>Journal complet</AdminLink>}>
+          <div className="mb-3 grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+            {week.map(date => {
+              const key = dayKey(date);
+              return <button type="button" key={key} aria-pressed={selected === key} aria-label={dateShort.format(date)}
+                onClick={() => setSelected(key === selected ? null : key)}
+                className={`min-h-12 rounded-lg border px-1 py-1.5 text-xs ${selected === key ? 'border-red-700 bg-red-700 text-white' : tint}`}>
+                <span className="block capitalize">{weekDay.format(date)}</span>
+                <strong className="tabular-nums">{date.getDate()}</strong>
+                {(marked.has(key) || key === today) && <span aria-hidden="true" className={`mx-auto block size-1 rounded-full ${selected === key ? 'bg-white' : 'bg-red-600'}`} />}
+              </button>;
+            })}
+          </div>
+          {selected && <AdminLink onClick={() => setSelected(null)}>Retirer le filtre de date</AdminLink>}
+          {activity.length ? <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {activity.slice(0, 3).map(a => <li key={a.id} className={`min-w-0 rounded-lg border p-3 ${tint}`}>
+              <div className="flex items-start gap-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-red-100 text-red-800"><Activity size={15} aria-hidden="true" /></span>
+                <div className="min-w-0"><p className="break-words text-xs font-semibold">{actionLabel(a.action)}</p><p className={`mt-1 text-[11px] ${sub}`}>{ROLE_NAMES[a.userRole] || 'Système'} · {formatDate(a.createdAt)}</p></div>
+              </div>
+            </li>)}
+          </ul> : <Empty sub={sub}>{selected ? 'Aucune des actions récentes à cette date.' : 'Aucune action enregistrée.'}</Empty>}
+        </AdminPanel>
+
+        <AdminPanel title="Espaces de gestion">
+          <label className={`mb-3 flex min-h-10 max-w-xs items-center gap-2 rounded-lg border px-3 ${tint}`}>
+            <Search size={15} className={red} aria-hidden="true" />
+            <input type="search" value={query} onChange={e => setQuery(e.target.value)} aria-label="Rechercher un espace de gestion" placeholder="Rechercher un espace"
+              className="min-w-0 flex-1 bg-transparent text-sm" />
+          </label>
+          {shortcuts.length ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 2xl:grid-cols-6">
+            {shortcuts.map(({ Icon, ...area }) => <button key={area.title} type="button" onClick={() => openArea(area)}
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border p-2 text-center text-xs font-semibold hover:border-red-300 ${tint}`}>
+              <Icon size={18} className={red} aria-hidden="true" />{area.title}
+            </button>)}
+          </div> : <Empty sub={sub}>Aucun espace trouvé.</Empty>}
+        </AdminPanel>
+
+        <AdminPanel title="Dossiers par ville">
+          {cities.length ? <ul className="grid gap-2 sm:grid-cols-3">
+            {cities.slice(0, 6).map(city => <li key={city.city} className={`flex items-center justify-between gap-2 rounded-lg border p-3 text-xs ${tint}`}>
+              <span className="break-words">{city.city}</span><strong className={red}>{adminNumber.format(city.patients)}</strong>
+            </li>)}
+          </ul> : <Empty sub={sub}>Aucune ville renseignée.</Empty>}
+        </AdminPanel>
       </div>
+
+      <aside className="min-w-0 space-y-4">
+        <AdminPanel title="Calendrier" action={<CalendarDays size={17} className={red} aria-hidden="true" />}>
+          <MiniCalendar selected={selected} onSelect={date => setSelected(current => current === date ? null : date)} marked={marked} darkMode={darkMode} />
+          <AdminLink onClick={() => setPage('audit')}>Consulter le journal</AdminLink>
+        </AdminPanel>
+        <AdminPanel title="Suivi de la plateforme">
+          <dl className="space-y-2">
+            {stats.map(({ Icon, label, hint, value }) => <div key={label} className={`flex items-center gap-2 rounded-lg border p-2.5 ${tint}`}>
+              <Icon size={16} className={`shrink-0 ${red}`} aria-hidden="true" />
+              <div className="min-w-0 flex-1"><dt className="text-xs font-semibold">{label}</dt><span className={`block text-[11px] ${sub}`}>{hint}</span></div>
+              <dd className={`text-sm font-bold tabular-nums ${red}`}>{adminNumber.format(value ?? 0)}</dd>
+            </div>)}
+          </dl>
+        </AdminPanel>
+        <button type="button" onClick={() => setPage('system')} className="flex min-h-14 w-full items-center gap-3 rounded-xl bg-red-700 px-4 py-3 text-left text-sm font-semibold text-white hover:bg-red-800">
+          <ServerCog size={20} aria-hidden="true" /> <span className="flex-1">État du système</span><ArrowUpRight size={16} aria-hidden="true" />
+        </button>
+      </aside>
     </div>
   );
 }
@@ -143,8 +238,8 @@ const actionLevel = (action = '') => (/password_reset|status_update|delete/.test
 function AAudit({ data, onRefresh, card, sub, darkMode }) {
   const rows = data?.data || [];
   const levels = {
-    info: { label: 'Info', cls: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
-    warning: { label: 'Sensible', cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
+    info: { label: 'Info', cls: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
+    warning: { label: 'Sensible', cls: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
   };
   const exportCsv = () => {
     const header = ['Horodatage', 'Rôle', 'Utilisateur', 'Action', 'Ressource', 'Identifiant', 'IP'];
@@ -237,7 +332,7 @@ function RowMenu({ items, darkMode }) {
 function IssuedCredentials({ issued, onClose }) {
   if (!issued) return null;
   return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2 text-emerald-900">
+    <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2 text-red-900">
       <p className="font-bold">{issued.title} : {issued.name}</p>
       <p className="text-sm">Transmettez ces identifiants par un canal sûr. Le mot de passe ne sera plus affiché et devra être changé à la prochaine connexion.</p>
       <div className="rounded-lg bg-slate-950 text-white p-3 font-mono text-sm">
@@ -245,7 +340,7 @@ function IssuedCredentials({ issued, onClose }) {
         <div>Mot de passe : <span className="font-bold select-all">{issued.password}</span></div>
       </div>
       <div className="flex gap-2">
-        <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${issued.phone}\nMot de passe : ${issued.password}`)} className="px-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-semibold">Copier</button>
+        <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${issued.phone}\nMot de passe : ${issued.password}`)} className="px-3 py-1.5 rounded-lg border border-red-300 text-xs font-semibold">Copier</button>
         <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-semibold">Masquer</button>
       </div>
     </div>
@@ -279,7 +374,7 @@ function ResetApprovals({ refreshKey, onIssued, sub, darkMode }) {
   };
   if (!rows.length && !error) return null;
   return (
-    <div className={`rounded-xl border p-4 space-y-2 ${darkMode ? 'border-amber-800 bg-amber-950/30' : 'border-amber-200 bg-amber-50'}`}>
+    <div className={`rounded-xl border p-4 space-y-2 ${darkMode ? 'border-red-800 bg-red-950/30' : 'border-red-200 bg-red-50'}`}>
       <p className="font-bold text-sm flex items-center gap-2"><KeyRound className="w-4 h-4" /> Réinitialisations à valider</p>
       <p className={`text-xs ${sub}`}>Elles remplacent le mot de passe et l’Authenticator du compte : un second administrateur doit confirmer l’identité de la personne avant d’approuver.</p>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -306,7 +401,8 @@ const TABS = [
 ];
 
 function AUsers({ card, sub, darkMode }) {
-  const [tab, setTab] = useState('doctors');
+  const { state } = useLocation();
+  const [tab, setTab] = useState(() => TABS.some(tab => tab.id === state?.targetId) ? state.targetId : 'doctors');
   const [rows, setRows] = useState([]);
   const [counts, setCounts] = useState({});
   const [search, setSearch] = useState('');
@@ -387,7 +483,7 @@ function AUsers({ card, sub, darkMode }) {
   const input = `w-full min-h-11 rounded-xl border px-3 text-sm ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`;
   const head = `text-xs ${sub} border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`;
   const line = `border-b align-middle ${darkMode ? 'border-slate-800' : 'border-slate-100'}`;
-  const badge = (ok, yes, no) => <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{ok ? yes : no}</span>;
+  const badge = (ok, yes, no) => <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${ok ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>{ok ? yes : no}</span>;
   const avatar = (text) => <div className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white flex items-center justify-center font-bold text-xs">{text}</div>;
   const initialsOf = (a, b) => `${(a || '?')[0]}${(b || '')[0] || ''}`.toUpperCase();
   const empty = (cols) => <tr><td colSpan={cols} className={`p-6 text-center text-sm ${sub}`}>{loading ? 'Chargement…' : 'Aucun résultat.'}</td></tr>;
@@ -421,7 +517,7 @@ function AUsers({ card, sub, darkMode }) {
           <button type="submit" className="min-h-11 px-4 rounded-xl border text-sm font-semibold">Rechercher</button>
         </form>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        {notice && <p className="text-sm text-emerald-700">{notice}</p>}
+        {notice && <p className="text-sm text-red-700">{notice}</p>}
         <IssuedCredentials issued={issued} onClose={() => setIssued(null)} />
 
         <div className="overflow-x-auto">
@@ -468,7 +564,7 @@ function AUsers({ card, sub, darkMode }) {
                       <td className="p-3"><div className="flex items-center gap-3">{avatar(initialsOf(pt.firstName, pt.lastName))}<div className="min-w-0"><p className="font-semibold truncate">{pt.firstName} {pt.lastName}</p><p className={`text-xs truncate ${sub}`}>{pt.city || '—'}</p></div></div></td>
                       <td className={`p-3 font-mono text-xs ${sub}`}>{pt.cmuNumber || '—'}</td>
                       <td className="p-3 font-mono text-xs">{fmtPhone(pt.loginPhone || pt.phone)}</td>
-                      <td className="p-3"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">{age === '-' ? 'Non renseigné' : `${age} ans`}</span></td>
+                      <td className="p-3"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700">{age === '-' ? 'Non renseigné' : `${age} ans`}</span></td>
                       <td className="p-3 text-right"><RowMenu darkMode={darkMode} items={[
                         { label: 'Réinitialiser le mot de passe', Icon: KeyRound, onClick: () => resetPassword(pt.userId, `${pt.firstName} ${pt.lastName}`), disabled: !pt.userId },
                         (pt.loginPhone || pt.phone) && { label: 'Copier le numéro de connexion', Icon: Copy, onClick: () => copy(pt.loginPhone || pt.phone, 'Numéro') },
@@ -490,7 +586,7 @@ function AUsers({ card, sub, darkMode }) {
               <tbody>
                 {rows.length === 0 ? empty(5) : rows.map((ph) => (
                   <tr key={ph.id} className={line}>
-                    <td className="p-3"><div className="flex items-center gap-3"><div className="w-9 h-9 shrink-0 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center"><Building2 className="w-4 h-4" /></div><div className="min-w-0"><p className="font-semibold truncate">{ph.name}</p><p className={`text-xs truncate ${sub}`}>{ph.city || '—'}{Number(ph.isDuty) ? ' · De garde' : ''}</p></div></div></td>
+                    <td className="p-3"><div className="flex items-center gap-3"><div className="w-9 h-9 shrink-0 rounded-full bg-red-100 text-red-700 flex items-center justify-center"><Building2 className="w-4 h-4" /></div><div className="min-w-0"><p className="font-semibold truncate">{ph.name}</p><p className={`text-xs truncate ${sub}`}>{ph.city || '—'}{Number(ph.isDuty) ? ' · De garde' : ''}</p></div></div></td>
                     <td className={`p-3 text-xs ${sub}`}>{ph.opensAt && ph.closesAt ? `${ph.opensAt} – ${ph.closesAt}` : '—'}</td>
                     <td className="p-3 font-mono text-xs">{fmtPhone(ph.phone)}</td>
                     <td className="p-3">{badge(Number(ph.isOpen), 'Ouverte', 'Fermée')}</td>
@@ -616,7 +712,7 @@ function AAccounts({ sub, darkMode, onPending }) {
       <p className={`text-xs ${sub}`}>Ici : pharmaciens et gouverneurs. Les médecins se créent depuis l’onglet Médecins ; les patients sont créés par leur médecin. Un mot de passe réinitialisé doit être changé à la connexion suivante.</p>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {issued && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2 text-emerald-900">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2 text-red-900">
           <p className="font-bold">{issued.title} : {issued.name}</p>
           <p className="text-sm">Transmettez ces identifiants par un canal sûr. Le mot de passe ne sera plus affiché.</p>
           <div className="rounded-lg bg-slate-950 text-white p-3 font-mono text-sm">
@@ -624,7 +720,7 @@ function AAccounts({ sub, darkMode, onPending }) {
             <div>Mot de passe : <span className="font-bold select-all">{issued.password}</span></div>
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${issued.phone}\nMot de passe : ${issued.password}`)} className="px-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-semibold">Copier</button>
+            <button type="button" onClick={() => navigator.clipboard?.writeText(`Numéro : ${issued.phone}\nMot de passe : ${issued.password}`)} className="px-3 py-1.5 rounded-lg border border-red-300 text-xs font-semibold">Copier</button>
             <button type="button" onClick={() => setIssued(null)} className="px-3 py-1.5 rounded-lg text-xs font-semibold">Masquer</button>
           </div>
         </div>
@@ -634,18 +730,18 @@ function AAccounts({ sub, darkMode, onPending }) {
           <p className="font-bold">Nouveau compte</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-xs font-semibold">Type de compte
-              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={`mt-1 ${input}`}>
+              <NovaSelect darkMode={darkMode} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={`mt-1 ${input}`}>
                 <option value="pharmacist">Pharmacien</option>
                 <option value="governor">Gouverneur (statistiques seules)</option>
-              </select>
+              </NovaSelect>
             </label>
             <label className="text-xs font-semibold">{form.role === 'governor' ? 'Nom ou institution' : 'Nom complet'}<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`mt-1 ${input}`} /></label>
             <label className="text-xs font-semibold">Téléphone<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="0700000000" className={`mt-1 ${input}`} /></label>
             {form.role === 'pharmacist' && <label className="text-xs font-semibold">Pharmacie
-              <select value={form.pharmacyId} onChange={(e) => setForm({ ...form, pharmacyId: e.target.value })} className={`mt-1 ${input}`}>
+              <NovaSelect darkMode={darkMode} value={form.pharmacyId} onChange={(e) => setForm({ ...form, pharmacyId: e.target.value })} className={`mt-1 ${input}`}>
                 <option value="">Choisir…</option>
                 {pharmacies.map((ph) => <option key={ph.id} value={ph.id}>{ph.name} — {ph.city}</option>)}
-              </select>
+              </NovaSelect>
             </label>}
           </div>
           <div className="flex gap-2">
@@ -672,8 +768,8 @@ function AAccounts({ sub, darkMode, onPending }) {
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
                     Number(u.isLocked) ? 'bg-red-100 text-red-700'
                     : !Number(u.hasPassword) ? 'bg-slate-100 text-slate-600'
-                    : Number(u.mustChangePassword) ? 'bg-amber-100 text-amber-700'
-                    : 'bg-emerald-100 text-emerald-700'}`}>
+                    : Number(u.mustChangePassword) ? 'bg-red-100 text-red-700'
+                    : 'bg-red-100 text-red-700'}`}>
                     {Number(u.isLocked) ? 'Bloqué' : !Number(u.hasPassword) ? 'Sans mot de passe' : Number(u.mustChangePassword) ? 'Provisoire' : 'Actif'}
                   </span>
                 </td>
@@ -737,11 +833,11 @@ function ASystem({ data, card, sub, darkMode }) {
           <h3 className="font-bold mb-3">Mesures de sécurité actives</h3>
           {measures.map((m) => (
             <div key={m} className={`flex items-center gap-3 py-2.5 border-b last:border-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" /><span className="text-sm">{m}</span>
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-red-600" /><span className="text-sm">{m}</span>
             </div>
           ))}
           <p className={`text-xs mt-4 flex items-start gap-2 ${sub}`}>
-            <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
             Sauvegardes et HTTPS dépendent du déploiement (services « backup » et « caddy » de docker-compose). Démarche ARTCI à engager avant toute donnée réelle.
           </p>
         </div>
@@ -789,7 +885,7 @@ function ASettings({ card, sub, darkMode }) {
         <label className="block text-xs font-semibold">Confirmer le nouveau mot de passe<input type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
         <p className={`text-xs ${sub}`}>12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.</p>
         {status.error && <p role="alert" className="text-sm text-red-600">{status.error}</p>}
-        {status.ok && <p className="text-sm text-emerald-700">{status.ok}</p>}
+        {status.ok && <p className="text-sm text-red-700">{status.ok}</p>}
         <button type="submit" disabled={saving || !form.current || !form.next || !form.confirm} className="w-full min-h-11 rounded-xl bg-red-600 text-white text-sm font-semibold disabled:opacity-50">{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
       </form>
     </div>

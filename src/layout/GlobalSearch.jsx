@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  Building2, Calendar, ClipboardList, CornerDownLeft, FileDown, FileText, HeartPulse, History, MessageCircle,
+  Building2, Calendar, ClipboardList, CornerDownLeft, FileDown, FileText, HeartPulse, MessageCircle,
   Microscope, Search, StickyNote, Stethoscope, Syringe, X, ArrowRight,
 } from 'lucide-react';
 import { patientApi } from '../api/patientApi.js';
 import { ROLE_SPACES } from '../navigation.js';
-import { scoreFields, searchableDate, tokenize } from '../utils/search.js';
+import { prepareSearchNavigation, scoreFields, searchableDate, tokenize } from '../utils/search.js';
 import { Highlight } from '../components/patient/ui.jsx';
 
 /*
@@ -16,10 +16,9 @@ import { Highlight } from '../components/patient/ui.jsx';
  * (consultations, ordonnances et médicaments, analyses, vaccins, documents, notes, messages,
  * rendez-vous, médecins, pharmacies). Les données sont chargées à l'ouverture puis gardées
  * une minute ; tout est filtré dans le navigateur (rien n'est envoyé à un service tiers).
- * Choisir un résultat ouvre la page concernée déjà filtrée (?q=…).
+ * Choisir un résultat ouvre la page concernée déjà filtrée avec une recherche gardée en mémoire.
  */
 const CACHE_MS = 60_000;
-const RECENT_KEY = 'nova_recent_searches';
 const list = (r) => (Array.isArray(r) ? r : r?.data || []);
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
@@ -84,13 +83,6 @@ const SOURCES = [
   { key: 'pharmacies', label: 'Pharmacies', Icon: Building2, load: patientApi.pharmacies,
     map: (p) => ({ title: p.name, subtitle: [p.city, p.isDuty ? 'de garde' : null].filter(Boolean).join(' · '), page: 'pharmacy', fields: [p.name, p.city, p.address, p.isDuty ? 'garde' : '', 'pharmacie'] }) },
 ];
-
-function readRecent() {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').slice(0, 5); } catch { return []; }
-}
-function saveRecent(q) {
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify([q, ...readRecent().filter((x) => x !== q)].slice(0, 5))); } catch { /* stockage indisponible */ }
-}
 
 export default function GlobalSearch({ darkMode }) {
   const [open, setOpen] = useState(false);
@@ -162,11 +154,10 @@ export default function GlobalSearch({ darkMode }) {
 
   const choose = useCallback((item) => {
     if (!item) return;
-    if (query.trim()) saveRecent(query.trim());
     setOpen(false); setQuery('');
     const filter = item.isPage ? '' : (item.q || item.title || '');
-    navigate(`/patient/${item.page}${filter ? `?q=${encodeURIComponent(filter)}` : ''}`);
-  }, [navigate, query]);
+    navigate(`/patient/${item.page}`, { state: prepareSearchNavigation(filter) });
+  }, [navigate]);
 
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(flat.length - 1, i + 1)); }
@@ -174,7 +165,6 @@ export default function GlobalSearch({ darkMode }) {
     else if (e.key === 'Enter') { e.preventDefault(); choose(flat[active]); }
   };
 
-  const recent = open && !query ? readRecent() : [];
   const panel = darkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-red-100';
   let index = -1;
 
@@ -207,12 +197,6 @@ export default function GlobalSearch({ darkMode }) {
             <div id="global-search-results" ref={listRef} role="listbox" className="max-h-[60vh] overflow-y-auto p-2">
               {!query && (
                 <div className="p-3 space-y-4">
-                  {recent.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1.5"><History className="w-3.5 h-3.5" /> Recherches récentes</p>
-                      <div className="flex flex-wrap gap-1.5">{recent.map((r) => <button key={r} type="button" onClick={() => setQuery(r)} className="px-3 py-1.5 rounded-full border border-red-100 text-xs font-medium hover:bg-red-50">{r}</button>)}</div>
-                    </div>
-                  )}
                   <div>
                     <p className="text-xs font-semibold text-slate-500 mb-2">Exemples</p>
                     <div className="flex flex-wrap gap-1.5">{['amoxicilline', 'tension', 'octobre 2026', 'vaccin', 'pharmacie de garde', 'cardiologie'].map((r) => <button key={r} type="button" onClick={() => setQuery(r)} className="px-3 py-1.5 rounded-full bg-red-50 text-red-700 text-xs font-medium hover:bg-red-100">{r}</button>)}</div>

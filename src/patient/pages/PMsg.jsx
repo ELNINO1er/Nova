@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Send, ChevronLeft, ChevronUp, ChevronDown, CheckCheck, Plus } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -24,7 +25,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
   const [sending, setSending]       = useState(false);
   const [showList, setShowList]     = useState(true); // mobile toggle
   const [convError, setConvError]   = useState('');
-  const [query, setQuery]           = useUrlQuery();   // ?q= (aussi rempli par la recherche globale de l'en-tête)
+  const [query, setQuery]           = useUrlQuery();
   const [matchIdx, setMatchIdx]     = useState(-1);    // message correspondant actuellement ciblé
   const msgRefs  = useRef(new Map());
   const messageOperation=useRef(null);
@@ -52,7 +53,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
   const results = useSearch(convList, query, CONV_FIELDS);
 
-  // Ouverture automatique : la meilleure correspondance de ?q= (lien profond), sinon la plus récente.
+  // Ouvre la meilleure correspondance de recherche, ou la conversation la plus récente.
   useEffect(() => {
     if (convList.length > 0 && !selId) openConversation((query && results[0]?.id) || convList[0].id);
   }, [convList]);
@@ -191,10 +192,10 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
             <label className="flex-1 min-w-0 block text-xs font-medium text-slate-500">
               Destinataire autorisé
-              <select value={recipient} onChange={e => setRecipient(e.target.value)} className={`mt-1 ${inputClass(darkMode)}`}>
+              <NovaSelect darkMode={darkMode} value={recipient} onChange={e => setRecipient(e.target.value)} className={`mt-1 ${inputClass(darkMode)}`}>
                 <option value="">Choisir…</option>
                 {recipients.map(r => <option key={r.id} value={r.id}>{r.firstName} {r.lastName}</option>)}
-              </select>
+              </NovaSelect>
             </label>
             <Button darkMode={darkMode} disabled={sending || !recipient} onClick={start}>Ouvrir la conversation</Button>
           </div>

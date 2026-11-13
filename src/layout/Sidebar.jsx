@@ -1,6 +1,49 @@
 import React, { useEffect, useState } from 'react';
 import { ROLE_SPACES, SIDEBAR_SUBMENU_ROLES } from '../navigation.js';
-import { ChevronDown, LogOut, Plus, Settings, Sparkles, UserPlus } from 'lucide-react';
+import { Camera, ChevronDown, LogOut, Plus, Settings, Sparkles, UserPlus } from 'lucide-react';
+
+import { doctorApi } from '../api/doctorApi.js';
+import { announcePhotoChange, PHOTO_ACCEPT, preparePhoto } from '../utils/photo.js';
+
+function DoctorIdentity({ user, photoSrc, sub, darkMode }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function update(file) {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      if (file) await doctorApi.updatePhoto(await preparePhoto(file));
+      else await doctorApi.removePhoto();
+      announcePhotoChange();
+    } catch (err) {
+      setError(err.message || 'La photo n’a pas pu être modifiée.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`shrink-0 border-b px-4 pb-4 pt-6 text-center ${darkMode ? 'border-slate-800' : 'border-red-100'}`}>
+      <div className="relative mx-auto mb-2 w-fit">
+        <div className="grid size-20 place-items-center overflow-hidden rounded-full border-4 border-red-100 bg-red-700 text-xl font-bold text-white">
+          {photoSrc ? <img src={photoSrc} alt="Portrait du médecin" className="h-full w-full object-cover" decoding="async" /> : user?.avatar || 'DR'}
+        </div>
+        <label title="Choisir une photo" className="absolute -bottom-1 -right-1 grid size-9 cursor-pointer place-items-center rounded-full bg-red-700 text-white ring-2 ring-white hover:bg-red-800 focus-within:ring-red-400">
+          <Camera size={15} aria-hidden="true" />
+          <input type="file" className="sr-only" aria-label="Choisir une photo de profil" accept={PHOTO_ACCEPT} disabled={busy}
+            onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) update(file); }} />
+        </label>
+      </div>
+      <p className={`break-words text-sm font-bold ${darkMode ? 'text-red-300' : 'text-red-700'}`}>{user?.name || 'Médecin'}</p>
+      <p className={`text-[11px] ${sub}`}>Espace médecin</p>
+      {busy && <p role="status" className={`mt-1 text-xs ${sub}`}>Mise à jour de la photo…</p>}
+      {error && <p role="alert" className={`mt-1 text-xs ${darkMode ? 'text-red-300' : 'text-red-700'}`}>{error}</p>}
+      {photoSrc && !busy && <button type="button" onClick={() => update(null)} className={`mt-1 min-h-8 text-xs underline ${darkMode ? 'text-red-300' : 'text-red-700'}`}>Retirer la photo</button>}
+    </div>
+  );
+}
 
 /* ============== SIDEBAR ============== */
 // Contact support configurable (VITE_SUPPORT_WHATSAPP prioritaire, sinon VITE_SUPPORT_EMAIL) ; carte masquée sinon.
@@ -34,6 +77,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
 
   return (
     <aside className={`${sbBg} border-r ${border} fixed lg:sticky lg:top-[57px] top-0 left-0 z-50 lg:z-30 w-64 h-screen lg:h-[calc(100vh-57px)] transition-transform duration-300 ${sbOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col`}>
+      {role === 'doctor' && <DoctorIdentity user={user} photoSrc={photoSrc} sub={sub} darkMode={darkMode} />}
       <nav className="flex-1 p-3 overflow-y-auto" aria-label="Espaces">
         <div className="space-y-1">
           {spaces.map((sp) => {
@@ -107,6 +151,13 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {role === 'admin' && onLogout && (
+        <div className={`p-3 border-t ${border}`}>
+          <button type="button" onClick={onLogout} disabled={loggingOut} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-200 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+            <LogOut size={16} aria-hidden="true" /> {loggingOut ? 'Déconnexion…' : 'Se déconnecter'}
+          </button>
         </div>
       )}
       {SUPPORT_HREF && (

@@ -14,7 +14,7 @@ const STATUS_MAP = {
 const REASONS = {
   revoked: ['Accès révoqué par vous', 'neutral'],
   consent: ['Accès accordé', 'watch'],
-  care: ['Accès lié à votre suivi en cours', 'watch'],
+  care: ['Accord donné pour un rendez-vous', 'watch'],
   none: ['Pas d’accès actuellement', 'neutral'],
 };
 
@@ -160,6 +160,9 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                         <p className="font-semibold break-words">{hl(m.doctorName)}</p>
                         <p className={`text-xs mt-0.5 ${sub}`}>{hl([m.specialty, m.city].filter(Boolean).join(' · ') || '—')}</p>
                         <div className="mt-2"><Chip tone={reasonTone}>{reasonLabel}</Chip></div>
+                        {m.hasAccess && <p className={`mt-1 text-xs ${sub}`}>
+                          {m.expiresAt ? `Jusqu’au ${new Date(m.expiresAt).toLocaleDateString('fr-FR')}` : 'Sans date de fin'}
+                        </p>}
                       </div>
                       {m.hasAccess ? (
                         <Button variant="danger" darkMode={darkMode} disabled={busy === m.doctorId} onClick={() => decide(m, 'revoke')}>Révoquer l’accès</Button>

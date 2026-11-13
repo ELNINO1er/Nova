@@ -21,7 +21,7 @@ import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 
 const app = express();
-const port = Number(process.env.API_PORT || 4001);
+const port = Number(process.env.PORT || process.env.API_PORT || 4001);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
 
@@ -45,7 +45,11 @@ if (isProduction && process.env.COOKIE_SECURE === 'false' && process.env.ALLOW_I
 if (isProduction) app.set('trust proxy', 1);
 
 app.use(compression());
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: { imgSrc: ["'self'", 'data:', 'blob:'] },
+  },
+}));
 const allowedOrigins = (process.env.WEB_ORIGIN || 'http://localhost:5174')
   .split(',').map((origin) => origin.trim()).filter(Boolean);
 app.use(cors({

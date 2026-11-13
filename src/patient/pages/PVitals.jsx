@@ -1,3 +1,4 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useMemo, useState } from 'react';
 import { Heart, HeartPulse, Droplet, Thermometer, TrendingUp, TrendingDown, Plus, Activity } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -121,10 +122,10 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
           <div className="space-y-4">
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Constante</span>
-              <select value={addForm.type} onChange={e => setAddForm(f => ({ ...f, type: e.target.value, value: '' }))}
+              <NovaSelect darkMode={darkMode} value={addForm.type} onChange={e => setAddForm(f => ({ ...f, type: e.target.value, value: '' }))}
                 className={`mt-1 ${inputClass(darkMode)}`}>
                 {Object.entries(typeConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
+              </NovaSelect>
             </label>
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Valeur ({typeConfig[addForm.type].unit})</span>

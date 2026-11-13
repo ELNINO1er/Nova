@@ -1,3 +1,4 @@
+import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useEffect, useState } from 'react';
 import { Activity, BarChart3, Building2, ClipboardList, FlaskConical, Pill, RefreshCw, Stethoscope, Users } from 'lucide-react';
 import { governorApi } from '../api/governorApi.js';
@@ -41,13 +42,35 @@ export default function GovernorPages({ card, sub, darkMode }) {
       />
 
       {error && <p role="alert" className="text-red-700">{error}</p>}
-      <form onSubmit={e=>{e.preventDefault();load();}} className={`${card} p-4 rounded-xl flex flex-wrap gap-3 items-end`}>
-       <label>Du <input type="date" required value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})} /></label>
-       <label>Au <input type="date" required max={new Date().toISOString().slice(0,10)} value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})} /></label>
-       <label>Ville <select value={filters.city} onChange={e=>setFilters({...filters,city:e.target.value})}><option value="">Toutes les villes</option>{data.availableCities?.map(c=><option key={c}>{c}</option>)}</select></label>
-       <button className="bg-red-600 text-white px-4 py-2 rounded-lg">Appliquer</button><button type="button" onClick={exportReport}>Exporter le rapport agrégé</button>
+      <form onSubmit={e => { e.preventDefault(); load(); }} className={`${card} rounded-xl border p-4`}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Du
+            <input className="rounded-lg border border-red-200 bg-transparent px-3 py-2" type="date" required value={filters.from}
+              onChange={e => setFilters({ ...filters, from: e.target.value })} />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Au
+            <input className="rounded-lg border border-red-200 bg-transparent px-3 py-2" type="date" required
+              max={new Date().toISOString().slice(0,10)} value={filters.to} onChange={e => setFilters({ ...filters, to: e.target.value })} />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Ville
+            <NovaSelect darkMode={darkMode} className="rounded-lg border border-red-200 bg-transparent px-3 py-2" value={filters.city}
+              onChange={e => setFilters({ ...filters, city: e.target.value })}>
+              <option value="">Toutes les villes</option>
+              {data.availableCities?.map(city => <option key={city}>{city}</option>)}
+            </NovaSelect>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="submit" className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white">Appliquer</button>
+          <button type="button" onClick={exportReport} className={`min-h-11 rounded-lg border border-red-200 px-4 text-sm font-semibold ${darkMode ? 'text-red-200' : 'text-red-800'}`}>Exporter le rapport agrégé</button>
+        </div>
       </form>
-      <details className={`${card} p-4 rounded-xl`}><summary>Méthodologie et qualité des données</summary><p>{data.methodology?.coverage}</p><p>{data.methodology?.scope}</p><p>{data.methodology?.suppression}</p><p>Ces tendances ne constituent pas des alertes sanitaires validées.</p>{Object.entries(data.methodology?.definitions||{}).map(([key,value])=><p key={key}>{value}</p>)}</details>
+      <details className={`${card} space-y-2 rounded-xl border p-4 text-sm`}>
+        <summary className="cursor-pointer font-semibold">Méthodologie et qualité des données</summary>
+        <p>{data.methodology?.coverage}</p><p>{data.methodology?.scope}</p><p>{data.methodology?.suppression}</p>
+        <p>Ces tendances ne constituent pas des alertes sanitaires validées.</p>
+        {Object.entries(data.methodology?.definitions || {}).map(([key, value]) => <p key={key}>{value}</p>)}
+      </details>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Patients inscrits" Icon={Users} value={n(k.patients)} hint="Dossiers enregistrés" card={card} sub={sub} />
         <KpiCard label="Médecins" Icon={Stethoscope} value={n(k.doctors)} hint="Professionnels inscrits" card={card} sub={sub} />

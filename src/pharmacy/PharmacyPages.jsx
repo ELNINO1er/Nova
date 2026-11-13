@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import NovaSelect from '../components/NovaSelect.jsx';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Activity, AlertCircle, AlertTriangle, Check, CheckCircle2, ChevronRight,
+  Activity, AlertCircle, ArrowUpRight, Building2, CalendarDays, AlertTriangle, Check, CheckCircle2, ChevronRight,
   Clock, ClipboardList, FileText, Package, Pill, QrCode, Search,
   ShieldCheck, Stethoscope, User, X, Camera, Scan
 } from 'lucide-react';
 import { pharmacyApi } from '../api/pharmacyApi.js';
 import PageError from '../components/PageError.jsx';
+import { PageHeader } from '../components/patient/ui.jsx';
 import {
-  Avatar, ColumnChart, DashHeader, Empty, GhostButton, KpiCard, LinkButton, MiniCalendar, Panel, PERIODS, PERIOD_TEXT,
-  PrimaryButton, Segmented, StatusChip, bucketize, dayKey, fmtDay, fmtTime,
+  Empty, dayKey, fmtDay, fmtTime, initialsOf,
 } from '../components/dashboard/kit.jsx';
 
 export default function PharmacyPages({ page, setPage, card, sub, border, darkMode }) {
@@ -46,15 +47,17 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
     <div className="space-y-5">
       {notice && (
         <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl
-          ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
           {notice.message}
         </div>
       )}
 
+      {page !== 'dashboard' && <PageHeader title={{ scan: 'Scanner une ordonnance', history: 'Historique des délivrances', settings: 'Mon officine' }[page]}
+        sub={sub} actions={page === 'history' && <PhLink onClick={() => setPage('scan')}>Scanner une ordonnance</PhLink>} />}
       {apiError[page] && !apiData[page] ? (
         <PageError message={apiError[page]} onRetry={() => loadPage(page, true)} card={card} sub={sub} />
       ) : (<>
-      {page === 'dashboard' && <PhDashboard data={apiData.dashboard} loading={apiLoading.dashboard} setPage={setPage} notify={notify} {...p} />}
+      {page === 'dashboard' && <PhDashboard data={apiData.dashboard} setPage={setPage} {...p} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
       {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} {...p} />}
@@ -74,7 +77,7 @@ function PhSettings({ data, loading, card, sub, border, darkMode }) {
     <div className="space-y-5">
       <div className={`${card} border rounded-2xl p-5`}>
         <h3 className="font-bold mb-4 flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-emerald-600" /> Informations de l'officine
+          <ShieldCheck className="w-5 h-5 text-red-600" /> Informations de l'officine
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <InfoCell label="Nom" value={ph.name} sub={sub} />
@@ -86,7 +89,7 @@ function PhSettings({ data, loading, card, sub, border, darkMode }) {
 
       <div className={`${card} border rounded-2xl p-5`}>
         <h3 className="font-bold mb-2 flex items-center gap-2">
-          <User className="w-5 h-5 text-emerald-600" /> Compte
+          <User className="w-5 h-5 text-red-600" /> Compte
         </h3>
         <p className={`text-sm ${sub}`}>
           La gestion du compte et des préférences de l'officine sera disponible prochainement.
@@ -100,86 +103,142 @@ function PhSettings({ data, loading, card, sub, border, darkMode }) {
 /* ═══════════════════════════════════════════════════════════════
    DASHBOARD PHARMACIE
    ═══════════════════════════════════════════════════════════════ */
-function PhDashboard({ data, loading, setPage, card, sub, darkMode }) {
-  const [dispenses, setDispenses] = useState([]);
-  const [period, setPeriod] = useState('week');
-  useEffect(() => {
-    let alive = true;
-    pharmacyApi.dispenses().then((r) => alive && setDispenses(Array.isArray(r) ? r : r?.data || [])).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+const dispenseLabels = { full: 'Complète', partial: 'Partielle', refused: 'Refusée' };
+const phNumber = new Intl.NumberFormat('fr-FR');
+const phWeekday = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
+const phDayLabel = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' });
+const phSurface = 'min-w-0 rounded-xl border border-red-100 bg-white group-data-[theme=dark]:border-slate-800 group-data-[theme=dark]:bg-slate-900';
+const phTint = 'border-red-100 bg-red-50/70 group-data-[theme=dark]:border-slate-800 group-data-[theme=dark]:bg-slate-950/70';
+const phRed = 'text-red-700 group-data-[theme=dark]:text-red-300';
 
-  // Délivrances regroupées selon la période choisie.
-  const series = useMemo(() => bucketize(dispenses.filter((x) => x.dispensedAt).map((x) => x.dispensedAt), period), [dispenses, period]);
-  const marked = useMemo(() => new Set(dispenses.map((x) => dayKey(x.dispensedAt))), [dispenses]);
+function PhPanel({ title, Icon, action, className = '', children }) {
+  return (
+    <section className={`${phSurface} p-4 ${className}`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-bold"><Icon size={17} className={phRed} aria-hidden="true" />{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
 
-  if (loading || !data) return <PhSkeleton darkMode={darkMode} card={card} />;
-  const partial = dispenses.filter((x) => x.status === 'partial').length;
-  const full = dispenses.filter((x) => x.status === 'full').length;
-  const fullRate = dispenses.length ? Math.round((full / dispenses.length) * 100) : null;
+function PhLink({ children, onClick }) {
+  return <button type="button" onClick={onClick} className={`inline-flex min-h-8 items-center gap-1 text-xs font-semibold hover:underline ${phRed}`}>
+    {children}<ArrowUpRight size={13} aria-hidden="true" />
+  </button>;
+}
+
+function DispenseStatus({ status }) {
+  const emphasis = status === 'full' ? 'bg-red-700 text-white' : 'bg-red-50 text-red-800 ring-1 ring-inset ring-red-200';
+  return <span className={`inline-block rounded-full px-2 py-1 text-[11px] font-semibold ${emphasis}`}>{dispenseLabels[status] || 'Statut inconnu'}</span>;
+}
+
+function PhDashboard({ data, setPage, card, sub, darkMode }) {
+  const [date, setDate] = useState(null);
+  const [status, setStatus] = useState('all');
+  if (!data) return <PhSkeleton darkMode={darkMode} card={card} />;
+  const office = data.pharmacy;
+  const recent = data.recentDispenses || [];
+  const currentDate = new Date();
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(currentDate);
+    day.setDate(day.getDate() + index - 6);
+    return day;
+  });
+  const marked = new Set(recent.filter(row => row.dispensedAt).map(row => dayKey(row.dispensedAt)));
+  const byDate = date ? recent.filter(row => dayKey(row.dispensedAt) === date) : recent;
+  const filtered = status === 'all' ? byDate : byDate.filter(row => row.status === status);
+  const counts = data.dispenseCounts || {};
+  const metrics = [
+    { label: 'Délivrances du jour', value: data.todayDispenses, Icon: CalendarDays },
+    { label: 'Délivrances enregistrées', value: data.totalDispenses, Icon: Package },
+    { label: 'Délivrances partielles', value: counts.partial, Icon: Pill },
+  ];
 
   return (
-    <div className="space-y-5">
-      <DashHeader
-        title={data.pharmacy?.name || 'Pharmacie'}
-        subtitle={[data.pharmacy?.city, data.pharmacy?.phone].filter(Boolean).join(' · ') || 'Tableau de bord officine'}
-        actions={<>
-          <GhostButton Icon={ClipboardList} onClick={() => setPage('history')} darkMode={darkMode}>Historique</GhostButton>
-          <PrimaryButton Icon={Scan} onClick={() => setPage('scan')}>Scanner une ordonnance</PrimaryButton>
-        </>}
-      />
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-        <div className="xl:col-span-2 space-y-5">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard label="Aujourd’hui" Icon={Pill} value={data.todayDispenses ?? 0} hint="Délivrances du jour" card={card} sub={sub} />
-            <KpiCard label="Total" Icon={Package} value={data.totalDispenses ?? 0} hint="Depuis l’ouverture" onClick={() => setPage('history')} card={card} sub={sub} />
-            <KpiCard label="Partielles" Icon={AlertTriangle} value={partial} chip={partial ? 'À compléter' : null} chipTone="warn" hint="Ordonnances à finir" onClick={() => setPage('history')} card={card} sub={sub} />
-            <KpiCard label="Taux complet" Icon={CheckCircle2} value={fullRate ?? '—'} unit={fullRate != null ? '%' : undefined} hint="Délivrances complètes" card={card} sub={sub} />
+    <div data-theme={darkMode ? 'dark' : 'light'} className="group space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-gradient-to-r from-red-800 to-red-600 px-5 py-5 text-white sm:px-6">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-red-100">Tableau de bord</p>
+          <h1 className="break-words text-xl font-bold sm:text-2xl">{office?.name || 'Espace pharmacie'}</h1>
+          {office?.city && <p className="mt-1 text-xs text-red-100">{office.city}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setPage('history')} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/60 px-3 text-sm font-semibold hover:bg-white/15"><ClipboardList size={16} aria-hidden="true" /> Historique</button>
+          <button type="button" onClick={() => setPage('scan')} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-red-800 hover:bg-red-50"><Scan size={16} aria-hidden="true" /> Scanner une ordonnance</button>
+        </div>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {metrics.map(({ label, value, Icon }) => (
+          <div key={label} className={`flex items-center gap-3 p-3 ${phSurface}`}>
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-red-100 text-red-800"><Icon size={19} aria-hidden="true" /></span>
+            <span className="min-w-0"><span className={`block text-xs ${sub}`}>{label}</span><strong className="text-xl tabular-nums">{value == null ? '—' : phNumber.format(value)}</strong></span>
           </div>
-          <Panel title="Activité des délivrances" subtitle={`${series.reduce((s, d) => s + d.value, 0)} délivrance(s) ${PERIOD_TEXT[period]}`} action={<Segmented options={PERIODS} value={period} onChange={setPeriod} darkMode={darkMode} />} card={card} sub={sub}>
-            <ColumnChart key={period} data={series} valueLabel="délivrance(s)" height="13rem" darkMode={darkMode} />
-          </Panel>
-          <Panel title="Dernières délivrances" action={<LinkButton onClick={() => setPage('history')}>Tout voir</LinkButton>} card={card} sub={sub}>
-            {(data.recentDispenses || []).length === 0 ? <Empty sub={sub}>Aucune délivrance pour le moment.</Empty> : (
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full text-sm">
-                  <thead><tr className={`text-xs ${sub} ${darkMode ? 'bg-slate-800/60' : 'bg-red-50/60'}`}>
-                    <th className="text-left font-semibold px-3 py-2.5 rounded-l-lg">Patient</th>
-                    <th className="text-left font-semibold px-3 py-2.5">Date</th>
-                    <th className="text-left font-semibold px-3 py-2.5 rounded-r-lg">Statut</th>
-                  </tr></thead>
-                  <tbody>{data.recentDispenses.slice(0, 6).map((d) => (
-                    <tr key={d.id} className={`border-b last:border-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-                      <td className="px-3 py-3"><span className="flex items-center gap-2.5"><Avatar name={d.patientName} size="sm" /><span className="font-medium">{d.patientName}</span></span></td>
-                      <td className={`px-3 py-3 whitespace-nowrap ${sub}`}>{fmtDay(d.dispensedAt)} · {fmtTime(d.dispensedAt)}</td>
-                      <td className="px-3 py-3"><StatusChip status={d.status} /></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-        </div>
-        <div className="space-y-5">
-          <section className="rounded-2xl p-6 bg-gradient-to-br from-red-600 to-red-800 text-white relative overflow-hidden">
-            <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10" aria-hidden="true" />
-            <QrCode className="w-8 h-8" />
-            <h3 className="font-bold text-lg mt-3">Délivrer une ordonnance</h3>
-            <p className="text-sm text-red-100 mt-1">Scannez le QR code de l’ordonnance du patient pour vérifier son authenticité et la délivrer.</p>
-            <button type="button" onClick={() => setPage('scan')} className="mt-4 w-full min-h-11 rounded-xl bg-white text-red-700 font-semibold text-sm hover:bg-red-50">Ouvrir le scanner</button>
-          </section>
-          <Panel title="Calendrier" subtitle="Les points indiquent les jours de délivrance" card={card} sub={sub}>
-            <MiniCalendar marked={marked} darkMode={darkMode} />
-          </Panel>
-          <Panel title="Répartition" card={card} sub={sub}>
-            {[['Complètes', full, 'bg-red-600'], ['Partielles', partial, 'bg-red-300']].map(([l, n, c]) => (
-              <div key={l} className="mb-3 last:mb-0">
-                <div className="flex justify-between text-sm"><span>{l}</span><span className="font-semibold">{n}</span></div>
-                <div className={`h-2 rounded-full mt-1.5 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}><div className={`h-full rounded-full ${c}`} style={{ width: `${dispenses.length ? (n / dispenses.length) * 100 : 0}%` }} /></div>
-              </div>
-            ))}
-          </Panel>
-        </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <PhPanel title="Activité de l’officine" Icon={CalendarDays} action={<PhLink onClick={() => setPage('history')}>Historique</PhLink>}>
+          <div className="grid grid-cols-7 gap-1" aria-label="Filtrer les dernières délivrances par jour">
+            {days.map(day => {
+              const key = dayKey(day);
+              const active = date === key;
+              return <button key={key} type="button" aria-label={phDayLabel.format(day)} aria-pressed={active} onClick={() => setDate(active ? null : key)}
+                className={`min-h-12 min-w-0 rounded-lg border px-0.5 py-1 text-center ${active ? 'border-red-700 bg-red-700 text-white' : phTint}`}>
+                <span className="block text-[10px] capitalize">{phWeekday.format(day)}</span>
+                <strong className="block text-xs">{day.getDate()}</strong>
+                {marked.has(key) && <span className={`mx-auto mt-0.5 block size-1 rounded-full ${active ? 'bg-white' : 'bg-red-600'}`} />}
+              </button>;
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className={`text-xs ${sub}`}>{date ? fmtDay(date) : 'Dernières délivrances'}</p>
+            {date && <PhLink onClick={() => setDate(null)}>Retirer le filtre</PhLink>}
+          </div>
+          {byDate.length ? <ul className="mt-2 space-y-2">
+            {byDate.slice(0, 3).map(row => <li key={row.id} className={`flex min-w-0 items-center gap-2 rounded-lg border p-2.5 ${phTint}`}>
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-red-100 text-[11px] font-bold text-red-800">{initialsOf(row.patientName || '')}</span>
+              <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{row.patientName}</p><p className={`text-[11px] ${sub}`}>{fmtDay(row.dispensedAt)} · {fmtTime(row.dispensedAt)}</p></div>
+              <DispenseStatus status={row.status} />
+            </li>)}
+          </ul> : <Empty sub={sub}>{date ? 'Aucune délivrance récente pour cette date.' : 'Aucune délivrance enregistrée.'}</Empty>}
+        </PhPanel>
+
+        <PhPanel title="Dernières délivrances" Icon={ClipboardList} action={
+          <NovaSelect darkMode={darkMode} aria-label="Filtrer par statut" value={status} onChange={event => setStatus(event.target.value)}
+            className={`max-w-full rounded-lg border px-2 py-2 text-xs ${phTint}`}>
+            <option value="all">Tous les statuts</option>
+            {Object.entries(dispenseLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </NovaSelect>
+        }>
+          {filtered.length ? <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead><tr className={`border-b border-red-100 ${sub}`}><th scope="col" className="p-2">Patient</th><th scope="col" className="p-2">Délivrée le</th><th scope="col" className="p-2">Statut</th></tr></thead>
+              <tbody className="divide-y divide-red-100 group-data-[theme=dark]:divide-slate-800">
+                {filtered.slice(0, 5).map(row => <tr key={row.id}>
+                  <td className="break-words p-2 font-semibold">{row.patientName}</td><td className={`p-2 ${sub}`}>{fmtDay(row.dispensedAt)} · {fmtTime(row.dispensedAt)}</td><td className="p-2"><DispenseStatus status={row.status} /></td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div> : <Empty sub={sub}>{recent.length ? 'Aucune délivrance ne correspond aux filtres.' : 'Les délivrances apparaîtront après enregistrement.'}</Empty>}
+          <PhLink onClick={() => setPage('history')}>Voir l’historique complet</PhLink>
+        </PhPanel>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <PhPanel title="Répartition des délivrances" Icon={Activity}>
+          <dl className="space-y-2">
+            {Object.entries(dispenseLabels).map(([key, label]) => <div key={key} className={`flex justify-between rounded-lg border p-2.5 text-xs ${phTint}`}>
+              <dt>{label}</dt><dd className={`font-bold tabular-nums ${phRed}`}>{counts[key] == null ? '—' : phNumber.format(counts[key])}</dd>
+            </div>)}
+          </dl>
+        </PhPanel>
+        <PhPanel title="Mon officine" Icon={Building2} action={<PhLink onClick={() => setPage('settings')}>Informations</PhLink>}>
+          <p className="text-sm font-semibold">{office?.name || 'Officine'}</p>
+          {[office?.address, office?.city, office?.phone].filter(Boolean).map((value, index) => <p key={index} className={`mt-1 break-words text-xs ${sub}`}>{value}</p>)}
+        </PhPanel>
       </div>
     </div>
   );
@@ -258,16 +317,16 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
       {/* Saisie ID ordonnance */}
       <div className={`${card} border rounded-2xl p-6`}>
         <h3 className="font-bold mb-4 flex items-center gap-2">
-          <Scan className="w-5 h-5 text-emerald-600" /> Vérifier une ordonnance
+          <Scan className="w-5 h-5 text-red-600" /> Vérifier une ordonnance
         </h3>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input ref={inputRef} type="text" value={prescriptionId} onChange={e => setPrescriptionId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && verify()}
             placeholder="Scanner ou coller le token QR ordonnance..."
-            className={`flex-1 px-4 py-3 rounded-xl border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+            className={`min-w-0 flex-1 px-4 py-3 rounded-xl border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`}
           />
           <button onClick={verify} disabled={loading}
-            className="px-6 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50">
+            className="px-6 py-3 rounded-xl bg-red-600 text-white font-bold text-sm flex items-center gap-2 hover:bg-red-700 disabled:opacity-50">
             {loading ? <Clock className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Vérifier
           </button>
@@ -283,13 +342,15 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
               <p className={`text-sm ${sub}`}>CMU : {verification.cmuNumber || 'masque'}</p>
             </div>
             <div className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-              verification.verification.canDispense ? 'bg-emerald-100 text-emerald-700'
+              verification.verification.canDispense ? 'bg-red-100 text-red-700'
               : verification.verification.expired ? 'bg-red-100 text-red-700'
-              : 'bg-amber-100 text-amber-700'
+              : 'bg-red-100 text-red-700'
             }`}>
               {verification.verification.canDispense ? '✓ Valide — dispensable'
               : verification.verification.expired ? '✗ Expirée'
               : verification.verification.alreadyFull ? '✗ Déjà délivrée'
+              : verification.status === 'cancelled' ? '✗ Annulée'
+              : verification.verification.quantitiesMissing ? '✗ Quantités prescrites manquantes'
               : '✗ Non dispensable'}
             </div>
           </div>
@@ -302,8 +363,8 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
           </div>
 
           {verification.lastDispense && (
-            <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
-              <p className="text-xs text-amber-800 font-semibold flex items-center gap-1">
+            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+              <p className="text-xs text-red-800 font-semibold flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
                 Dernière délivrance : {verification.lastDispense.status === 'full' ? 'Complète' : 'Partielle'} le {new Date(verification.lastDispense.dispensedAt).toLocaleDateString('fr-FR')}
               </p>
@@ -311,7 +372,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
           )}
 
           {/* Authentification */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 gap-2 mb-4 sm:grid-cols-3">
             <StatusBadge ok={verification.verification.authentic} label="Authenticité" darkMode={darkMode} />
             <StatusBadge ok={!verification.verification.expired} label="Non expirée" darkMode={darkMode} />
             <StatusBadge ok={!verification.verification.alreadyFull} label="Non délivrée" darkMode={darkMode} />
@@ -323,13 +384,13 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
       {detail && verification?.verification.canDispense && (
         <div className={`${card} border rounded-2xl p-6`}>
           <h3 className="font-bold mb-4 flex items-center gap-2">
-            <Pill className="w-5 h-5 text-emerald-600" /> Médicaments prescrits ({detail.items.length})
+            <Pill className="w-5 h-5 text-red-600" /> Médicaments prescrits ({detail.items.length})
           </h3>
 
           <div className="space-y-3 mb-6">
             {detail.items.map((item, idx) => (
               <div key={item.id} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex-1">
                     <p className="font-bold text-sm">{item.name}</p>
                     <p className={`text-xs ${sub} mt-0.5`}>
@@ -354,9 +415,9 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
             ))}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <button onClick={() => doDispense('full')} disabled={dispensing || detail.items.some(i=>i.remaining==null)}
-              className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-700 disabled:opacity-50">
+              className="flex-1 px-4 py-3 rounded-xl bg-red-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-700 disabled:opacity-50">
               <CheckCircle2 className="w-4 h-4" /> Délivrance complète
             </button>
             <button onClick={() => doDispense('partial')} disabled={dispensing || detail.items.some(i=>i.remaining==null)}
@@ -384,7 +445,7 @@ function PhHistory({ data, loading, card, sub, border, darkMode }) {
   return (
     <div className={`${card} border rounded-2xl p-5`}>
       <h3 className="font-bold mb-4 flex items-center gap-2">
-        <ClipboardList className="w-5 h-5 text-emerald-600" /> Historique des délivrances
+        <ClipboardList className="w-5 h-5 text-red-600" /> Historique des délivrances
       </h3>
       {items.length === 0 ? (
         <div className="py-12 text-center">
@@ -396,7 +457,7 @@ function PhHistory({ data, loading, card, sub, border, darkMode }) {
           {items.map(d => (
             <div key={d.id} className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0
-                ${d.status === 'full' ? 'bg-emerald-500' : d.status === 'partial' ? 'bg-amber-500' : 'bg-red-500'}`}>
+                ${d.status === 'full' ? 'bg-red-500' : d.status === 'partial' ? 'bg-red-500' : 'bg-red-500'}`}>
                 {d.status === 'full' ? <Check className="w-5 h-5" /> : d.status === 'partial' ? <Clock className="w-5 h-5" /> : <X className="w-5 h-5" />}
               </div>
               <div className="flex-1 min-w-0">
@@ -405,7 +466,7 @@ function PhHistory({ data, loading, card, sub, border, darkMode }) {
               </div>
               <div className="text-right flex-shrink-0">
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold
-                  ${d.status === 'full' ? 'bg-emerald-100 text-emerald-700' : d.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  ${d.status === 'full' ? 'bg-red-100 text-red-700' : d.status === 'partial' ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>
                   {d.status === 'full' ? 'Complète' : d.status === 'partial' ? 'Partielle' : 'Refusée'}
                 </span>
                 <p className={`text-[10px] ${sub} mt-1`}>
@@ -434,12 +495,12 @@ function InfoCell({ label, value, sub }) {
 function StatusBadge({ ok, label, darkMode }) {
   return (
     <div className={`flex items-center gap-2 p-3 rounded-lg ${ok
-      ? 'bg-emerald-50 border border-emerald-200'
+      ? 'bg-red-50 border border-red-200'
       : 'bg-red-50 border border-red-200'}`}>
       {ok
-        ? <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+        ? <ShieldCheck className="w-4 h-4 text-red-600 flex-shrink-0" />
         : <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />}
-      <span className={`text-xs font-bold ${ok ? 'text-emerald-700' : 'text-red-700'}`}>{label}</span>
+      <span className={`text-xs font-bold ${ok ? 'text-red-700' : 'text-red-700'}`}>{label}</span>
     </div>
   );
 }
@@ -448,7 +509,7 @@ function PhSkeleton({ darkMode, card }) {
   const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
   return (
     <div className="space-y-4 animate-pulse">
-      <div className={`h-32 rounded-2xl ${darkMode ? 'bg-emerald-900' : 'bg-emerald-100'}`}></div>
+      <div className={`h-32 rounded-2xl ${darkMode ? 'bg-red-900' : 'bg-red-100'}`}></div>
       <div className="grid grid-cols-3 gap-4">
         {[0,1,2].map(i => <div key={i} className={`${card} border rounded-2xl p-5 h-28`}><div className={`${block} h-10 w-10 rounded-lg mb-3`}></div><div className={`${block} h-4 w-16`}></div></div>)}
       </div>

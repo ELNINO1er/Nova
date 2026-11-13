@@ -1,3 +1,4 @@
+import { clearPatientSearch } from './utils/search.js';
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOut, Menu, Moon, Pill, Settings, Shield, Siren, Stethoscope, Sun, User, X } from 'lucide-react';
 import Login from './auth/Login.jsx';
@@ -12,8 +13,8 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
 import {useHasUnsaved,clearUnsaved} from './unsaved.js';
 import { useLocation, useNavigate,useBlocker } from 'react-router-dom';
-import { ROLE_PAGES } from './navigation.js';
-import { usePatientPhoto } from './utils/photo.js';
+import { ROLE_PAGES, spaceOf } from './navigation.js';
+import { useDoctorPhoto, usePatientPhoto } from './utils/photo.js';
 
 const PatientPages = lazy(() => import('./patient/PatientPages.jsx'));
 const DoctorPages = lazy(() => import('./doctor/DoctorPages.jsx'));
@@ -122,7 +123,8 @@ export default function App() {
   const pageRole=user?.role || 'patient';
   const parts=location.pathname.split('/').filter(Boolean);
   const page=parts[0]===pageRole && ROLE_PAGES[pageRole]?.includes(parts[1]) ? parts[1] : 'dashboard';
-  const setPage=(next)=>navigate(`/${pageRole}/${ROLE_PAGES[pageRole]?.includes(next)?next:'dashboard'}`);
+  const setPage = (next, targetId) => navigate(`/${pageRole}/${ROLE_PAGES[pageRole]?.includes(next) ? next : 'dashboard'}`,
+    { state: typeof targetId === 'string' ? { targetId } : null });
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('nova_darkMode') === 'true');
   const [showQR, setShowQR] = useState(false);
   const [showCP, setShowCP] = useState(false);
@@ -134,7 +136,9 @@ export default function App() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const role = user?.role || 'patient';
-  const photoSrc = usePatientPhoto(auth === 'ok' && user?.role === 'patient' ? user.id : null);
+  const patientPhotoSrc = usePatientPhoto(auth === 'ok' && user?.role === 'patient' ? user.id : null);
+  const doctorPhotoSrc = useDoctorPhoto(auth === 'ok' && user?.role === 'doctor' ? user.id : null);
+  const photoSrc = role === 'doctor' ? doctorPhotoSrc : patientPhotoSrc;
 
   useEffect(() => {
     let cancelled = false;
@@ -156,7 +160,11 @@ export default function App() {
   }, []);
 
   // Remise à zéro de tout l'état propre à l'utilisateur (aucune donnée d'un compte ne survit au suivant).
+  useEffect(() => { clearPatientSearch(); }, []);
+
   const resetSession = () => {
+    clearPatientSearch();
+    clearUnsaved();
     localStorage.removeItem('nova_user');
     setUser(null);
     setBadges({});
@@ -238,6 +246,9 @@ export default function App() {
   const border = darkMode ? 'border-slate-800' : 'border-slate-200';
   const hover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50';
   const props = { card, sub, border, darkMode };
+  const currentSpace = spaceOf(role, page);
+  const innerPage = page !== 'dashboard';
+  const showSectionLabel = innerPage && currentSpace && currentSpace.pages.length > 1;
 
   return (
     <div className={`min-h-screen ${bg} ${text} flex flex-col`}>
@@ -256,7 +267,7 @@ export default function App() {
             </div>
           </div>
           {role === 'patient' ? <GlobalSearch darkMode={darkMode} /> : (
-            <div className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : ROLE_META[role]?.color}`}>
+            <div className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : ['doctor', 'admin', 'pharmacist'].includes(role) ? 'bg-red-50 border-red-100 text-red-800' : ROLE_META[role]?.color}`}>
               <RoleIcon className="w-4 h-4" />
               <span>{roleLabel}</span>
             </div>
@@ -301,9 +312,15 @@ export default function App() {
         <Sidebar role={role} page={page} setPage={(p) => { setPage(p); setSbOpen(false); }} sbOpen={sbOpen}
           onCP={() => setShowCP(true)} badges={badges} onLogout={onLogout} loggingOut={loggingOut} user={user} photoSrc={photoSrc} {...props} />
 
-        <main className="flex-1 min-w-0">
+        <main data-theme={darkMode ? 'dark' : 'light'} className={`flex-1 min-w-0 ${innerPage ? 'nova-workspace' : ''}`}>
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-            <SpaceTabs role={role} page={page} setPage={setPage} badges={badges} darkMode={darkMode} />
+            {showSectionLabel && (
+              <div className="nova-section-label">
+                <currentSpace.Icon size={16} aria-hidden="true" />
+                <span>{currentSpace.label}</span>
+              </div>
+            )}
+            {!(['doctor', 'admin', 'pharmacist'].includes(role) && page === 'dashboard') && <SpaceTabs role={role} page={page} setPage={setPage} badges={badges} darkMode={darkMode} />}
             <ErrorBoundary resetKey={page}>
               <Suspense fallback={<PageFallback darkMode={darkMode} />}>
                 {role === 'patient' && <PatientPages key={user?.id} page={page} setPage={setPage} setShowQR={setShowQR} pills={pills} setPills={setPills} setShowVid={setShowVid}
@@ -315,7 +332,7 @@ export default function App() {
                   }} {...props} />}
                 {role === 'doctor' && <DoctorPages key={user?.id} page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
                 {role === 'pharmacist' && <PharmacyPages key={user?.id} page={page} setPage={setPage} {...props} />}
-                {role === 'admin' && <AdminPages key={user?.id} page={page} {...props} />}
+                {role === 'admin' && <AdminPages key={user?.id} page={page} setPage={setPage} {...props} />}
                 {role === 'governor' && <GovernorPages key={user?.id} page={page} {...props} />}
               </Suspense>
             </ErrorBoundary>

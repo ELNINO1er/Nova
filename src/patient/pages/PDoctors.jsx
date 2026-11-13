@@ -66,13 +66,9 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
       return;
     }
     if (booking) return;
-    if (!shareRecord) {
-      notify?.('Acceptez le partage de votre dossier avec ce médecin pour réserver.', 'error');
-      return;
-    }
     setBooking(slot.id);
     try {
-      await patientApi.bookSlot(selected.id, slot.id, true);
+      await patientApi.bookSlot(selected.id, slot.id, shareRecord);
       notify?.(`RDV confirmé le ${slot.date} à ${slot.time} avec ${selected.fullName}`);
       setSelected(null);
       setChosenSlot(null);
@@ -281,7 +277,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
 
                 <label className={`flex items-start gap-3 p-4 rounded-2xl border text-xs mt-5 cursor-pointer ${shareRecord ? (darkMode ? 'border-red-900' : 'border-red-200 bg-red-50/50') : darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                   <input type="checkbox" className="mt-0.5 w-4 h-4 accent-red-600 shrink-0" checked={shareRecord} onChange={(e) => setShareRecord(e.target.checked)} />
-                  <span>J’accepte que {selected.fullName} consulte mon dossier pour ce rendez-vous. <span className={sub}>Révocable à tout moment dans « Accès au dossier ».</span></span>
+                  <span>Facultatif : j’accepte que {selected.fullName} consulte mon dossier pour ce rendez-vous. <span className={sub}>Révocable à tout moment dans « Accès au dossier ».</span></span>
                 </label>
 
                 <Button onClick={() => handleBook(chosenSlot)} disabled={!chosenSlot || !!booking} className="w-full !h-11 mt-4">
@@ -291,7 +287,6 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
                       ? `Réserver · ${formatDateFull(chosenSlot.date)} à ${String(chosenSlot.time).slice(0, 5)}`
                       : 'Choisissez un créneau'}
                 </Button>
-                {chosenSlot && !shareRecord && <p className={`text-[11px] mt-2 text-center ${sub}`}>Cochez l’accord de partage pour réserver.</p>}
               </div>
             </aside>
           </>

@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 /*
  * Recherche plein texte côté navigateur (espace patient).
@@ -73,16 +73,37 @@ export function useSearch(items, query, getFields) {
   return useMemo(() => searchItems(Array.isArray(items) ? items : [], query, getFields), [items, query]);
 }
 
-/* Requête liée à l'URL (?q=…) : partageable, conservée à l'actualisation, remplie par la recherche globale. */
+// Le navigateur garde uniquement un identifiant opaque dans son historique.
+let pendingSearch;
+export function prepareSearchNavigation(query) {
+  if (!query) { pendingSearch = undefined; return null; }
+  const key = Math.random().toString(36).slice(2);
+  pendingSearch = { key, query };
+  return { searchKey: key };
+}
+
+export function clearPatientSearch() {
+  pendingSearch = undefined;
+  try { localStorage.removeItem('nova_recent_searches'); } catch { /* stockage indisponible */ }
+}
+
 export function useUrlQuery() {
-  const [params, setParams] = useSearchParams();
-  const query = params.get('q') || '';
-  const setQuery = (value) => {
-    const next = new URLSearchParams(params);
-    if (value) next.set('q', value); else next.delete('q');
-    setParams(next, { replace: true });
-  };
-  return [query, setQuery];
+  const location = useLocation();
+  const navigate = useNavigate();
+  const key = location.state?.searchKey;
+  const [local, setLocal] = useState({ key: null, query: '' });
+  const routeKey = location.key;
+  const query = local.key === routeKey ? local.query : key && pendingSearch?.key === key ? pendingSearch.query : '';
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (!location.pathname.startsWith('/patient/') || !params.has('q')) return;
+    params.delete('q');
+    navigate({ pathname: location.pathname, search: params.toString(), hash: location.hash },
+      { replace: true, state: location.state });
+  }, [location, navigate]);
+
+  return [query, (value) => setLocal({ key: routeKey, query: value })];
 }
 
 /* Découpe un texte en segments [texte, surligné?] selon les mots de la requête (pour <Highlight>). */

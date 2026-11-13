@@ -44,7 +44,7 @@ import {
 
 import { wrap, validateBody } from '../middleware/helpers.js';
 import { upload, verifyUploadedFile } from '../middleware/upload.js';
-import { decodePhoto, savePatientPhoto } from '../services/photo.service.js';
+import { doctorPhotoFile, updateDoctorPhoto, patientPhotoFile, decodePhoto, savePatientPhoto } from '../services/photo.service.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog } from '../middleware/audit.js';
@@ -55,6 +55,34 @@ router.use(requireDoctor);
 /* ─── Dashboard ────────────────────────────────────────────── */
 router.get('/dashboard', wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
+}));
+
+function sendPortrait(res, file, next) {
+  res.set('Cache-Control', 'private, no-store');
+  if (!file) return res.status(204).end();
+  res.sendFile(file, (err) => {
+    if (!err || res.headersSent) return;
+    if (err.status === 404) return res.status(204).end();
+    next(err);
+  });
+}
+
+router.get('/photo', wrap(async (req, res, next) => {
+  sendPortrait(res, await doctorPhotoFile(req.user.doctorId), next);
+}));
+
+router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('doctor.photo.update', 'doctor'), wrap(async (req, res) => {
+  res.json(await updateDoctorPhoto(req.user.doctorId, req.body.photo));
+}));
+
+router.delete('/photo', auditLog('doctor.photo.remove', 'doctor'), wrap(async (req, res) => {
+  res.json(await updateDoctorPhoto(req.user.doctorId, null));
+}));
+
+router.get('/patients/:id/photo', requirePermission('doctor.patients'), accessLog('patient_photo'), wrap(async (req, res, next) => {
+  const { assertDoctorPatientAccess } = await import('../services/access.js');
+  await assertDoctorPatientAccess(req.user.doctorId, req.params.id);
+  sendPortrait(res, await patientPhotoFile(req.params.id), next);
 }));
 
 router.post('/assistant', validateBody(z.object({

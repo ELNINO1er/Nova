@@ -1,3 +1,5 @@
+import NovaSelect from '../../components/NovaSelect.jsx';
+import { useLocation } from 'react-router-dom';
 import {useDialogFocus} from '../../components/useDialogFocus.js';
 import {useUnsaved,hasUnsavedData} from '../../unsaved.js';
 import React, { useState, useEffect,useRef } from 'react';
@@ -6,8 +8,10 @@ import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
 export default function DCons({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ patientId: '', status:'draft', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
+  const { state } = useLocation();
+  const patientFromAgenda = state?.targetId || '';
+  const [showForm, setShowForm] = useState(Boolean(patientFromAgenda));
+  const [form, setForm] = useState({ patientId: patientFromAgenda, status:'draft', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
   const [saving, setSaving] = useState(false);
   const [editCons, setEditCons] = useState(null); // {id, motif, diagnosisMain, diagnosisSecondary, notes, recommendations, status}
   const [editSaving, setEditSaving] = useState(false);
@@ -19,6 +23,10 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
   useDialogFocus(!!editCons,editRef,closeEdit);
   const consultations = Array.isArray(data) ? data : [];
   const patients = Array.isArray(patientsData) ? patientsData : [];
+
+  useEffect(() => {
+    if (patientFromAgenda && !patientsData) loadPatients();
+  }, [patientFromAgenda]);
 
   const handleShowForm = () => {
     setShowForm(true);
@@ -96,13 +104,13 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
           </div>
           <div>
             <label htmlFor="cons-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
-            <select id="cons-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
+            <NovaSelect darkMode={darkMode} id="cons-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
               className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <option value="">Sélectionner un patient...</option>
               {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
-            </select>
+            </NovaSelect>
           </div>
-          <label className="block text-sm">État de la consultation<select value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">Valider le compte rendu</option></select></label>
+          <label className="block text-sm">État de la consultation<NovaSelect darkMode={darkMode} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">Valider le compte rendu</option></NovaSelect></label>
           {fld('Motif de consultation' , 'motif', 'textarea', 'Symptômes, raison de la visite...')}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {fld('Diagnostic principal', 'diagnosisMain', 'input', 'Ex: Hypertension artérielle stade 1')}
@@ -151,11 +159,11 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
               ))}
               <div>
                 <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Statut</label>
-                <select disabled={editCons.status==='completed'} value={editCons.status} onChange={e => setEditCons(c => ({ ...c, status: e.target.value }))}
+                <NovaSelect darkMode={darkMode} disabled={editCons.status==='completed'} value={editCons.status} onChange={e => setEditCons(c => ({ ...c, status: e.target.value }))}
                   className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                   <option value="draft">Brouillon</option>
                   <option value="completed">Terminée</option>
-                </select>
+                </NovaSelect>
               </div>
             </div>
             <div className={`p-5 border-t ${border} flex gap-3`}>
@@ -182,7 +190,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
       ) : consultations.map(c => (
         <div key={c.id} className={`${card} border rounded-2xl p-4`}>
           <div className="flex items-start gap-3">
-            <div className="w-1.5 h-full min-h-[3rem] rounded-full bg-emerald-500 flex-shrink-0" />
+            <div className="w-1.5 h-full min-h-[3rem] rounded-full bg-red-500 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
                 <div>
@@ -190,7 +198,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                   <p className={`text-xs ${sub}`}>{new Date(c.startedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>
                     {c.status === 'draft' ? 'Brouillon' : 'Terminée'}
                   </span>
                   <button onClick={() => openEdit(c)}
@@ -207,7 +215,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
               )}
               {c.amendments?.length>0 && <details className="mt-2 text-sm"><summary>{c.amendments.length} correction(s) tracée(s)</summary>{c.amendments.map((a,i)=><div key={i} className="border-t py-2"><p>{a.reason} — {formatDate(a.created_at)}</p>{Object.entries(typeof a.content==='string'?JSON.parse(a.content):a.content).filter(([k])=>!['amendmentReason','status'].includes(k)).map(([k,v])=><p key={k}>{k} : {String(v)}</p>)}</div>)}</details>}
               {c.notes && <p className={`text-xs ${sub} mt-2 line-clamp-2`}>{c.notes}</p>}
-              {c.recommendations && <p className="text-xs text-blue-600 font-medium mt-1">→ {c.recommendations}</p>}
+              {c.recommendations && <p className="text-xs text-red-600 font-medium mt-1">→ {c.recommendations}</p>}
             </div>
           </div>
         </div>

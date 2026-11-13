@@ -46,7 +46,7 @@ export default function DFinances({ data, loading, card, sub, border, darkMode }
 
       {/* Graphique revenus mensuels */}
       <div className={`${card} border rounded-2xl p-5`}>
-        <h3 className="font-bold mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-600" /> Revenus estimés mensuels</h3>
+        <h3 className="font-bold mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-red-600" /> Revenus estimés mensuels</h3>
         {monthlyData.length === 0 ? (
           <p className={`text-sm ${sub} text-center py-8`}>Pas encore de données</p>
         ) : (
@@ -56,12 +56,12 @@ export default function DFinances({ data, loading, card, sub, border, darkMode }
                 <p className={`text-xs font-semibold w-16 flex-shrink-0 ${sub}`}>{m.month}</p>
                 <div className={`flex-1 h-7 rounded-lg overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
                   <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-lg flex items-center px-2 transition-all"
+                    className="h-full bg-gradient-to-r from-red-500 to-red-600 rounded-lg flex items-center px-2 transition-all"
                     style={{ width: `${(m.revenue / maxRev) * 100}%`, minWidth: m.revenue > 0 ? '2rem' : '0' }}>
                     {m.revenue > 0 && <span className="text-[10px] font-bold text-white truncate">{m.count} cons.</span>}
                   </div>
                 </div>
-                <p className={`text-xs font-bold w-28 text-right flex-shrink-0 ${m.revenue > 0 ? 'text-emerald-600' : sub}`}>
+                <p className={`text-xs font-bold w-28 text-right flex-shrink-0 ${m.revenue > 0 ? 'text-red-600' : sub}`}>
                   {fmt(m.revenue)} FCFA
                 </p>
               </div>

@@ -1,6 +1,10 @@
 import { request, toQuery } from './client.js';
 
 export const doctorApi = {
+  photo: () => request('/doctor/me/photo', { responseType: 'blob' }),
+  patientPhoto: (id) => request(`/doctor/me/patients/${encodeURIComponent(id)}/photo`, { responseType: 'blob' }),
+  updatePhoto: (photo) => request('/doctor/me/photo', { method: 'PUT', body: JSON.stringify({ photo }) }),
+  removePhoto: () => request('/doctor/me/photo', { method: 'DELETE' }),
   recordLabResult:(id,payload)=>request(`/doctor/me/lab-requests/${id}/result`,{method:'POST',body:JSON.stringify(payload)}),
   dashboard:    ()        => request('/doctor/me/dashboard'),
   assistant:    (question, context = {}) => request('/doctor/me/assistant', {

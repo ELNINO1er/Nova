@@ -3,7 +3,7 @@ import { Calendar, Clock, MapPin, Video, Phone, Check, X, ChevronLeft, ChevronRi
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDateFull, initials } from '../../utils/format.js';
 
-export default function DAgenda({ data, loading, onReload, notify, setShowVid, card, sub, border, darkMode }) {
+export default function DAgenda({ data, loading, onReload, notify, setPage, setShowVid, card, sub, border, darkMode }) {
   const [filter, setFilter] = useState('all'); // today | upcoming | all
   const [updating, setUpdating] = useState(null);
 
@@ -31,9 +31,9 @@ export default function DAgenda({ data, loading, onReload, notify, setShowVid, c
   };
 
   const statusCfg = {
-    confirmed: { label: 'Confirmé',  cls: 'bg-emerald-100 text-emerald-700' },
+    confirmed: { label: 'Confirmé',  cls: 'bg-red-100 text-red-700' },
     cancelled: { label: 'Annulé',    cls: 'bg-red-100 text-red-700' },
-    requested: { label: 'Demandé',   cls: 'bg-amber-100 text-amber-700' },
+    requested: { label: 'Demandé',   cls: 'bg-red-100 text-red-700' },
   };
 
   return (
@@ -76,22 +76,28 @@ export default function DAgenda({ data, loading, onReload, notify, setShowVid, c
                   <div className="flex items-center gap-2 flex-wrap mb-0.5">
                     <p className="font-bold">{a.patientName}</p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${st.cls}`}>{st.label}</span>
-                    {a.mode === 'video' && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 flex items-center gap-1"><Video className="w-2.5 h-2.5" />Vidéo</span>}
+                    {a.mode === 'video' && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-700 flex items-center gap-1"><Video className="w-2.5 h-2.5" />Vidéo</span>}
                   </div>
-                  <p className={`text-xs ${sub}`}>{a.recordShared === false ? 'Dossier partagé dès que vous acceptez la demande' : `${a.cmuNumber || '—'} • ${a.age ?? '—'} ans`}</p>
+                  <p className={`text-xs ${sub}`}>{a.recordShared === false ? 'Dossier non partagé' : `${a.cmuNumber || '—'} • ${a.age ?? '—'} ans`}</p>
                   <p className={`text-xs ${sub}`}>{a.specialty} • {a.location}</p>
                 </div>
                 {/* Actions */}
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                  {a.status === 'confirmed' && a.recordShared && (
+                    <button type="button" onClick={() => setPage('consultations', a.patientId)}
+                      className="px-3 py-1.5 rounded-lg bg-red-700 text-white text-xs font-bold">
+                      Nouvelle consultation
+                    </button>
+                  )}
                   {a.mode === 'video' && a.status === 'confirmed' && setShowVid && (
                     <button onClick={() => setShowVid(true)}
-                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 flex items-center gap-1">
+                      className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 flex items-center gap-1">
                       <Video className="w-3 h-3" /> Démarrer
                     </button>
                   )}
                   {a.status === 'requested' && (
                     <button disabled={updating === a.id} onClick={() => handleAction(a.id, 'confirmed')}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1">
+                      className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 flex items-center gap-1">
                       <Check className="w-3 h-3" /> Confirmer
                     </button>
                   )}

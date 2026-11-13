@@ -9,8 +9,8 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
 
   const riskCfg = {
     high:   { label: 'Critique',     cls: 'bg-red-100 text-red-700',     dot: 'bg-red-500',     bar: 'bg-red-500' },
-    medium: { label: 'À surveiller', cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500',   bar: 'bg-amber-500' },
-    low:    { label: 'Stable',       cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
+    medium: { label: 'À surveiller', cls: 'bg-red-100 text-red-700', dot: 'bg-red-500',   bar: 'bg-red-500' },
+    low:    { label: 'Stable',       cls: 'bg-red-100 text-red-700', dot: 'bg-red-500', bar: 'bg-red-500' },
   };
 
   const counts = { high: patients.filter(p => p.risk === 'high').length, medium: patients.filter(p => p.risk === 'medium').length, low: patients.filter(p => p.risk === 'low').length };
@@ -33,8 +33,8 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
         {[{ k: 'high', l: 'Critique', I: AlertCircle }, { k: 'medium', l: 'À surveiller', I: Clock }, { k: 'low', l: 'Stable', I: CheckCircle2 }].map(({ k, l, I }) => (
           <button key={k} onClick={() => setFilter(filter === k ? 'all' : k)}
             className={`${card} border rounded-2xl p-4 text-left transition-all ${filter === k ? 'ring-2 ring-red-500' : ''}`}>
-            <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
-              <I className={`w-4 h-4 ${k === 'high' ? 'text-red-600' : k === 'medium' ? 'text-amber-600' : 'text-emerald-600'}`} />
+            <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-red-100' : 'bg-red-100'}`}>
+              <I className={`w-4 h-4 ${k === 'high' ? 'text-red-600' : k === 'medium' ? 'text-red-600' : 'text-red-600'}`} />
             </div>
             <p className="text-2xl font-black">{counts[k]}</p>
             <p className={`text-xs ${sub}`}>{l}</p>
@@ -85,7 +85,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
                       ? `Dernière visite il y a ${pat.daysSince} jour${pat.daysSince > 1 ? 's' : ''}`
                       : 'Jamais consulté'}
                   </span>
-                  {pat.phone && <a href={`tel:${pat.phone}`} className="flex items-center gap-1 text-blue-600 font-semibold hover:underline"><Phone className="w-3 h-3" />{pat.phone}</a>}
+                  {pat.phone && <a href={`tel:${pat.phone}`} className="flex items-center gap-1 text-red-600 font-semibold hover:underline"><Phone className="w-3 h-3" />{pat.phone}</a>}
                 </div>
                 {pat.lastDiagnosis && <p className={`text-xs mt-1 text-red-600 font-medium`}>→ {pat.lastDiagnosis}</p>}
               </div>

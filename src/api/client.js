@@ -1,4 +1,3 @@
-import {clearUnsaved} from '../unsaved.js';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const REQUEST_TIMEOUT_MS = 30000;
 
@@ -102,7 +101,7 @@ export async function request(path, options = {}) {
     error.code = data?.error;
     throw error;
   }
-  if(fetchOptions.method && fetchOptions.method!=='GET' && !path.includes('/read') && !path.startsWith('/auth/')) {clearUnsaved();window.dispatchEvent(new Event('nova:data-changed'));updates?.postMessage('changed');}
+  if(fetchOptions.method && fetchOptions.method!=='GET' && !path.includes('/read') && !path.startsWith('/auth/')) {window.dispatchEvent(new Event('nova:data-changed'));updates?.postMessage('changed');}
   return data;
 }
 

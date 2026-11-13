@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import NovaSelect from '../../components/NovaSelect.jsx';
+import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, Clock, MapPin, Video, Plus, X, Check, Trash2, Edit3, ClipboardCheck, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
@@ -97,6 +99,20 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   const [query, setQuery] = useUrlQuery();
   const [statusFilter, setStatusFilter] = useState('all');
   const [day, setDay] = useState(null);
+  const { key: routeKey, state } = useLocation();
+  const targetId = state?.targetId;
+  const target = useRef(null);
+
+  useEffect(() => {
+    if (!targetId) return;
+    setDay(null);
+    setStatusFilter('all');
+    setQuery('');
+  }, [routeKey, targetId]);
+
+  useEffect(() => {
+    if (target.current) target.current.scrollIntoView({ block: 'nearest' });
+  }, [data, routeKey, day, statusFilter]);
 
   useEffect(() => {
     let active = true;
@@ -157,10 +173,6 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       notify?.('Veuillez sélectionner un médecin', 'error');
       return;
     }
-    if (!editingId && !form.shareRecord) {
-      notify?.('Acceptez le partage de votre dossier avec ce médecin pour envoyer la demande.', 'error');
-      return;
-    }
     if (saving) return;
     const startsAt = new Date(form.startsAt).toISOString();
     const original = editingId ? (data || []).find((r) => r.id === editingId)?.startsAt : null;
@@ -170,7 +182,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       ...(unchanged ? {} : { startsAt }),
       doctorId: form.doctorId,
       mode: form.mode,
-      ...(editingId ? {} : { shareRecord: true }),
+      ...(editingId ? {} : { shareRecord: form.shareRecord }),
     };
     setSaving(true);
     try {
@@ -230,12 +242,12 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label htmlFor="rdv-doctor" className={label}>Médecin</label>
-                <select id="rdv-doctor" value={form.doctorId} disabled={!!editingId} onChange={(e) => setForm({...form, doctorId: e.target.value})} className={`${inputClass(darkMode)} disabled:opacity-60`}>
+                <NovaSelect darkMode={darkMode} id="rdv-doctor" value={form.doctorId} disabled={!!editingId} onChange={(e) => setForm({...form, doctorId: e.target.value})} className={`${inputClass(darkMode)} disabled:opacity-60`}>
                   <option value="">{editingId ? 'Médecin (non modifiable)' : 'Sélectionner un médecin'}</option>
                   {doctors.map((d) => (
                     <option key={d.id} value={d.id}>{d.fullName} — {d.specialty}{d.city ? ` (${d.city})` : ''}</option>
                   ))}
-                </select>
+                </NovaSelect>
               </div>
               <div>
                 <label htmlFor="rdv-date" className={label}>Date et heure</label>
@@ -243,15 +255,15 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
               </div>
               <div>
                 <label htmlFor="rdv-mode" className={label}>Type de consultation</label>
-                <select id="rdv-mode" value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={inputClass(darkMode)}>
+                <NovaSelect darkMode={darkMode} id="rdv-mode" value={form.mode} onChange={(e) => setForm({...form, mode: e.target.value})} className={inputClass(darkMode)}>
                   <option value="onsite">Présentiel</option>
                   <option value="video" disabled>Téléconsultation indisponible</option>
-                </select>
+                </NovaSelect>
               </div>
               {!editingId && (
                 <label className={`sm:col-span-2 flex items-start gap-3 p-4 rounded-2xl border text-sm cursor-pointer ${form.shareRecord ? (darkMode ? 'border-red-900' : 'border-red-200 bg-red-50/50') : darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                   <input type="checkbox" className="mt-0.5 w-4 h-4 accent-red-600 shrink-0" checked={form.shareRecord} onChange={(e) => setForm({...form, shareRecord: e.target.checked})} />
-                  <span>J’accepte que ce médecin consulte mon dossier <strong>une fois le rendez-vous confirmé</strong>. <span className={sub}>Je peux retirer cet accès à tout moment dans « Accès au dossier ».</span></span>
+                  <span>Facultatif : j’accepte que ce médecin consulte mon dossier <strong>une fois le rendez-vous confirmé</strong>. <span className={sub}>Je peux retirer cet accès à tout moment dans « Accès au dossier ».</span></span>
                 </label>
               )}
             </div>
@@ -298,7 +310,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
             const cancelled = r.status === 'cancelled';
             const [statusLabel, tone, StatusIcon] = STATUS_STYLE[r.status] || [r.status, 'neutral', null];
             return (
-              <Card key={r.id || r.startsAt} darkMode={darkMode} className={`${isNext ? '!border-red-300' : ''} ${cancelled ? 'opacity-70' : ''}`}>
+              <div key={r.id || r.startsAt} ref={r.id === targetId ? target : null}><Card darkMode={darkMode} className={`${isNext || r.id === targetId ? '!border-red-300' : ''} ${cancelled ? 'opacity-70' : ''}`}>
                 <div className="flex items-start gap-3 sm:gap-4">
                   <DateBlock date={r.startsAt} highlight={isNext} darkMode={darkMode} />
                   <div className="flex-1 min-w-0">
@@ -338,7 +350,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
                     )}
                   </div>
                 </div>
-              </Card>
+              </Card></div>
             );
           })}
         </div>

@@ -8,7 +8,7 @@ export default function DProfile({ data, loading, card, sub, border, darkMode, n
   if (loading || !data) {
     return <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />;
   }
-  const colorMap = { red: 'from-red-600 to-red-800', emerald: 'from-emerald-600 to-emerald-800', blue: 'from-blue-600 to-blue-800', indigo: 'from-indigo-600 to-indigo-800' };
+  const colorMap = { red: 'from-red-600 to-red-800', emerald: 'from-red-600 to-red-800', blue: 'from-red-600 to-red-800', indigo: 'from-red-600 to-red-800' };
   const grad = colorMap[data.avatarColor] || colorMap.red;
 
   const fields = [
@@ -34,7 +34,7 @@ export default function DProfile({ data, loading, card, sub, border, darkMode, n
           <p className="text-white/80 text-sm mt-0.5">{data.specialty} • {data.city}</p>
           <div className="flex items-center gap-3 mt-3">
             <div className="flex items-center gap-1">
-              {[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.round(data.rating) ? 'fill-amber-400 text-amber-400' : 'text-white/30'}`} />)}
+              {[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.round(data.rating) ? 'fill-red-400 text-red-400' : 'text-white/30'}`} />)}
             </div>
             <span className="text-sm font-bold">{data.reviewsCount>0?`${data.rating} (${data.reviewsCount} avis)`:'Aucun avis'}</span>
           </div>

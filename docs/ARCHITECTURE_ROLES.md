@@ -103,15 +103,13 @@ Légende des statuts : ✅ opérationnel · 🟡 partiel · 🎭 fictif (simulé
 
 ## 3. Règle d'accès d'un médecin au dossier d'un patient (décision)
 
-Un médecin accède au dossier si et seulement si **aucune révocation explicite n'est en vigueur** et que l'une des conditions suivantes est remplie :
-1. un consentement `granted` non expiré existe ;
-2. une relation de soins en cours existe :
-   - un RDV non annulé, à venir ou datant de moins de 90 jours ;
-   - ou un acte (consultation, ordonnance, analyse) de ce médecin datant de moins de 12 mois.
+Le médecin accède au dossier si le patient lui a donné un accord explicite encore valide, ou si le patient a accepté le partage pour un rendez-vous confirmé. Dans le deuxième cas, le partage reste valable jusqu'à 90 jours après le rendez-vous, sous réserve d'une annulation ou d'un retrait.
 
-- **La révocation par le patient prime toujours.** Elle est appliquée dès la requête suivante.
-- **Création d'un patient :** le médecin qui crée le patient reçoit un consentement `granted`.
-- **Gardes :** chaque endpoint médecin qui lit ou écrit des données d'un patient passe par cette règle, y compris les listes.
+- Le patient peut réserver sans partager le dossier. L'agenda du médecin garde les informations nécessaires pour gérer ce rendez-vous.
+- Un retrait invalide tout accord antérieur ou donné au même instant. Un nouveau partage volontaire peut rétablir l'accès.
+- Un acte antérieur et un rendez-vous sans accord enregistré ne donnent pas accès au dossier.
+- L'inscription d'un patient crée une demande d'accès. L'accord du patient est nécessaire.
+- La fiche, les listes et les actes cliniques utilisent la même règle d'accès.
 
 ## 4. Hypothèses retenues (documentées)
 
@@ -148,7 +146,7 @@ Un médecin accède au dossier si et seulement si **aucune révocation explicite
 - **Accès aux dossiers :**
   - règle §3 centralisée dans `server/services/access.js` et appliquée à la fiche, aux listes (patients, suivi chronique, compteurs), aux actes et à la messagerie ;
   - la révocation est effective à la requête suivante ;
-  - le médecin qui crée un patient reçoit un consentement explicite.
+  - le médecin qui crée un patient envoie une demande de consentement.
 - **Équipe de soins côté patient :**
   - onglet « Qui a accès » (Vie privée) : origine de chaque accès, révocation ou rétablissement ;
   - API `/patient/me/care-team`, auditée ;

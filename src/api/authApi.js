@@ -14,6 +14,11 @@ async function authRequest(path, options = {}) {
 }
 
 export const authApi = {
+  recoverPatientPassword: (phone, code, newPassword) => authRequest('/auth/patient/password/recover', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code, newPassword }),
+  }),
+
   // Tous les comptes : numéro à 10 chiffres + mot de passe (le médecin enchaîne avec Authenticator).
   loginWithPassword: (phone, password) => authRequest('/auth/password/login', {
     method: 'POST',
