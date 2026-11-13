@@ -80,6 +80,12 @@ const authLimiter = rateLimit({
   },
 });
 
+let databaseReady = false;
+app.use('/api', (_req, res, next) => {
+  if (!databaseReady) return res.status(503).json({ ok: false, service: 'nova-api', database: 'initializing' });
+  next();
+});
+
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -122,21 +128,22 @@ process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
 });
 
+const server = app.listen(port, () => {
+  console.log(`NOVA API running on http://localhost:${port}`);
+});
+
+const shutdown = async () => {
+  server.close();
+  await pool.end();
+  process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 initDb()
   .then(() => {
-    const server = app.listen(port, () => {
-      console.log(`NOVA API running on http://localhost:${port}`);
-      console.log(`Base de données : MySQL (${process.env.DB_NAME || 'nova'})`);
-    });
-
-    const shutdown = async () => {
-      console.log('\nArrêt en cours...');
-      server.close();
-      await pool.end();
-      process.exit(0);
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    databaseReady = true;
+    console.log(`Base de données : MySQL (${process.env.DB_NAME || 'nova'})`);
   })
   .catch((err) => {
     console.error('Erreur connexion MySQL :', err.message);

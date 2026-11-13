@@ -32,7 +32,13 @@ async function runIdempotentDdl(conn, sql) {
 
 export async function initDb() {
   const conn = await pool.getConnection();
+  let locked = false;
   try {
+    const [[lock]] = await conn.query(
+      "SELECT GET_LOCK(CONCAT('nova:init:', LEFT(SHA2(DATABASE(), 256), 40)), 60) AS acquired"
+    );
+    locked = Number(lock.acquired) === 1;
+    if (!locked) throw new Error('Initialisation MySQL déjà en cours.');
     await createTables(conn);
     await migrate(conn);
     // SEED_DEMO=true insère les comptes/données de démonstration.
@@ -59,7 +65,11 @@ export async function initDb() {
     await createOperationalTables(conn);
     await addForeignKeys(conn);
   } finally {
-    conn.release();
+    try {
+      if (locked) await conn.query("SELECT RELEASE_LOCK(CONCAT('nova:init:', LEFT(SHA2(DATABASE(), 256), 40)))");
+    } finally {
+      conn.release();
+    }
   }
 }
 
@@ -1517,6 +1527,13 @@ async function addForeignKeys(conn) {
   ];
 
   for (const sql of foreignKeys) {
-    await runIdempotentDdl(conn, sql);
+    const [, table, constraint] = sql.match(/^ALTER TABLE (\w+) ADD CONSTRAINT (\w+)/);
+    const [[existing]] = await conn.execute(
+      `SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+       WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ?
+         AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+      [table, constraint]
+    );
+    if (!existing) await runIdempotentDdl(conn, sql);
   }
 }
