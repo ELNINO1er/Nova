@@ -12,6 +12,7 @@ export const pool = mysql.createPool({
   database: process.env.DB_NAME || 'nova',
   waitForConnections: true,
   connectionLimit: 10,
+  charset: 'UTF8MB4_UNICODE_CI',
   timezone: '+00:00',
 });
 
