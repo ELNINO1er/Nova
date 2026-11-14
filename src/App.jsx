@@ -3,6 +3,7 @@ import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOut, Menu, Moon, Pill, Settings, Shield, Siren, Stethoscope, Sun, User, X } from 'lucide-react';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
+import { CompactIdentity, CompactNavigation, CompactQrAction, CompactShortcuts } from './layout/CompactWorkspace.jsx';
 import SpaceTabs from './layout/SpaceTabs.jsx';
 import NotificationBell from './layout/NotificationBell.jsx';
 import GlobalSearch from './layout/GlobalSearch.jsx';
@@ -252,15 +253,15 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${bg} ${text} flex flex-col`}>
-      <header className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-950/90' : 'bg-white/90'} backdrop-blur-xl border-b ${border}`}>
-        <div className="px-3 sm:px-6 py-3 flex items-center justify-between gap-2 sm:gap-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSbOpen(true)} className={`lg:hidden p-2 rounded-lg ${hover}`} aria-label="Ouvrir le menu"><Menu className="w-5 h-5" /></button>
+      <header className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-950/90' : 'bg-white/90 max-xl:bg-red-700 max-xl:text-white'} backdrop-blur-xl border-b ${border}`}>
+        <div className="px-3 sm:px-6 py-2 xl:py-3 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSbOpen(true)} className={`md:hidden p-2 rounded-lg ${hover}`} aria-label="Ouvrir le menu"><Menu className="w-5 h-5" /></button>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center">
                 <HeartPulse className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
-              <div className="hidden min-[400px]:block">
+              <div className="hidden sm:block">
                 <h1 className="font-bold text-lg tracking-tight">NOVA</h1>
                 <p className={`text-[10px] ${sub} -mt-1 hidden sm:block`}>Carnet Santé Ivoirien</p>
               </div>
@@ -308,12 +309,14 @@ export default function App() {
       </header>
 
       <div className="flex-1 flex">
-        {sbOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSbOpen(false)}></div>}
+        {sbOpen && <button type="button" aria-label="Fermer le menu" className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSbOpen(false)} />}
         <Sidebar role={role} page={page} setPage={(p) => { setPage(p); setSbOpen(false); }} sbOpen={sbOpen}
           onCP={() => setShowCP(true)} badges={badges} onLogout={onLogout} loggingOut={loggingOut} user={user} photoSrc={photoSrc} {...props} />
 
         <main data-theme={darkMode ? 'dark' : 'light'} className={`flex-1 min-w-0 ${innerPage ? 'nova-workspace' : ''}`}>
-          <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+          <div className="p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-5 xl:p-6 max-w-7xl mx-auto">
+            {page === 'dashboard' && <CompactIdentity role={role} user={user} roleLabel={roleLabel} photoSrc={photoSrc} setPage={setPage} darkMode={darkMode} />}
+            {page === 'dashboard' && <CompactShortcuts role={role} setPage={setPage} darkMode={darkMode} />}
             {showSectionLabel && (
               <div className="nova-section-label">
                 <currentSpace.Icon size={16} aria-hidden="true" />
@@ -336,9 +339,11 @@ export default function App() {
                 {role === 'governor' && <GovernorPages key={user?.id} page={page} {...props} />}
               </Suspense>
             </ErrorBoundary>
+            {page === 'dashboard' && <CompactQrAction role={role} setShowQR={setShowQR} setPage={setPage} darkMode={darkMode} />}
           </div>
         </main>
       </div>
+      <CompactNavigation role={role} page={page} setPage={setPage} onMenu={() => setSbOpen(true)} menuOpen={sbOpen} darkMode={darkMode} />
 
       {/* Une modale qui plante se ferme au lieu de faire tomber l'application. */}
       {showQR && <ErrorBoundary fallback={null} onError={() => setShowQR(false)}><QRModal onClose={() => setShowQR(false)} /></ErrorBoundary>}
@@ -346,7 +351,7 @@ export default function App() {
       {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal onClose={() => setShowVid(false)} /></ErrorBoundary>}
 
       {role === 'patient' && page !== 'assistant' && (
-        <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 flex items-center justify-center text-white hover:scale-110 z-30">
+        <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-6 right-4 md:right-6 w-12 h-12 md:w-14 md:h-14 rounded-full bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 flex items-center justify-center text-white hover:scale-110 z-30">
           <Bot className="w-6 h-6" />
         </button>
       )}

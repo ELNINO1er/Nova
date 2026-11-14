@@ -171,7 +171,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onRefresh} aria-label="Actualiser" className={`w-11 h-11 rounded-full border flex items-center justify-center ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:bg-red-50'}`}><RefreshCw className="w-4 h-4" /></button>
-          <button type="button" onClick={() => setShowQR(true)} className="h-11 px-5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold flex items-center gap-2"><QrCode className="w-4 h-4" /> Pass Santé d’urgence</button>
+          <button type="button" onClick={() => setShowQR(true)} className="hidden h-11 items-center gap-2 rounded-full bg-red-600 px-5 text-sm font-semibold text-white hover:bg-red-700 xl:flex"><QrCode className="w-4 h-4" /> Pass Santé d’urgence</button>
         </div>
       </div>
 
