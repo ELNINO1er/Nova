@@ -12,6 +12,7 @@ import { patientApi } from './api/patientApi.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
+import { startSessionActivity, useIdleLogout } from './api/useIdleLogout.js';
 import {useHasUnsaved,clearUnsaved} from './unsaved.js';
 import { useLocation, useNavigate,useBlocker } from 'react-router-dom';
 import { ROLE_PAGES, spaceOf } from './navigation.js';
@@ -135,6 +136,8 @@ export default function App() {
   const [pills, setPills] = useState({});
   const [sbOpen, setSbOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [idleLocked, setIdleLocked] = useState(false);
+  const logoutPending = useRef(false);
   const [logoutError, setLogoutError] = useState('');
   const role = user?.role || 'patient';
   const patientPhotoSrc = usePatientPhoto(auth === 'ok' && user?.role === 'patient' ? user.id : null);
@@ -164,6 +167,7 @@ export default function App() {
   useEffect(() => { clearPatientSearch(); }, []);
 
   const resetSession = () => {
+    setIdleLocked(false);
     clearPatientSearch();
     clearUnsaved();
     localStorage.removeItem('nova_user');
@@ -191,6 +195,7 @@ export default function App() {
 
   const onLogin = (u) => {
     authApi.sessionOpened();
+    startSessionActivity(u.id);
     localStorage.setItem('nova_user', JSON.stringify(u));
     setUser(u);
     setBadges({});
@@ -202,6 +207,8 @@ export default function App() {
 
   // Déconnexion annoncée seulement après confirmation du serveur (jetons révoqués).
   const onLogout = async () => {
+    if (logoutPending.current) return;
+    logoutPending.current = true;
     setLoggingOut(true);
     setLogoutError('');
     try {
@@ -211,9 +218,15 @@ export default function App() {
     } catch (err) {
       setLogoutError(`La déconnexion n’a pas pu être confirmée (${err.message}). Vous êtes toujours connecté : vérifiez votre connexion puis réessayez.`);
     } finally {
+      logoutPending.current = false;
       setLoggingOut(false);
     }
   };
+
+  useIdleLogout(auth === 'ok' ? user?.id : null, () => {
+    setIdleLocked(true);
+    void onLogout();
+  });
 
   useEffect(() => {
     if (auth !== 'ok' || role !== 'patient') return;
@@ -237,6 +250,19 @@ export default function App() {
 
   if (auth === 'checking') return <PageFallback darkMode={darkMode} />;
   if (auth !== 'ok') return <Login auth={auth} setAuth={setAuth} onLogin={onLogin} />;
+  if (idleLocked) return (
+    <main className="grid min-h-screen place-items-center bg-red-50 p-4 text-slate-900">
+      <div className="w-full max-w-sm rounded-2xl border border-red-100 bg-white p-6">
+        <h1 className="text-lg font-bold">Session fermée pour inactivité</h1>
+        {logoutError ? (
+          <>
+            <p className="mt-2 text-sm">Rétablissez votre connexion pour terminer la déconnexion.</p>
+            <button type="button" onClick={onLogout} disabled={loggingOut} className="mt-4 min-h-11 rounded-lg bg-red-700 px-4 font-semibold text-white">Réessayer</button>
+          </>
+        ) : <p className="mt-2 text-sm" role="status">Déconnexion en cours…</p>}
+      </div>
+    </main>
+  );
 
   const RoleIcon = ROLE_META[role]?.Icon || User;
   const roleLabel = ROLE_META[role]?.label || 'Espace utilisateur';
