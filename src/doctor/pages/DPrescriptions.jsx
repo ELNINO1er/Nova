@@ -6,6 +6,19 @@ import { FileDown, Pill, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
 
+function parseScheduleTimes(value) {
+  if (!value.trim()) return [];
+  const times = value.trim().split(/\s*(?:[,;]|\bet\b)\s*/i).map(part => {
+    const match = part.match(/^(\d{1,2})(?:\s*h\s*(\d{2})?|:(\d{2}))?$/i);
+    if (!match) return null;
+    const [, hour, hourMinutes, colonMinutes] = match;
+    const minutes = hourMinutes ?? colonMinutes ?? '00';
+    if (Number(hour) > 23 || Number(minutes) > 59) return null;
+    return `${hour.padStart(2, '0')}:${minutes}`;
+  });
+  return times.includes(null) || times.length > 12 ? null : [...new Set(times)].sort();
+}
+
 export default function DPrescriptions({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm,    setShowForm]    = useState(false);
   const [form,        setForm]        = useState({ patientId: '', consultationId:'',notes: '', validDays: 30 });
@@ -28,12 +41,26 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
   const handleSubmit = async () => {
     if (saving) return;
     if (items.some(i=>i.name && (!Number.isInteger(Number(i.quantityPrescribed))||Number(i.quantityPrescribed)<1))) return notify('Quantite positive obligatoire pour chaque ligne.', 'error');
-    if(items.some(i=>i.scheduleTimes&&(!i.durationDays||!Number.isInteger(Number(i.durationDays)))))return notify('Précisez la durée en jours pour alimenter le pilulier.','error');
     if (!form.patientId) return notify('Sélectionnez un patient', 'error');
     if (!items[0]?.name) return notify('Au moins un médicament requis', 'error');
+    const prescriptionItems = [];
+    for (const [index, item] of items.entries()) {
+      if (!item.name) continue;
+      const scheduleTimes = parseScheduleTimes(item.scheduleTimes);
+      if (!scheduleTimes) {
+        document.getElementById(`rx-${index}-scheduleTimes`)?.focus();
+        return notify(`Médicament ${index + 1} : saisissez jusqu’à 12 heures valides, par exemple « 8h, 14 et 20h ».`, 'error');
+      }
+      const durationDays = item.durationDays ? Number(item.durationDays) : undefined;
+      if ((scheduleTimes.length || durationDays !== undefined) && (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 365)) {
+        document.getElementById(`rx-${index}-durationDays`)?.focus();
+        return notify(`Médicament ${index + 1} : indiquez une durée de pilulier entre 1 et 365 jours.`, 'error');
+      }
+      prescriptionItems.push({ ...item, quantityPrescribed: Number(item.quantityPrescribed), scheduleTimes, durationDays });
+    }
     setSaving(true);
     try {
-      await doctorApi.createPrescription({ ...form,consultationId:form.consultationId||undefined, items: items.filter(i => i.name).map(i=>({...i,quantityPrescribed:Number(i.quantityPrescribed),scheduleTimes:i.scheduleTimes?i.scheduleTimes.split(',').map(t=>t.trim()).filter(Boolean):[],durationDays:i.durationDays?Number(i.durationDays):undefined})), validDays: Number(form.validDays) });
+      await doctorApi.createPrescription({ ...form, consultationId: form.consultationId || undefined, items: prescriptionItems, validDays: Number(form.validDays) });
       notify('Ordonnance émise');
       setShowForm(false);
       setForm({ patientId: '', notes: '', validDays: 30 });
@@ -107,7 +134,15 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
                     {[['Nom *', 'name', 'Ex: Paracétamol 500mg'], ['Posologie', 'dosage', 'Ex: 1 cp'], ['Fréquence', 'frequency', 'Ex: 3×/jour'], ['Durée', 'duration', 'Ex: 7 jours'], ['Quantité à délivrer *', 'quantityPrescribed', 'Ex: 30'], ['Unité', 'quantityUnit', 'comprimé, flacon…'],['Heures de prise (facultatif)', 'scheduleTimes', '08:00, 20:00'],['Durée du pilulier en jours', 'durationDays', '7']].map(([lbl, fld, ph]) => (
                       <div key={fld}>
                         <label htmlFor={`rx-${i}-${fld}`} className={`text-[10px] font-bold uppercase ${sub}`}>{lbl}</label>
-                        <input id={`rx-${i}-${fld}`} value={item[fld]} onChange={e => updateItem(i, fld, e.target.value)} placeholder={ph} className={inp} />
+                        <input id={`rx-${i}-${fld}`} value={item[fld]} onChange={e => updateItem(i, fld, e.target.value)}
+                          placeholder={fld === 'scheduleTimes' ? '8h, 14 et 20h' : ph} className={inp}
+                          aria-describedby={fld === 'scheduleTimes' ? `rx-${i}-schedule-help` : undefined}
+                          inputMode={fld === 'durationDays' ? 'numeric' : undefined} />
+                        {fld === 'scheduleTimes' && (
+                          <p id={`rx-${i}-schedule-help`} className={`mt-1 text-xs ${sub}`}>
+                            Exemples : 8h, 14 et 20h ou 08:30, 20:00.
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
