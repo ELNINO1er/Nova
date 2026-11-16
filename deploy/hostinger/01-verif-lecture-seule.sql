@@ -19,3 +19,12 @@ SELECT COUNT(*) AS photos_patients FROM nova_patients WHERE photo_path IS NOT NU
 SELECT table_name, table_rows FROM information_schema.tables
 WHERE table_schema = DATABASE() AND table_name IN ('nova_patients','nova_users','nova_appointments','nova_prescriptions','nova_documents','nova_messages')
 ORDER BY table_name;
+-- Comptes privilégiés sans double authentification active (doivent être 0 avant un pilote).
+SELECT role, COUNT(*) AS sans_mfa FROM nova_users
+WHERE role IN ('admin','doctor') AND deleted_at IS NULL AND disabled_at IS NULL AND (mfa_enabled = 0 OR mfa_secret_enc IS NULL)
+GROUP BY role;
+-- Comptes actuellement bloqués et comptes désactivés.
+SELECT role, SUM(locked_until > NOW()) AS bloques, SUM(disabled_at IS NOT NULL) AS desactives FROM nova_users WHERE deleted_at IS NULL GROUP BY role;
+-- Anciennes activations patients (mot de passe provisoire sans échéance) et activations expirées.
+SELECT SUM(activation_expires_at IS NULL) AS sans_echeance, SUM(activation_expires_at <= UTC_TIMESTAMP(3)) AS expirees
+FROM nova_users WHERE role='patient' AND must_change_password=1 AND password_changed_at IS NULL AND password_hash IS NOT NULL AND deleted_at IS NULL;

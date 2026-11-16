@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHmac, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import QRCode from 'qrcode';
 import { pool } from '../db/database.js';
+import { securityEvent } from '../middleware/logging.js';
 
 const CHALLENGE_MINUTES = 10;
 const TOTP_STEP_SECONDS = 30;
@@ -72,17 +73,25 @@ export function generateTotpCode(secret, now = Date.now()) {
   return totpAt(secret, Math.floor(now / 1000 / TOTP_STEP_SECONDS));
 }
 
-export function verifyTotpCode(secret, code, now = Date.now()) {
+// Renvoie le pas TOTP correspondant au code (ou null) : sert à refuser un code déjà utilisé.
+export function matchTotpCounter(secret, code, now = Date.now()) {
   const value = String(code || '').replace(/\s/g, '');
-  if (!/^\d{6}$/.test(value)) return false;
+  if (!/^\d{6}$/.test(value)) return null;
   const counter = Math.floor(now / 1000 / TOTP_STEP_SECONDS);
   for (const drift of [-1, 0, 1]) {
     const expected = Buffer.from(totpAt(secret, counter + drift));
     const received = Buffer.from(value);
-    if (expected.length === received.length && timingSafeEqual(expected, received)) return true;
+    if (expected.length === received.length && timingSafeEqual(expected, received)) return counter + drift;
   }
-  return false;
+  return null;
 }
+
+export function verifyTotpCode(secret, code, now = Date.now()) {
+  return matchTotpCounter(secret, code, now) !== null;
+}
+
+// Au-delà de MFA_ACCOUNT_MAX_FAILURES échecs consécutifs (tous challenges confondus), compte bloqué 15 minutes.
+export const MFA_ACCOUNT_MAX_FAILURES = 10;
 
 function recoveryHash(code) {
   return createHmac('sha256', encryptionKey()).update(String(code).toUpperCase()).digest('hex');
@@ -115,7 +124,7 @@ async function createChallenge(userId, type, secretEnc = null) {
 async function getChallenge(id, type) {
   const [[row]] = await pool.execute(
     `SELECT c.*, u.role, u.patient_id, u.doctor_id, u.pharmacy_id, u.name, u.avatar,
-            u.mfa_secret_enc, u.recovery_codes_json
+            u.mfa_secret_enc, u.recovery_codes_json, u.mfa_last_counter, u.locked_until
      FROM nova_auth_challenges c
      JOIN nova_users u ON u.id = c.user_id
      WHERE c.id = ? AND c.type = ? AND c.used_at IS NULL AND c.expires_at > NOW()
@@ -129,8 +138,33 @@ async function getChallenge(id, type) {
   return row;
 }
 
+// Réserve une tentative de façon atomique : des requêtes parallèles ne peuvent pas dépasser max_attempts.
+async function reserveAttempt(row) {
+  if (row.locked_until && new Date(row.locked_until).getTime() > Date.now()) {
+    throw Object.assign(new Error('Trop d’essais. Compte bloqué 15 minutes.'), { status: 423, code: 'account_locked' });
+  }
+  const [r] = await pool.execute(
+    'UPDATE nova_auth_challenges SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL AND attempts < max_attempts AND expires_at > NOW()',
+    [row.id]
+  );
+  if (r.affectedRows !== 1) {
+    throw Object.assign(new Error('Challenge expiré ou invalide. Recommencez la connexion.'), { status: 401, code: 'invalid_challenge' });
+  }
+}
+
+// Échec compté sur le compte : au 10e échec consécutif, blocage 15 minutes et fin des challenges ouverts.
 async function failChallenge(row) {
-  await pool.execute('UPDATE nova_auth_challenges SET attempts = attempts + 1 WHERE id = ?', [row.id]);
+  await pool.execute(
+    `UPDATE nova_users SET failed_mfa_attempts = failed_mfa_attempts + 1,
+       locked_until = CASE WHEN failed_mfa_attempts >= ? THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE) ELSE locked_until END
+     WHERE id = ?`,
+    [MFA_ACCOUNT_MAX_FAILURES, row.user_id]
+  );
+  const [[u]] = await pool.execute('SELECT failed_mfa_attempts FROM nova_users WHERE id = ?', [row.user_id]);
+  if (Number(u?.failed_mfa_attempts) >= MFA_ACCOUNT_MAX_FAILURES) {
+    await pool.execute('UPDATE nova_auth_challenges SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [row.user_id]);
+    securityEvent('security.mfa_lockout', { userId: row.user_id });
+  }
 }
 
 async function consumeChallenge(row) {
@@ -187,8 +221,10 @@ export async function startTotpEnrollment(user) {
 
 export async function verifyTotpEnrollment(challengeId, code) {
   const row = await getChallenge(challengeId, 'totp_enrollment');
+  await reserveAttempt(row);
   const secret = decrypt(row.secret_enc);
-  if (!verifyTotpCode(secret, code)) {
+  const counter = matchTotpCounter(secret, code);
+  if (counter === null) {
     await failChallenge(row);
     throw Object.assign(new Error('Code Authenticator incorrect.'), { status: 401 });
   }
@@ -196,9 +232,10 @@ export async function verifyTotpEnrollment(challengeId, code) {
   const recoveryCodes = generateRecoveryCodes();
   await pool.execute(
     `UPDATE nova_users
-     SET mfa_enabled = 1, mfa_secret_enc = ?, recovery_codes_json = ?, failed_login_attempts = 0, locked_until = NULL
+     SET mfa_enabled = 1, mfa_secret_enc = ?, recovery_codes_json = ?, failed_login_attempts = 0, failed_mfa_attempts = 0,
+         locked_until = NULL, mfa_last_counter = ?
      WHERE id = ?`,
-    [encrypt(secret), JSON.stringify(recoveryCodes.map(recoveryHash)), row.user_id]
+    [encrypt(secret), JSON.stringify(recoveryCodes.map(recoveryHash)), counter, row.user_id]
   );
   return { user: mapMfaUser(row), recoveryCodes };
 }
@@ -213,11 +250,15 @@ export async function startTotpLogin(userId) {
 
 export async function verifyTotpLogin(challengeId, code) {
   const row = await getChallenge(challengeId, 'totp_login');
+  await reserveAttempt(row);
   let valid = false;
   let remainingRecovery = null;
+  let counter = null;
 
   if (/^\d{6}$/.test(String(code || ''))) {
-    valid = row.mfa_secret_enc ? verifyTotpCode(decrypt(row.mfa_secret_enc), code) : false;
+    counter = row.mfa_secret_enc ? matchTotpCounter(decrypt(row.mfa_secret_enc), code) : null;
+    // Anti-rejeu : un code (pas TOTP) déjà accepté pour ce compte est refusé.
+    valid = counter !== null && (row.mfa_last_counter == null || counter > Number(row.mfa_last_counter));
   } else {
     const hashes = JSON.parse(row.recovery_codes_json || '[]');
     const hash = recoveryHash(String(code || '').trim());
@@ -237,10 +278,20 @@ export async function verifyTotpLogin(challengeId, code) {
     throw Object.assign(new Error('Code Authenticator ou code de récupération incorrect.'), { status: 401 });
   }
   await consumeChallenge(row);
-  await pool.execute(
-    `UPDATE nova_users SET failed_login_attempts = 0, locked_until = NULL,
-       recovery_codes_json = COALESCE(?, recovery_codes_json) WHERE id = ?`,
-    [remainingRecovery ? JSON.stringify(remainingRecovery) : null, row.user_id]
+  if (remainingRecovery) {
+    // Code de récupération à usage unique, même en cas de connexions simultanées (comparer-et-écrire).
+    const [r] = await pool.execute(
+      'UPDATE nova_users SET recovery_codes_json = ? WHERE id = ? AND recovery_codes_json = ?',
+      [JSON.stringify(remainingRecovery), row.user_id, row.recovery_codes_json]
+    );
+    if (r.affectedRows !== 1) throw Object.assign(new Error('Code de récupération déjà utilisé.'), { status: 401 });
+  }
+  const [ok] = await pool.execute(
+    `UPDATE nova_users SET failed_login_attempts = 0, failed_mfa_attempts = 0, locked_until = NULL,
+       mfa_last_counter = COALESCE(?, mfa_last_counter)
+     WHERE id = ? AND (? IS NULL OR mfa_last_counter IS NULL OR mfa_last_counter < ?)`,
+    [counter, row.user_id, counter, counter]
   );
+  if (counter !== null && ok.affectedRows !== 1) throw Object.assign(new Error('Code Authenticator déjà utilisé.'), { status: 401 });
   return { user: mapMfaUser(row), usedRecoveryCode: Boolean(remainingRecovery) };
 }

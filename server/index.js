@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { accessLogger } from './middleware/logging.js';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
@@ -64,7 +65,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 // Journal d'accès : format standard en production (lisible via `docker compose logs api`).
-app.use(morgan(isProduction ? 'combined' : 'dev'));
+app.use(isProduction ? accessLogger : morgan('dev'));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

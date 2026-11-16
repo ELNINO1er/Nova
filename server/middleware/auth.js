@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/database.js';
+import { isPublishedSecret } from '../services/public-passwords.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET env variable is required. Set it in .env');
@@ -9,6 +10,12 @@ if (process.env.NODE_ENV === 'production' && JWT_SECRET.length < 32) {
 }
 
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + '-refresh');
+// Un secret déjà publié (historique Git public) ne doit jamais signer de session.
+if ([JWT_SECRET, REFRESH_SECRET].some(isPublishedSecret)) {
+  const message = 'JWT_SECRET ou JWT_REFRESH_SECRET correspond à un secret publié : effectuez la rotation de ces secrets.';
+  if (process.env.NODE_ENV === 'production') throw new Error(message);
+  console.warn(`[sécurité] ${message}`);
+}
 if (process.env.NODE_ENV === 'production' && (!process.env.JWT_REFRESH_SECRET || REFRESH_SECRET.length < 32 || REFRESH_SECRET === JWT_SECRET)) {
   throw new Error('JWT_REFRESH_SECRET must be distinct and contain at least 32 characters in production.');
 }
@@ -46,8 +53,16 @@ export function signAccessToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '30m', jwtid: randomUUID() });
 }
 
+// Inactivité maximale côté serveur : un jeton de renouvellement non utilisé pendant ce délai expire.
+// (Une session active le renouvelle toutes les 30 minutes.)
+export const REFRESH_IDLE_HOURS = Math.min(168, Math.max(1, Number(process.env.SESSION_IDLE_HOURS) || 12));
+
 export function signRefreshToken(payload) {
-  return jwt.sign({ ...payload, type: 'refresh' }, REFRESH_SECRET, { expiresIn: '7d', jwtid: randomUUID() });
+  return jwt.sign({ ...payload, type: 'refresh' }, REFRESH_SECRET, { expiresIn: `${REFRESH_IDLE_HOURS}h`, jwtid: randomUUID() });
+}
+
+export function decodeRefreshToken(token) {
+  try { const p = jwt.verify(token, REFRESH_SECRET); return p.type === 'refresh' ? p : null; } catch { return null; }
 }
 
 export async function verifyRefreshToken(token) {
@@ -77,11 +92,16 @@ async function verifyToken(req, res) {
       return null;
     }
     const payload = jwt.verify(token, JWT_SECRET);
-    const [[account]] = await pool.execute('SELECT role, session_version FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [payload.id || '']);
+    const [[account]] = await pool.execute('SELECT role, session_version, patient_id, doctor_id, pharmacy_id FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [payload.id || '']);
     if (!account || account.role !== payload.role || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
       res.status(401).json({ error: 'token_revoked', message: 'Session révoquée. Reconnectez-vous.' });
       return null;
     }
+    // Rattachements (patient, médecin, pharmacie) toujours lus en base : un changement fait par
+    // l'administrateur s'applique immédiatement, sans attendre l'expiration du jeton.
+    payload.patientId = account.patient_id || null;
+    payload.doctorId = account.doctor_id || null;
+    payload.pharmacyId = account.pharmacy_id || null;
     req.token = token; // Store for potential blacklisting on logout
     return payload;
   } catch (error) {

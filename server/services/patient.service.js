@@ -326,7 +326,7 @@ export async function getDocumentFile(patientId, id) {
   const { resolve, join, basename } = await import('node:path');
   const absolute = resolve(join(ud, doc.file_path));
   const root = resolve(ud);
-  if (!absolute.startsWith(root)) {
+  if (!absolute.startsWith(root + (await import('node:path')).sep)) {
     const err = new Error('Chemin document invalide.');
     err.status = 400;
     throw err;

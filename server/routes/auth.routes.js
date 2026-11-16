@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { Router } from 'express';
+import { maskPhone, securityEvent } from '../middleware/logging.js';
 import { z } from 'zod';
 import {
   changeInitialDoctorPassword, changeInitialPassword, changeOwnPassword, phoneExists, sendOtp,
@@ -7,7 +8,7 @@ import {
 } from '../services/auth.service.js';
 import { verifyTotpEnrollment, verifyTotpLogin } from '../services/mfa.service.js';
 import {
-  signAccessToken, signRefreshToken, verifyRefreshToken,
+  signAccessToken, signRefreshToken, verifyRefreshToken, decodeRefreshToken, REFRESH_IDLE_HOURS,
   blacklistToken, requireAuth,
 } from '../middleware/auth.js';
 
@@ -23,7 +24,7 @@ const cookieOptions = {
 
 function setAuthCookies(res, token, refreshToken) {
   res.cookie('nova_access_token', token, { ...cookieOptions, maxAge: 60 * 60 * 1000 });
-  res.cookie('nova_refresh_token', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
+  res.cookie('nova_refresh_token', refreshToken, { ...cookieOptions, maxAge: REFRESH_IDLE_HOURS * 60 * 60 * 1000 });
 }
 
 function clearAuthCookies(res) {
@@ -77,6 +78,7 @@ router.post('/password/login', async (req, res, next) => {
 
     const result = await startPhonePasswordLogin(phone, password);
     if (result.error) {
+      securityEvent(result.error === 'account_locked' ? 'security.account_locked' : 'auth.login_failed', { reason: result.error, phone: maskPhone(phone), ip: req.ip });
       const status = result.error === 'account_locked' ? 423
         : result.error === 'use_doctor_login' ? 409
         : ['no_password', 'compromised_password', 'activation_expired'].includes(result.error) ? 403 : 401;
@@ -228,6 +230,7 @@ router.post('/doctor/otp/verify', (_req, res) => {
 });
 
 /* ── POST /api/auth/refresh — renouveler access token ───────── */
+const REFRESH_REUSE_GRACE_SECONDS = 20;
 router.post('/refresh', async (req, res, next) => {
   const { pool } = await import('../db/database.js');
   let conn;
@@ -237,7 +240,21 @@ router.post('/refresh', async (req, res, next) => {
     // (10 renouvellements simultanés = API figée).
     const token = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
     const payload = token && await verifyRefreshToken(token);
-    if (!payload) return res.status(401).json({ error: 'invalid_refresh', message: 'Session expiree.' });
+    if (!payload) {
+      // Jeton authentique mais déjà échangé depuis plus de quelques secondes : vol probable,
+      // toutes les sessions du compte sont révoquées.
+      const signed = token && decodeRefreshToken(token);
+      if (signed?.jti) {
+        const [[prior]] = await pool.execute('SELECT TIMESTAMPDIFF(SECOND, revoked_at, NOW()) AS age FROM nova_revoked_tokens WHERE jti = ?', [signed.jti]);
+        if (prior && Number(prior.age) > REFRESH_REUSE_GRACE_SECONDS) {
+          await pool.execute('UPDATE nova_users SET session_version = session_version + 1 WHERE id = ? AND session_version = ?', [signed.id, Number(signed.sessionVersion || 0)]);
+          clearAuthCookies(res);
+          securityEvent('security.refresh_reuse', { userId: signed.id, ip: req.ip });
+          return res.status(401).json({ error: 'session_revoked', message: 'Session révoquée par sécurité. Reconnectez-vous.' });
+        }
+      }
+      return res.status(401).json({ error: 'invalid_refresh', message: 'Session expiree.' });
+    }
     conn = await pool.getConnection();
     await conn.beginTransaction();
     const [[account]] = await conn.execute('SELECT * FROM nova_users WHERE id=? FOR UPDATE', [payload.id]);
@@ -246,7 +263,18 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(401).json({ error: 'account_inactive', message: 'Session revoquee.' });
     }
     const [used] = await conn.execute('INSERT IGNORE INTO nova_revoked_tokens(jti, expires_at) VALUES (?,FROM_UNIXTIME(?))', [payload.jti, payload.exp]);
-    if (!used.affectedRows) { await conn.rollback(); return res.status(401).json({ error:'invalid_refresh', message:'Session deja renouvelee.' }); }
+    if (!used.affectedRows) {
+      // Jeton déjà échangé. Dans les secondes qui suivent la rotation : course entre onglets, sans gravité.
+      // Plus tard : signe de vol du jeton → toutes les sessions du compte sont révoquées.
+      const [[prior]] = await conn.execute('SELECT TIMESTAMPDIFF(SECOND, revoked_at, NOW()) AS age FROM nova_revoked_tokens WHERE jti = ?', [payload.jti]);
+      if (prior && Number(prior.age) > REFRESH_REUSE_GRACE_SECONDS) {
+        await conn.execute('UPDATE nova_users SET session_version = session_version + 1 WHERE id = ?', [account.id]);
+        await conn.commit(); clearAuthCookies(res);
+        securityEvent('security.refresh_reuse', { userId: account.id, ip: req.ip });
+        return res.status(401).json({ error: 'session_revoked', message: 'Session révoquée par sécurité. Reconnectez-vous.' });
+      }
+      await conn.rollback(); return res.status(401).json({ error:'invalid_refresh', message:'Session deja renouvelee.' });
+    }
     const nextPayload = {id:account.id, role:account.role, patientId:account.patient_id, doctorId:account.doctor_id, pharmacyId:account.pharmacy_id, sessionVersion:Number(account.session_version)};
     const access = signAccessToken(nextPayload), refresh = signRefreshToken(nextPayload);
     await conn.commit();

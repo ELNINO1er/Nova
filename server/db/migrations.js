@@ -87,6 +87,12 @@ export async function migrate(conn) {
         await column(conn, 'nova_users', 'activation_channel', 'VARCHAR(10) NULL');
         await column(conn, 'nova_users', 'activation_doctor_id', 'VARCHAR(36) NULL');
       }],
+      ['20261116_15_mfa_hardening', async () => {
+        // Échecs de double authentification comptés par compte (tous challenges confondus) et
+        // dernier pas TOTP accepté (un code déjà utilisé ne peut pas être rejoué).
+        await column(conn, 'nova_users', 'failed_mfa_attempts', 'INT NOT NULL DEFAULT 0');
+        await column(conn, 'nova_users', 'mfa_last_counter', 'BIGINT NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

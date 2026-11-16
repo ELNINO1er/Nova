@@ -19,3 +19,14 @@ export function isPublicPassword(password) {
 export function publicPasswordAllowedAtLogin() {
   return ['development', 'test'].includes(process.env.NODE_ENV || '');
 }
+
+// Secrets de signature publiés par le passé dans l'historique public du dépôt (empreintes SHA-256).
+// Un serveur qui les utilise encore permettrait de fabriquer des sessions : démarrage refusé en production.
+const PUBLISHED_SECRET_SHA256 = new Set([
+  '506692cb561f9fb9390b2e02f10b019bb544178bdcd6be32d5efdf9fa21c46e8', // JWT_SECRET présent dans un ancien commit (.env)
+]);
+
+export function isPublishedSecret(value) {
+  if (!value) return false;
+  return PUBLISHED_SECRET_SHA256.has(createHash('sha256').update(String(value), 'utf8').digest('hex'));
+}

@@ -1,4 +1,5 @@
 import multer from 'multer';
+import { describeError, safePath } from './logging.js';
 
 export function notFoundHandler(req, res) {
   res.status(404).json({
@@ -48,6 +49,6 @@ function normalize(err) {
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
   const { status, code, message, details } = normalize(err);
-  if (status >= 500) console.error('[ERROR]', err);
+  if (status >= 500) console.error(JSON.stringify({ event: 'server.error', at: new Date().toISOString(), method: req.method, path: safePath(req.originalUrl), ...describeError(err) }));
   res.status(status).json({ error: code, message, ...(details ? { details } : {}) });
 }

@@ -136,7 +136,7 @@ export async function startDoctorPasswordLogin(email, password) {
     await pool.execute(
       `UPDATE nova_users
        SET failed_login_attempts = failed_login_attempts + 1,
-           locked_until = CASE WHEN failed_login_attempts + 1 >= 5 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE) ELSE NULL END
+           locked_until = CASE WHEN failed_login_attempts >= 5 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE) ELSE NULL END
        WHERE id = ?`,
       [user.id]
     );
@@ -204,6 +204,16 @@ export function generateProvisionalPassword(length = 10) {
 }
 
 const PHONE_LOGIN_ROLES = ['patient', 'pharmacist', 'admin', 'governor'];
+let dummy;
+const dummyHash = async () => (dummy ||= await bcrypt.hash(randomUUID(), 12));
+
+// Rôles soumis à la double authentification (Authenticator). Par défaut médecin et administrateur ;
+// MFA_REQUIRED_ROLES=doctor,admin,pharmacist,governor l'étend aux pharmaciens et aux autorités.
+export const MFA_REQUIRED_ROLES = String(process.env.MFA_REQUIRED_ROLES || 'doctor,admin').split(',').map((r) => r.trim())
+  .filter((r) => ['doctor', 'admin', 'pharmacist', 'governor'].includes(r));
+if (!MFA_REQUIRED_ROLES.includes('doctor')) MFA_REQUIRED_ROLES.push('doctor');
+if (!MFA_REQUIRED_ROLES.includes('admin')) MFA_REQUIRED_ROLES.push('admin');
+
 const INVALID_PHONE_LOGIN = { error: 'invalid_credentials', message: 'Numéro ou mot de passe incorrect.' };
 
 function toSessionUser(user) {
@@ -254,7 +264,11 @@ export async function startPhonePasswordLogin(identifier, password) {
        AND u.deleted_at IS NULL AND u.disabled_at IS NULL LIMIT 1`,
     [cleaned]
   );
-  if (!user) return INVALID_PHONE_LOGIN;
+  if (!user) {
+    // Même coût qu'une vraie vérification : le temps de réponse ne révèle pas si le compte existe.
+    await bcrypt.compare(String(password || ''), await dummyHash());
+    return INVALID_PHONE_LOGIN;
+  }
   if (!PHONE_LOGIN_ROLES.includes(user.role) && user.role !== 'doctor') return INVALID_PHONE_LOGIN;
 
   if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
@@ -269,7 +283,7 @@ export async function startPhonePasswordLogin(identifier, password) {
     await pool.execute(
       `UPDATE nova_users
        SET failed_login_attempts = failed_login_attempts + 1,
-           locked_until = CASE WHEN failed_login_attempts + 1 >= 5 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE) ELSE NULL END
+           locked_until = CASE WHEN failed_login_attempts >= 5 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE) ELSE NULL END
        WHERE id = ?`,
       [user.id]
     );
@@ -295,7 +309,7 @@ export async function startPhonePasswordLogin(identifier, password) {
       role: user.role,
     };
   }
-  if (['doctor', 'admin'].includes(user.role)) {
+  if (MFA_REQUIRED_ROLES.includes(user.role)) {
     const next = !user.mfa_enabled || !user.mfa_secret_enc ? await startTotpEnrollment(user) : await startTotpLogin(user.id);
     return { ...next, role: user.role };
   }
@@ -348,7 +362,7 @@ export async function changeInitialPassword(challengeId, newPassword) {
     throw Object.assign(new Error('Ce compte a déjà été activé ou le code a expiré. Reconnectez-vous.'), { status: 409, code: 'activation_unavailable' });
   }
   user.session_version = Number(user.session_version || 0) + 1;
-  if (user.role === 'admin') {
+  if (MFA_REQUIRED_ROLES.includes(user.role)) {
     const next = user.mfa_enabled && user.mfa_secret_enc
       ? await startTotpLogin(user.id)
       : await startTotpEnrollment(user);
