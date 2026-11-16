@@ -5,7 +5,7 @@ import {useUnsaved,hasUnsavedData} from '../../unsaved.js';
 import React, { useState, useEffect,useRef } from 'react';
 import { ClipboardList, Edit3, Plus, Save, Stethoscope, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientLabel } from '../../utils/format.js';
 
 export default function DCons({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const { state } = useLocation();
@@ -107,7 +107,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
             <NovaSelect darkMode={darkMode} id="cons-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
               className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <option value="">Sélectionner un patient...</option>
-              {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
+              {patients.map(p => <option key={p.id} value={p.id}>{patientLabel(p)}</option>)}
             </NovaSelect>
           </div>
           <label className="block text-sm">État de la consultation<NovaSelect darkMode={darkMode} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">Valider le compte rendu</option></NovaSelect></label>

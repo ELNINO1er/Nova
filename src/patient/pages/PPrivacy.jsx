@@ -39,7 +39,8 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
 
   useEffect(() => {
     if (!data) return;
-    setConsents(Array.isArray(data.consents) ? data.consents : []);
+    // « Demandes » = demandes en attente seulement ; les accès accordés figurent dans « Qui a accès ».
+    setConsents(Array.isArray(data.consents) ? data.consents.filter((c) => c.status === 'pending') : []);
     setLogs(Array.isArray(data.accessLogs) ? data.accessLogs : []);
     setTeam(Array.isArray(data.careTeam) ? data.careTeam : []);
   }, [data]);
@@ -180,7 +181,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
 
       {tab === 'consents' && (
         consents.length === 0 ? (
-          <EmptyState Icon={Shield} title="Aucun consentement" darkMode={darkMode}>Aucune demande de consentement pour le moment.</EmptyState>
+          <EmptyState Icon={Shield} title="Aucune demande en attente" darkMode={darkMode}>Les accès accordés figurent dans « Qui a accès ».</EmptyState>
         ) : consentResults.length === 0 ? noResults : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {consentResults.map((c) => {

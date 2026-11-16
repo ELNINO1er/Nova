@@ -4,7 +4,7 @@ import {useUnsaved} from '../../unsaved.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { FileDown, Pill, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientLabel } from '../../utils/format.js';
 
 function parseScheduleTimes(value) {
   if (!value.trim()) return [];
@@ -108,7 +108,7 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
             <label htmlFor="rx-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
             <NovaSelect darkMode={darkMode} id="rx-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value,consultationId:'' }))} className={inp}>
               <option value="">Sélectionner un patient...</option>
-              {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
+              {patients.map(p => <option key={p.id} value={p.id}>{patientLabel(p)}</option>)}
             </NovaSelect>
           </div>
           <label className="block text-sm">Consultation validée associée (facultatif)<NovaSelect darkMode={darkMode} className={inp} value={form.consultationId||''} onChange={e=>setForm({...form,consultationId:e.target.value})}><option value="">Prescription indépendante</option>{consultations.filter(c=>c.patientId===form.patientId&&c.status==='completed').map(c=><option key={c.id} value={c.id}>{formatDate(c.startedAt)} — {c.motif||'Consultation'}</option>)}</NovaSelect></label>

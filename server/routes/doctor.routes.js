@@ -327,7 +327,9 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
 
   // Vérifier s'il y a déjà un consentement pending
   const [[existing]] = await pool.execute(
-    'SELECT id FROM nova_consents WHERE patient_id = ? AND doctor_id = ? AND status = ?',
+    `SELECT c.id FROM nova_consents c WHERE c.patient_id = ? AND c.doctor_id = ? AND c.status = ? AND c.responded_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM nova_consents dcs WHERE dcs.patient_id = c.patient_id AND dcs.doctor_id = c.doctor_id
+         AND dcs.status IN ('granted','revoked') AND COALESCE(dcs.responded_at, dcs.requested_at) >= c.requested_at)`,
     [req.params.patientId, req.user.doctorId, 'pending']
   );
   if (existing) return res.status(409).json({ error: 'already_pending', message: 'Une demande est déjà en attente.' });

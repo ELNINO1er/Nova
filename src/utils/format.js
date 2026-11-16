@@ -81,3 +81,17 @@ export function historyTypeLabel(type) {
   const labels = { appointment: 'Consultation', prescription: 'Ordonnance', lab_result: 'Analyse', vaccination: 'Vaccination', vital: 'Constante', document: 'Document' };
   return labels[type] || type;
 }
+
+// Libellé d'un patient dans une liste : nom, puis CMU et âge seulement s'ils sont connus (jamais de « — » isolé).
+export function patientLabel(p) {
+  if (!p) return '';
+  const parts = [`${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Patient'];
+  if (p.cmuNumber) parts.push(`CMU ${p.cmuNumber}`);
+  if (Number.isInteger(p.age)) parts.push(`${p.age} ans`);
+  return parts.join(' · ');
+}
+
+// Ligne secondaire d'un patient (CMU, âge) : seulement ce qui est connu.
+export function patientMeta(p) {
+  return [p?.cmuNumber && `CMU ${p.cmuNumber}`, Number.isInteger(p?.age) && `${p.age} ans`].filter(Boolean).join(' • ') || 'Informations non renseignées';
+}

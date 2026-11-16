@@ -1179,7 +1179,9 @@ export async function getConsents(patientId) {
     `SELECT c.*, d.first_name, d.last_name, d.specialty
      FROM nova_consents c
      JOIN nova_doctors d ON d.id = c.doctor_id
-     WHERE c.patient_id = ? AND (c.status<>'pending' OR c.responded_at IS NULL)
+     WHERE c.patient_id = ? AND (c.status<>'pending' OR (c.responded_at IS NULL AND NOT EXISTS (
+       SELECT 1 FROM nova_consents dcs WHERE dcs.patient_id = c.patient_id AND dcs.doctor_id = c.doctor_id
+         AND dcs.status IN ('granted','revoked') AND COALESCE(dcs.responded_at, dcs.requested_at) >= c.requested_at)))
      ORDER BY c.requested_at DESC`,
     [patientId]
   );
@@ -1264,7 +1266,9 @@ async function setDoctorDecision(patientId,doctorId,status,requestId=null){
   const instant = new Date(Math.max(Date.now(),
     last?.decided_at ? new Date(last.decided_at).getTime() + 1 : 0,
     booking?.shared_at ? new Date(booking.shared_at).getTime() : 0));
-  if(requestId)await conn.execute("UPDATE nova_consents SET responded_at=? WHERE id=? AND patient_id=? AND status='pending'",[instant,requestId,patientId]);
+  // Une décision (accord ou retrait) répond à toutes les demandes encore ouvertes de ce médecin :
+  // jamais de demande « En attente » à côté d'un accès déjà accordé ou retiré.
+  await conn.execute("UPDATE nova_consents SET responded_at=? WHERE patient_id=? AND doctor_id=? AND status='pending' AND responded_at IS NULL",[instant,patientId,doctorId]);
   // Un retrait doit être daté à nouveau : un partage de rendez-vous a pu intervenir depuis le précédent.
   if(last?.status===status&&(status==='granted' && (requestId||!last.expires_at||new Date(last.expires_at)>new Date()))){await conn.commit();return {id:last.id,doctorId,status};}
   const id=randomUUID(),expires=status==='granted'?new Date(instant.getTime()+365*86400000):null;

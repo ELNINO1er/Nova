@@ -2,7 +2,7 @@ import LabResultDetails from './LabResultDetails.jsx';
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientMeta } from '../../utils/format.js';
 import ActivationNotice from '../../components/ActivationNotice.jsx';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
@@ -69,7 +69,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{p.firstName || 'Patient'} {p.lastName || ''}</p>
-                    <p className={`text-[10px] ${selected?.id === p.id ? 'text-red-100' : sub} truncate`}>{p.cmuNumber} • {p.age} ans</p>
+                    <p className={`text-[10px] ${selected?.id === p.id ? 'text-red-100' : sub} truncate`}>{patientMeta(p)}</p>
                   </div>
                 </button>
               ))}
@@ -193,7 +193,7 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
           <h3 className="text-xl font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</h3>
           <p className={`text-xs ${sub}`}>{pat.cmuNumber}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-            <span><strong>{pat.age} ans</strong> • {pat.sex === 'M' ? 'Homme' : 'Femme'}</span>
+            <span><strong>{Number.isInteger(pat.age) ? `${pat.age} ans` : 'Âge non renseigné'}</strong>{pat.sex ? ` • ${pat.sex === 'M' ? 'Homme' : 'Femme'}` : ''}</span>
             <span>Groupe : <strong className="text-red-600">{pat.bloodType || '—'}</strong></span>
             {pat.weightKg && <span>{pat.weightKg} kg • {pat.heightCm} cm</span>}
           </div>

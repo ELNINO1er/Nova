@@ -4,7 +4,7 @@ import {useUnsaved} from '../../unsaved.js';
 import React, { useState, useEffect } from 'react';
 import { Microscope, Plus, Send, Save, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientLabel } from '../../utils/format.js';
 
 export default function DLabRequests({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm, setShowForm] = useState(false);
@@ -69,7 +69,7 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
             <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
             <NovaSelect darkMode={darkMode} value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))} className={inp}>
               <option value="">Sélectionner un patient...</option>
-              {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
+              {patients.map(p => <option key={p.id} value={p.id}>{patientLabel(p)}</option>)}
             </NovaSelect>
           </div>
           <div>

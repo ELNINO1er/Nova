@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { patientMeta } from '../../utils/format.js';
 import { Activity, AlertCircle, CheckCircle2, Clock, Heart, HeartPulse, Phone, Plus } from 'lucide-react';
 
 export default function DSuiviChroniques({ data, loading, onReload, notify, setPage, card, sub, border, darkMode }) {
@@ -67,7 +68,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
                 <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
                   <div>
                     <p className="font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</p>
-                    <p className={`text-xs ${sub}`}>{pat.cmuNumber} • {pat.age} ans</p>
+                    <p className={`text-xs ${sub}`}>{patientMeta(pat)}</p>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rc.cls}`}>{rc.label}</span>
                 </div>
