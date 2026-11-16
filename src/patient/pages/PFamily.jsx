@@ -5,6 +5,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { Avatar, Button, Card, Chip, DataTable, EmptyState, Highlight, IconButton, NoResults, PageHeader, SearchInput, inputClass } from '../../components/patient/ui.jsx';
+import { ageFrom } from '../../utils/age.js';
 
 /* Codes enregistrés par l'API (nova_family_members.relationship) et leurs libellés. */
 const REL_OPTIONS = [['spouse', 'Conjoint(e)'], ['parent', 'Parent'], ['child', 'Enfant'], ['sibling', 'Frère / sœur'], ['other', 'Autre']];
@@ -13,7 +14,7 @@ const relLabel = (r) => REL_LABELS[r] || r;
 
 const fullName = (m) => `${m.firstName || ''} ${m.lastName || ''}`.trim();
 const fmtBirth = (v) => (v ? new Date(v).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
-const ageOf = (v) => (v ? Math.floor((Date.now() - new Date(v).getTime()) / 31557600000) : null);
+const ageOf = (v) => ageFrom(v);
 /* Champs cherchables d'un membre, du plus au moins important. */
 const FAMILY_FIELDS = (m) => [fullName(m), relLabel(m.relationship), m.phone, m.email, searchableDate(m.birthDate), m.notes];
 
@@ -134,7 +135,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
                 </NovaSelect>
               </label>
               <label className={labelCls}><span>Date de naissance</span>
-                <input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className={fieldCls} />
+                <input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className={fieldCls} />
               </label>
               <label className={`${labelCls} sm:col-span-2`}><span>Notes (optionnel)</span>
                 <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes (optionnel)" rows={3} className={`${fieldCls} h-auto py-3 resize-none`} />

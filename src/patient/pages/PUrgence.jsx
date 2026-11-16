@@ -3,6 +3,7 @@ import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, Shield
 import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
 import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
+import { ageFrom } from '../../utils/age.js';
 
 const EMERGENCY_ICONS = { samu: PhoneCall, pompiers: Siren, police: Shield, gendarmerie: Shield };
 
@@ -38,9 +39,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
     </div>
   );
 
-  const age = data.birthDate
-    ? Math.floor((Date.now() - new Date(data.birthDate)) / (365.25 * 86400000))
-    : null;
+  const age = ageFrom(data.birthDate);
 
   const sexLabel = data.sex === 'M' ? 'Homme' : data.sex === 'F' ? 'Femme' : data.sex;
   const empty = (txt) => <p className={`text-sm ${sub}`}>{txt}</p>;

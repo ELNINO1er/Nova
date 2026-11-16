@@ -5,6 +5,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { useUnsaved } from '../../unsaved.js';
 import { PHOTO_ACCEPT, announcePhotoChange, preparePhoto, usePatientPhoto } from '../../utils/photo.js';
 import { Button, Card, CardTitle, Chip, Field, PageHeader, inputClass } from '../../components/patient/ui.jsx';
+import { ageFrom } from '../../utils/age.js';
 
 /* Date de naissance en toutes lettres (« 14 mai 1950 »), sans décalage de fuseau. */
 const fmtBirth = (value) => {
@@ -53,7 +54,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
   useUnsaved(edit, JSON.stringify(d));
 
   const profileInitials = `${d.firstName?.[0] || ''}${d.lastName?.[0] || ''}`.toUpperCase() || '—';
-  const profileAge = d.birthDate ? Math.floor((Date.now() - new Date(d.birthDate).getTime()) / 31557600000) : null;
+  const profileAge = ageFrom(d.birthDate);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');

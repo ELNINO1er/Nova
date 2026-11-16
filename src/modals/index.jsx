@@ -18,6 +18,7 @@ import { PHOTO_ACCEPT, preparePhoto } from '../utils/photo.js';
 import { doctorApi } from '../api/doctorApi.js';
 import ActivationNotice from '../components/ActivationNotice.jsx';
 import { patientApi } from '../api/patientApi.js';
+import { ageFrom, isValidBirthDate } from '../utils/age.js';
 
 /* ============== MODALS ============== */
 export function QRModal({ onClose }) {
@@ -32,7 +33,7 @@ export function QRModal({ onClose }) {
       .catch((e) => { if (alive) setError(e.message || 'Fiche indisponible.'); });
     return () => { alive = false; };
   }, []);
-  const age = card?.birthDate ? Math.floor((Date.now() - new Date(card.birthDate)) / (365.25 * 86400000)) : null;
+  const age = ageFrom(card?.birthDate);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Pass Santé d'urgence">
       <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
@@ -221,6 +222,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
 
   const validateStep = () => {
     if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate)) return 'Renseignez le prénom, le nom et la date de naissance.';
+    if (step === 1 && !isValidBirthDate(payload.birthDate)) return 'Date de naissance invalide : vérifiez l’année (entre 1900 et aujourd’hui).';
     if (step === 2 && payload.phone.replace(/\D/g, '').length !== 10) return 'Numéro à 10 chiffres requis : il servira d’identifiant de connexion.';
     return '';
   };
@@ -303,7 +305,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+                <div><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
               </div>
             </>

@@ -8,6 +8,7 @@ import {
 import { adminApi } from '../api/adminApi.js';
 import PageError from '../components/PageError.jsx';
 import { dayKey, Empty, KpiCard, MiniCalendar } from '../components/dashboard/kit.jsx';
+import { ageFrom } from '../utils/age.js';
 
 /* ============== ADMIN PAGES ============== */
 
@@ -929,12 +930,6 @@ function formatDate(value) {
 }
 
 function ageFromBirthDate(value) {
-  if (!value) return '-';
-  const birth = new Date(value);
-  if (Number.isNaN(birth.getTime())) return '-';
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const m = now.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age -= 1;
-  return age;
+  const age = ageFrom(value);
+  return age == null ? '-' : age;
 }

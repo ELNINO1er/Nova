@@ -50,6 +50,9 @@ import { doctorPhotoFile, updateDoctorPhoto, patientPhotoFile, decodePhoto, save
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog } from '../middleware/audit.js';
+import { isValidBirthDate } from '../services/birthdate.js';
+// Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
+const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
 
 const router = Router();
 router.use(requireDoctor);
@@ -94,7 +97,7 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
   lastName:              z.string().min(1),
   phone:                 phoneSchema,
   cmuNumber:             z.string().optional(),
-  birthDate:             z.string().optional(),
+  birthDate:             BIRTH_DATE,
   sex:                   z.enum(['M', 'F']).optional(),
   bloodType:             z.string().optional(),
   email:                 z.string().email().optional(),

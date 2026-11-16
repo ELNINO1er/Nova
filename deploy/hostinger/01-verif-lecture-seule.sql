@@ -28,3 +28,7 @@ SELECT role, SUM(locked_until > NOW()) AS bloques, SUM(disabled_at IS NOT NULL) 
 -- Anciennes activations patients (mot de passe provisoire sans échéance) et activations expirées.
 SELECT SUM(activation_expires_at IS NULL) AS sans_echeance, SUM(activation_expires_at <= UTC_TIMESTAMP(3)) AS expirees
 FROM nova_users WHERE role='patient' AND must_change_password=1 AND password_changed_at IS NULL AND password_hash IS NOT NULL AND deleted_at IS NULL;
+-- Dates de naissance aberrantes déjà enregistrées (ex. année 0008 → « 2018 ans »). Identifiants seulement.
+SELECT id AS patient_id, LEFT(birth_date, 4) AS annee_saisie FROM nova_patients
+WHERE deleted_at IS NULL AND birth_date IS NOT NULL AND birth_date <> ''
+  AND (birth_date NOT REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}' OR LEFT(birth_date, 4) < '1900' OR LEFT(birth_date, 10) > DATE_FORMAT(CURDATE(), '%Y-%m-%d'));

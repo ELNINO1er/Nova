@@ -173,6 +173,14 @@ describe('Cloisonnement HTTP par rôle', () => {
     expect((await call('ADM', 'GET', '/api/admin/me/users')).status).toBe(200);
   });
 
+  it('une date de naissance aberrante est refusée par l’API (profil patient et création par le médecin)', async () => {
+    expect((await call('A', 'PATCH', '/api/patient/me/profile', { birthDate: '0008-05-12' })).status).toBe(422);
+    expect((await call('A', 'PATCH', '/api/patient/me/profile', { birthDate: '2999-01-01' })).status).toBe(422);
+    const ok = await call('A', 'PATCH', '/api/patient/me/profile', { birthDate: '1991-03-14' });
+    expect(ok.status).toBe(200);
+    expect((await call('D1', 'POST', '/api/doctor/me/patients', { firstName: 'Date', lastName: 'Fausse', phone: '0102030499', birthDate: '0008-05-12' })).status).toBe(422);
+  });
+
   it('les autorités ne reçoivent aucun nom ni identifiant de patient', async () => {
     const res = await call('GOV', 'GET', '/api/governor/me/dashboard');
     for (const marker of [A, B, 'Alpha', 'Bravo']) expect(res.text).not.toContain(marker);

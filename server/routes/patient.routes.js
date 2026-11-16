@@ -78,6 +78,9 @@ import { answerPatientAssistant } from '../services/ai.service.js';
 import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
 import { buildPatientSummaryPdf } from '../services/export.service.js';
 import { patientPhotoFile, removePatientPhoto, savePatientPhoto } from '../services/photo.service.js';
+import { isValidBirthDate } from '../services/birthdate.js';
+// Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
+const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
 
 const router = Router();
 router.use(requirePatient);
@@ -133,7 +136,7 @@ router.delete('/photo', auditLog('patient.photo.remove', 'patient'), wrap(async 
 router.patch('/profile', validateBody(z.object({
   firstName:             z.string().min(1).optional(),
   lastName:              z.string().min(1).optional(),
-  birthDate:             z.string().optional(),
+  birthDate:             BIRTH_DATE,
   sex:                   z.string().optional(),
   bloodType:             z.string().optional(),
   phone:                 z.string().min(8).optional(),
@@ -433,7 +436,7 @@ router.get('/emergency-card/qr', wrap(async (req, res) => {
   const lines = [
     'NOVA - FICHE D URGENCE',
     `${card.firstName} ${card.lastName}`,
-    card.birthDate ? `Né(e) le ${String(card.birthDate).slice(0, 10)}` : null,
+    isValidBirthDate(card.birthDate) ? `Né(e) le ${String(card.birthDate).slice(0, 10)}` : null,
     `Groupe sanguin : ${card.bloodType || 'non renseigné'}`,
     `Allergies : ${card.allergies?.length ? card.allergies.join(', ') : 'aucune renseignée'}`,
     card.chronicDiseases?.length ? `Maladies chroniques : ${card.chronicDiseases.join(', ')}` : null,
@@ -604,7 +607,7 @@ router.post('/family', requirePermission('patient.family'), validateBody(z.objec
   firstName:       z.string().min(1),
   lastName:        z.string().min(1),
   relationship:    familyRelationshipSchema,
-  birthDate:       z.string().optional(),
+  birthDate:       BIRTH_DATE,
   memberPatientId: z.string().optional(),
   notes:           z.string().max(500).optional(),
 })), wrap(async (req, res) => {
@@ -615,7 +618,7 @@ router.patch('/family/:id', requirePermission('patient.family'), validateBody(z.
   firstName:    z.string().min(1).optional(),
   lastName:     z.string().min(1).optional(),
   relationship: familyRelationshipSchema.optional(),
-  birthDate:    z.string().optional(),
+  birthDate:    BIRTH_DATE,
   notes:        z.string().max(500).optional(),
 })), wrap(async (req, res) => {
   res.json(await updateFamilyMember(req.user.patientId, req.params.id, req.body));

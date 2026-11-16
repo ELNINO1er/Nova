@@ -8,6 +8,7 @@ import { assertDoctorPatientAccess, doctorAccessClause, hasDoctorPatientAccess }
 import { deliverActivation, prepareActivation } from './patient-activation.js';
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral, notifyPatientAppointmentStatus } from './notification.service.js';
+import { ageFrom } from './birthdate.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
@@ -465,7 +466,7 @@ function mapApptWithPatient(r) {
   }
   const birth = r.birth_date ? new Date(r.birth_date) : null;
   const today = new Date();
-  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
+  const age   = ageFrom(r.birth_date);
   return {
     id:          r.id,
     startsAt:    r.starts_at,
@@ -487,7 +488,7 @@ function mapApptWithPatient(r) {
 function mapPatientSummary(r) {
   const birth = r.birth_date ? new Date(r.birth_date) : null;
   const today = new Date();
-  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
+  const age   = ageFrom(r.birth_date);
   return {
     id:        r.id,
     firstName: r.first_name,
@@ -502,7 +503,7 @@ function mapPatientSummary(r) {
 function mapPatientFull(r) {
   const birth = r.birth_date ? new Date(r.birth_date) : null;
   const today = new Date();
-  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
+  const age   = ageFrom(r.birth_date);
   return {
     id:          r.id,
     firstName:   r.first_name,
@@ -683,7 +684,7 @@ export async function getChronicPatients(doctorId) {
   return rows.map(r => {
     const birth = r.birth_date ? new Date(r.birth_date) : null;
     const today = new Date();
-  const age   = birth ? today.getFullYear() - birth.getFullYear() - (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0) : null;
+  const age   = ageFrom(r.birth_date);
     const chronic = medicalList(r.chronic_diseases);
     const daysSince = r.last_consult
       ? Math.floor((Date.now() - new Date(r.last_consult).getTime()) / 86400000)

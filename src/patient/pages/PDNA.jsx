@@ -5,6 +5,7 @@ import { useSearch, useUrlQuery } from '../../utils/search.js';
 import {
   Button, Highlight, Label, NoResults, PageHeader, Panel, SearchInput, Segmented, inputClass,
 } from '../../components/patient/ui.jsx';
+import { ageFrom } from '../../utils/age.js';
 
 /*
  * ADN médical : fiche structurée.
@@ -21,15 +22,7 @@ const SECTIONS = [
 const EMPTY_PROFILE = { allergies: [], chronicDiseases: [], familyHistory: [], surgicalHistory: [] };
 const FIELDS = (t) => [t.item, t.label];
 
-const ageOf = (birth) => {
-  if (!birth) return null;
-  const d = new Date(birth);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let a = now.getFullYear() - d.getFullYear();
-  if (now < new Date(now.getFullYear(), d.getMonth(), d.getDate())) a -= 1;
-  return a;
-};
+const ageOf = (birth) => ageFrom(birth);
 const sexLabel = (s) => (s === 'M' || s === 'male' ? 'Homme' : s === 'F' || s === 'female' ? 'Femme' : null);
 
 export default function PDNA({ data, profile: profileProp, onReload, notify, sub, darkMode }) {

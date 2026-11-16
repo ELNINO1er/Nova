@@ -8,6 +8,7 @@ import { usePatientPhoto } from '../../utils/photo.js';
 import { DashSkeleton } from '../../components/PatientModal.jsx';
 import { Avatar, Empty, dayKey, fmtDay, fmtTime, initialsOf } from '../../components/dashboard/kit.jsx';
 import { Card, Chip, Pills } from '../../components/patient/ui.jsx';
+import { ageFrom } from '../../utils/age.js';
 
 /*
  * Accueil patient (« Aujourd'hui ») : disposition Nexus en rouge et blanc.
@@ -73,11 +74,7 @@ function VitalBars({ points, unit, darkMode, sub }) {
   );
 }
 
-function ageOf(birthDate) {
-  if (!birthDate) return null;
-  const b = new Date(birthDate); const t = new Date();
-  return t.getFullYear() - b.getFullYear() - (t < new Date(t.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
-}
+const ageOf = (birthDate) => ageFrom(birthDate);
 
 export default function PDash({ data, loading, onRefresh, setPage, setShowQR, setShowVid, card, sub, darkMode }) {
   const [appointments, setAppointments] = useState([]);
