@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
+import ActivationNotice from '../../components/ActivationNotice.jsx';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
   const [search,   setSearch]   = useState('');
@@ -44,7 +45,8 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
       {/* Colonne gauche : recherche + liste */}
-      <div className="lg:col-span-1">
+      <div className="lg:col-span-1 space-y-4">
+        <PendingActivations card={card} sub={sub} darkMode={darkMode} notify={notify} />
         <div className={`${card} border rounded-2xl p-4 space-y-3`}>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
             <Search className={`w-4 h-4 ${sub} flex-shrink-0`} />
@@ -113,6 +115,60 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
         ) : null}
       </div>
     </div>
+  );
+}
+
+// Patients créés par ce médecin qui n'ont pas encore activé leur compte : leur fiche reste fermée
+// tant qu'ils n'ont pas accepté le partage. Seule action : générer un nouveau code d'activation.
+function PendingActivations({ card, sub, darkMode, notify }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(null);
+  const [issued, setIssued] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    doctorApi.pendingActivations().then((list) => { if (active) setRows(Array.isArray(list) ? list : []); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  if (!rows.length) return null;
+  const renew = async (row) => {
+    if (busy) return;
+    setBusy(row.patientId);
+    try {
+      const activation = await doctorApi.renewPatientActivation(row.patientId);
+      setIssued({ ...row, activation });
+      setRows((list) => list.map((r) => (r.patientId === row.patientId ? { ...r, expiresAt: activation.expiresAt, expired: false, channel: activation.channel } : r)));
+    } catch (e) {
+      notify?.(e.message || 'Nouveau code impossible.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section aria-labelledby="pending-activations" className={`${card} border rounded-2xl p-4 space-y-2`}>
+      <h3 id="pending-activations" className="text-xs font-bold">Activations en attente</h3>
+      {rows.map((row) => (
+        <div key={row.patientId} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate">{row.name}</p>
+              <p className={`text-[11px] ${row.expired ? 'text-red-600 font-semibold' : sub}`}>
+                {row.expired ? 'Code expiré' : row.expiresAt ? `Code valable jusqu’au ${formatDate(row.expiresAt)}` : 'Ancien mot de passe provisoire'}
+              </p>
+            </div>
+            <button type="button" onClick={() => renew(row)} disabled={busy === row.patientId}
+              className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-700 text-[11px] font-semibold disabled:opacity-50">
+              {busy === row.patientId ? '…' : 'Nouveau code'}
+            </button>
+          </div>
+          {issued?.patientId === row.patientId && (
+            <ActivationNotice activation={issued.activation} name={row.name} phone={row.phone} darkMode={darkMode}
+              onRenew={() => renew(row)} renewing={busy === row.patientId} />
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
 

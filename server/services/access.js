@@ -1,11 +1,17 @@
 import { pool } from '../db/database.js';
 
 // Seuls un accord explicite valide ou un rendez-vous confirmé avec accord ouvrent le dossier.
+// Le partage donné en réservant dure CARE_WINDOW_DAYS à compter de la date du partage
+// (record_shared_at), jamais de la date du rendez-vous : un report ne prolonge pas l'accès.
 const DAY = 86400000;
 export const CARE_WINDOW_DAYS = 90;
 
+export function careWindowStart(now = Date.now()) {
+  return new Date(now - CARE_WINDOW_DAYS * DAY);
+}
+
 function accessSources(doctorId, patientRef) {
-  const sinceCare = new Date(Date.now() - CARE_WINDOW_DAYS * DAY).toISOString();
+  const sinceShare = careWindowStart();
   const noLaterRevocation = (grantDate) => `NOT EXISTS (
     SELECT 1 FROM nova_consents r
     WHERE r.doctor_id = ? AND r.patient_id = ${patientRef} AND r.status = 'revoked'
@@ -22,9 +28,9 @@ function accessSources(doctorId, patientRef) {
     booking: {
       where: `FROM nova_appointments a
         WHERE a.doctor_id = ? AND a.patient_id = ${patientRef}
-          AND a.status = 'confirmed' AND a.record_shared_at IS NOT NULL AND a.starts_at >= ?
+          AND a.status = 'confirmed' AND a.record_shared_at IS NOT NULL AND a.record_shared_at >= ?
           AND ${noLaterRevocation('a.record_shared_at')}`,
-      params: [doctorId, sinceCare, doctorId],
+      params: [doctorId, sinceShare, doctorId],
     },
   };
 }
@@ -43,12 +49,12 @@ export async function getDoctorAccessDetails(doctorId, patientId) {
     SELECT
       (SELECT COUNT(*) ${explicit.where} AND g.expires_at IS NULL) AS permanent,
       (SELECT MAX(g.expires_at) ${explicit.where}) AS explicit_until,
-      (SELECT MAX(a.starts_at) ${booking.where}) AS last_booking
+      (SELECT MAX(a.record_shared_at) ${booking.where}) AS last_share
     FROM nova_patients p WHERE p.id = ? AND p.deleted_at IS NULL
   `, [...explicit.params, ...explicit.params, ...booking.params, patientId]);
   if (!row) return null;
   const explicitUntil = row.explicit_until ? new Date(row.explicit_until).getTime() : 0;
-  const bookingUntil = row.last_booking ? Date.parse(row.last_booking) + CARE_WINDOW_DAYS * DAY : 0;
+  const bookingUntil = row.last_share ? new Date(row.last_share).getTime() + CARE_WINDOW_DAYS * DAY : 0;
   if (Number(row.permanent)) return { reason: 'consent', expiresAt: null };
   const until = Math.max(explicitUntil, bookingUntil);
   return until ? { reason: bookingUntil > explicitUntil ? 'care' : 'consent', expiresAt: new Date(until).toISOString() } : null;

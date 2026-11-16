@@ -30,6 +30,8 @@ import {
   getDoctorSignatureData,
   saveDoctorSignatureData,
   createPatientByDoctor,
+  renewPatientActivation,
+  listPendingActivations,
   getConsultationTemplates,
   createConsultationTemplate,
   deleteConsultationTemplate,
@@ -42,7 +44,7 @@ import {
   addVitalByDoctor,
 } from '../services/doctor.service.js';
 
-import { wrap, validateBody } from '../middleware/helpers.js';
+import { wrap, validateBody, sendPortrait } from '../middleware/helpers.js';
 import { upload, verifyUploadedFile } from '../middleware/upload.js';
 import { doctorPhotoFile, updateDoctorPhoto, patientPhotoFile, decodePhoto, savePatientPhoto } from '../services/photo.service.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
@@ -56,16 +58,6 @@ router.use(requireDoctor);
 router.get('/dashboard', wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
 }));
-
-function sendPortrait(res, file, next) {
-  res.set('Cache-Control', 'private, no-store');
-  if (!file) return res.status(204).end();
-  res.sendFile(file, (err) => {
-    if (!err || res.headersSent) return;
-    if (err.status === 404) return res.status(204).end();
-    next(err);
-  });
-}
 
 router.get('/photo', wrap(async (req, res, next) => {
   sendPortrait(res, await doctorPhotoFile(req.user.doctorId), next);
@@ -101,7 +93,6 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
   firstName:             z.string().min(1),
   lastName:              z.string().min(1),
   phone:                 phoneSchema,
-  password:              z.string().min(8).max(128).optional(),
   cmuNumber:             z.string().optional(),
   birthDate:             z.string().optional(),
   sex:                   z.enum(['M', 'F']).optional(),
@@ -128,6 +119,15 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
     catch (err) { console.error('[patient.create] photo non enregistrée', err.message); }
   }
   res.status(201).json({ ...created, photoSaved });
+}));
+
+router.get('/patient-activations', requirePermission('doctor.patients.create'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await listPendingActivations(req.user.doctorId));
+}));
+
+// Nouveau code d'activation (patient créé par ce médecin, pas encore activé). SMS si configuré.
+router.post('/patients/:id/activation', requirePermission('doctor.patients.create'), auditLog('patient.activation.renew', 'patient'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await renewPatientActivation(req.user.doctorId, req.params.id));
 }));
 
 router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('patient_record'), wrap(async (req, res) => {

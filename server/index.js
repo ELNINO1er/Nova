@@ -8,6 +8,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { initDb } from './db/database.js';
 import { pool } from './db/database.js';
@@ -86,13 +87,28 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 
-app.get('/api/health', async (_req, res) => {
+// Le dossier des documents doit être inscriptible par le processus (image non root) :
+// un volume créé par une ancienne version (root) est signalé ici, voir docs/DEPLOIEMENT_2026-11-16.md.
+async function uploadsWritable() {
+  const { uploadDir } = await import('./middleware/upload.js');
+  const probe = path.join(uploadDir, `.health-${process.pid}`);
   try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, service: 'nova-api', database: 'up' });
+    await fs.writeFile(probe, '');
+    await fs.unlink(probe);
+    return true;
   } catch {
-    res.status(503).json({ ok: false, service: 'nova-api', database: 'down' });
+    return false;
   }
+}
+
+app.get('/api/health', async (_req, res) => {
+  let database = 'up';
+  try { await pool.query('SELECT 1'); } catch { database = 'down'; }
+  const uploads = (await uploadsWritable()) ? 'writable' : 'read-only';
+  const { uploadDirIsExternal } = await import('./middleware/upload.js');
+  const ok = database === 'up' && uploads === 'writable';
+  // uploadsStorage « app » = documents dans le dossier du code : perdus si l'hébergeur le remplace au redéploiement.
+  res.status(ok ? 200 : 503).json({ ok, service: 'nova-api', database, uploads, uploadsStorage: uploadDirIsExternal ? 'external' : 'app' });
 });
 
 if (!isProduction || process.env.ENABLE_API_DOCS === 'true') {

@@ -1,3 +1,4 @@
+import './isolated-db.js';
 /*
  * Règles métier d'accès (base MySQL réelle, données de démonstration) :
  * - une simple demande de rendez-vous n'ouvre pas le dossier ; la confirmation du médecin l'ouvre ;

@@ -71,7 +71,7 @@ import {
   getPrescriptionQR,
 } from '../services/patient.service.js';
 
-import { wrap, validateBody } from '../middleware/helpers.js';
+import { wrap, validateBody, sendPortrait } from '../middleware/helpers.js';
 import { auditLog } from '../middleware/audit.js';
 import { cacheFor } from '../middleware/cache.js';
 import { answerPatientAssistant } from '../services/ai.service.js';
@@ -113,12 +113,9 @@ router.get('/profile', cacheFor(60), wrap(async (req, res) => {
 }));
 
 /* ─── Photo de profil (le patient la change ou la retire lui-même) ─── */
-router.get('/photo', wrap(async (req, res) => {
+router.get('/photo', wrap(async (req, res, next) => {
   // Pas de photo : 204 (cas normal, pas une erreur).
-  const file = await patientPhotoFile(req.user.patientId);
-  res.set('Cache-Control', 'private, no-store');
-  if (!file) return res.status(204).end();
-  res.sendFile(file, (err) => { if (err && !res.headersSent) res.status(204).end(); });
+  sendPortrait(res, await patientPhotoFile(req.user.patientId), next);
 }));
 
 router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('patient.photo.update', 'patient'), wrap(async (req, res) => {

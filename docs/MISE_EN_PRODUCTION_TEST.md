@@ -6,7 +6,7 @@ Mis à jour le 27/10/2026, après la correction des bloquants techniques et le p
 
 ## Qui crée quels comptes
 
-**Connexion unique pour tous** : numéro à 10 chiffres (ex. 0749157741) + mot de passe. Comptes de test fictifs : voir `COMPTES_DE_TEST.md`.
+**Connexion unique pour tous** : numéro à 10 chiffres (ex. 0700000000) + mot de passe. Comptes de test fictifs : voir `COMPTES_DE_TEST.md`.
 
 | Compte | Créé par | Connexion |
 |---|---|---|
@@ -29,7 +29,7 @@ Mis à jour le 27/10/2026, après la correction des bloquants techniques et le p
 | 3 | Code OTP visible par tous en mode démo | ✅ Remplacé par la connexion par mot de passe ; routes SMS coupées par défaut |
 | 4 | HTTPS | ✅ Service `caddy` dans `docker-compose.yml` (certificat Let's Encrypt gratuit, automatique) |
 | 5 | MySQL exposé | ✅ MySQL et l'API n'écoutent plus que sur `127.0.0.1` ; seul Caddy est public (80/443) |
-| 6 | Sauvegardes | ✅ Service `backup` : dump MySQL et archive des documents chaque jour, conservés 14 jours dans `./backups` |
+| 6 | Sauvegardes | ✅ Service `backup` : dump MySQL et archive des documents chaque jour, chiffrés (GPG), conservés 14 jours dans `./backups` — `docs/SAUVEGARDES.md` |
 | – | Journal d'accès | ✅ `morgan` en format `combined` en production (`docker compose logs api`) |
 
 ## Déployer sur un serveur (VPS Linux avec Docker)
@@ -47,8 +47,7 @@ Mis à jour le 27/10/2026, après la correction des bloquants techniques et le p
 ## Sauvegardes : copie hors serveur et restauration
 
 - **Copie hors serveur** : chaque semaine au minimum, rapatrier `./backups` (avec `scp`, `rclone` ou un Google Drive gratuit). Un disque perdu fait perdre aussi les sauvegardes restées sur le serveur.
-- **Restaurer la base** : `gunzip -c backups/nova-db-AAAA-MM-JJ_HHMM.sql.gz | docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" nova'`
-- **Restaurer les documents** : `docker compose run --rm -v "$PWD/backups:/b" --entrypoint sh api -c 'tar -xzf /b/nova-uploads-AAAA-MM-JJ_HHMM.tar.gz -C /app/data/uploads'`
+- **Chiffrement, compte en lecture seule et restauration** : voir `docs/SAUVEGARDES.md` (les sauvegardes sont chiffrées avec une clé publique GPG ; la clé privée reste hors du serveur).
 - Faire un essai de restauration avant d'accueillir les premiers testeurs.
 
 ## Encore à faire

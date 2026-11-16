@@ -5,8 +5,8 @@ import { pool } from '../db/database.js';
 import { getMedicalProfile,getLabResult } from './patient.service.js';
 import { medicalList } from './medical-profile.js';
 import { assertDoctorPatientAccess, doctorAccessClause, hasDoctorPatientAccess } from './access.js';
+import { deliverActivation, prepareActivation } from './patient-activation.js';
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
-import { generateProvisionalPassword, passwordPolicyError } from './auth.service.js';
 import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral, notifyPatientAppointmentStatus } from './notification.service.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
@@ -187,11 +187,9 @@ export async function getDoctorConsultations(doctorId) {
 /* ─── Créer un patient depuis l'espace médecin ───────────────── */
 
 export async function createPatientByDoctor(doctorId, payload) {
-  // Mot de passe choisi par le médecin, ou généré ; le patient le change à sa première connexion.
-  const provisionalPassword = payload.password || generateProvisionalPassword();
-  const policyError = passwordPolicyError('patient', provisionalPassword);
-  if (policyError) throw Object.assign(new Error(`Mot de passe : ${policyError}`), { status: 422, code: 'weak_password' });
-  const passwordHash = await bcrypt.hash(provisionalPassword, 12);
+  // Code d'activation toujours généré par le serveur (jamais choisi par le médecin), expirant et à usage unique.
+  // Remis par SMS au patient quand un fournisseur est configuré (services/patient-activation.js).
+  const activation = await prepareActivation();
 
   const conn = await pool.getConnection();
   try {
@@ -240,9 +238,11 @@ export async function createPatientByDoctor(doctorId, payload) {
     const avatar = `${(payload.firstName?.[0] || '').toUpperCase()}${(payload.lastName?.[0] || '').toUpperCase()}`;
 
     await conn.execute(
-      `INSERT INTO nova_users (id, phone, code_hash, password_hash, must_change_password, role, patient_id, name, avatar, created_at)
-       VALUES (?, ?, ?, ?, 1, 'patient', ?, ?, ?, ?)`,
-      [userId, phone, unusableLegacyHash, passwordHash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now]
+      `INSERT INTO nova_users (id, phone, code_hash, password_hash, must_change_password, role, patient_id, name, avatar, created_at,
+         activation_expires_at, activation_channel, activation_doctor_id)
+       VALUES (?, ?, ?, ?, 1, 'patient', ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, phone, unusableLegacyHash, activation.hash, patientId, `${payload.firstName} ${payload.lastName}`, avatar, now,
+       activation.expiresAt, activation.channel, doctorId]
     );
 
     // 5. L'inscription ne vaut pas consentement : le patient doit accepter la demande.
@@ -260,8 +260,8 @@ export async function createPatientByDoctor(doctorId, payload) {
       cmuNumber,
       name: `${payload.firstName} ${payload.lastName}`,
       phone,
-      // Affiché une seule fois au médecin, qui le remet au patient.
-      provisionalPassword,
+      // SMS : le code n'est jamais renvoyé au médecin. Fiche : affiché une seule fois.
+      activation: await deliverActivation({ ...activation, phone }),
     };
   } catch (err) {
     await conn.rollback();
@@ -269,6 +269,49 @@ export async function createPatientByDoctor(doctorId, payload) {
   } finally {
     conn.release();
   }
+}
+
+/**
+ * Nouveau code d'activation pour un patient que CE médecin a créé et qui ne s'est pas encore activé.
+ * L'ancien code et toute demande de changement de mot de passe en cours deviennent invalides.
+ */
+export async function renewPatientActivation(doctorId, patientId) {
+  const activation = await prepareActivation();
+  const [result] = await pool.execute(
+    `UPDATE nova_users
+     SET password_hash = ?, must_change_password = 1, activation_expires_at = ?, activation_channel = ?,
+         failed_login_attempts = 0, locked_until = NULL, session_version = session_version + 1
+     WHERE patient_id = ? AND role = 'patient' AND activation_doctor_id = ?
+       AND must_change_password = 1 AND password_changed_at IS NULL
+       AND deleted_at IS NULL AND disabled_at IS NULL`,
+    [activation.hash, activation.expiresAt, activation.channel, patientId, doctorId]
+  );
+  if (!result.affectedRows) {
+    throw Object.assign(new Error('Activation impossible : compte déjà activé ou créé par un autre médecin.'), { status: 409, code: 'activation_unavailable' });
+  }
+  const [[user]] = await pool.execute("SELECT id, phone FROM nova_users WHERE patient_id = ? AND role = 'patient'", [patientId]);
+  await pool.execute('UPDATE nova_auth_challenges SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [user.id]);
+  return deliverActivation({ ...activation, phone: user.phone });
+}
+
+/** Patients créés par ce médecin qui n'ont pas encore activé leur compte (identité minimale, aucun code). */
+export async function listPendingActivations(doctorId) {
+  const [rows] = await pool.execute(
+    `SELECT p.id, p.first_name, p.last_name, u.phone, u.activation_expires_at, u.activation_channel
+     FROM nova_users u JOIN nova_patients p ON p.id = u.patient_id AND p.deleted_at IS NULL
+     WHERE u.role = 'patient' AND u.activation_doctor_id = ? AND u.must_change_password = 1
+       AND u.password_changed_at IS NULL AND u.deleted_at IS NULL AND u.disabled_at IS NULL
+     ORDER BY u.activation_expires_at DESC LIMIT 50`,
+    [doctorId]
+  );
+  return rows.map((r) => ({
+    patientId: r.id,
+    name: `${r.first_name} ${r.last_name}`,
+    phone: r.phone,
+    channel: r.activation_channel,
+    expiresAt: r.activation_expires_at ? new Date(r.activation_expires_at).toISOString() : null,
+    expired: r.activation_expires_at ? new Date(r.activation_expires_at).getTime() <= Date.now() : false,
+  }));
 }
 
 // Règle d'accès centralisée (services/access.js) : la révocation par le patient prime.
@@ -1100,7 +1143,8 @@ export async function deleteDoctorDocument(doctorId, docId) {
   if (doc.file_path) {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
-    const fullPath = path.join(process.cwd(), 'data', 'uploads', doc.file_path.includes('/')?doc.file_path:`shared/${doc.file_path}`);
+    const { uploadDir } = await import('../middleware/upload.js');
+    const fullPath = path.join(uploadDir, doc.file_path.includes('/')?doc.file_path:`shared/${doc.file_path}`);
     await fs.unlink(fullPath).catch(() => {});
   }
   return { ok: true };

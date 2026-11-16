@@ -3,6 +3,15 @@ import React, { useState, useEffect } from 'react';
 import { AlertCircle, AlertTriangle, Bell, Check, CheckCircle2, ChevronRight, Clock, Phone, Plus, Save, Search, ShieldAlert, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
+import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
+
+// Classes Tailwind écrites en entier : les noms construits dynamiquement sont supprimés au build.
+const EMERGENCY_STYLES = {
+  samu: { box: 'bg-red-50 border-red-200 hover:bg-red-100', icon: 'text-red-600', label: 'text-red-700', number: 'text-red-600' },
+  pompiers: { box: 'bg-orange-50 border-orange-200 hover:bg-orange-100', icon: 'text-orange-600', label: 'text-orange-700', number: 'text-orange-600' },
+  police: { box: 'bg-blue-50 border-blue-200 hover:bg-blue-100', icon: 'text-blue-600', label: 'text-blue-700', number: 'text-blue-600' },
+  gendarmerie: { box: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100', icon: 'text-emerald-600', label: 'text-emerald-700', number: 'text-emerald-600' },
+};
 
 export default function DUrgences({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm, setShowForm]   = useState(false);
@@ -69,14 +78,17 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
       <div className={`${card} border rounded-2xl p-4`}>
         <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Phone className="w-4 h-4 text-red-600" /> Contacts urgence rapides</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[{ l: 'SAMU', n: '15', c: 'red' }, { l: 'Pompiers', n: '18', c: 'orange' }, { l: 'Police', n: '17', c: 'blue' }, { l: 'Urgences CHU', n: '05 20 33 34 00', c: 'emerald' }].map(({ l, n, c }) => (
-            <a key={l} href={`tel:${n}`}
-              className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all bg-${c}-50 border-${c}-200 hover:bg-${c}-100`}>
-              <Phone className={`w-4 h-4 text-${c}-600`} />
-              <p className={`text-xs font-bold text-${c}-700`}>{l}</p>
-              <p className={`text-sm font-black text-${c}-600`}>{n}</p>
-            </a>
-          ))}
+          {EMERGENCY_NUMBERS.map(({ id, label, number }) => {
+            const st = EMERGENCY_STYLES[id] || EMERGENCY_STYLES.samu;
+            return (
+              <a key={id} href={telHref(number)} aria-label={`Appeler ${label} au ${number}`}
+                className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all ${st.box}`}>
+                <Phone className={`w-4 h-4 ${st.icon}`} />
+                <p className={`text-xs font-bold ${st.label}`}>{label}</p>
+                <p className={`text-sm font-black ${st.number}`}>{number}</p>
+              </a>
+            );
+          })}
         </div>
       </div>
 

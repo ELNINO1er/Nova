@@ -80,6 +80,13 @@ export async function migrate(conn) {
         await column(conn, 'nova_users', 'login_email', 'VARCHAR(254) NULL UNIQUE');
         await conn.query('ALTER TABLE nova_users MODIFY phone VARCHAR(20) NULL');
       }],
+      ['20261116_14_patient_activation', async () => {
+        // Activation des patients créés par un médecin : code à usage unique et expirant, médecin créateur.
+        // Les comptes existants gardent NULL : pas d'expiration rétroactive (accès préservé).
+        await column(conn, 'nova_users', 'activation_expires_at', 'DATETIME(3) NULL');
+        await column(conn, 'nova_users', 'activation_channel', 'VARCHAR(10) NULL');
+        await column(conn, 'nova_users', 'activation_doctor_id', 'VARCHAR(36) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

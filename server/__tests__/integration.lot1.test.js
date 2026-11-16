@@ -1,3 +1,4 @@
+import './isolated-db.js';
 /*
  * Tests d'intégration (base MySQL réelle) : accès aux dossiers, rendez-vous, QR pharmacie.
  * S'appuient sur les données de démonstration (SEED_DEMO) et nettoient ce qu'ils créent.

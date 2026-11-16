@@ -1,3 +1,4 @@
+import { isPublicPassword } from '../services/public-passwords.js';
 import 'dotenv/config';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcrypt';
@@ -11,7 +12,7 @@ export const pool = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'nova',
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: Math.max(1, Number(process.env.DB_POOL_SIZE) || 10),
   charset: 'UTF8MB4_UNICODE_CI',
   timezone: '+00:00',
 });
@@ -42,8 +43,8 @@ export async function initDb() {
     if (!locked) throw new Error('Initialisation MySQL déjà en cours.');
     await createTables(conn);
     await migrate(conn);
-    // SEED_DEMO=true insère les comptes/données de démonstration.
-    // Autorisé en production (phase de validation) — idempotent, activé explicitement via l'env.
+    // SEED_DEMO=true insère les comptes/données de démonstration (mots de passe : DEMO_PASSWORD,
+    // DEMO_DOCTOR_PASSWORD, jamais de valeur par défaut). En production, index.js exige ALLOW_INSECURE_DEMO=true.
     if (process.env.SEED_DEMO === 'true') {
       if (process.env.NODE_ENV === 'production') {
         console.warn('[seed] SEED_DEMO=true : insertion des données de démonstration en production.');
@@ -1232,6 +1233,25 @@ async function seedWellnessGoals(conn) {
   }
 }
 
+/**
+ * Mot de passe d'un compte de démonstration : uniquement fourni par l'environnement.
+ * Aucune valeur par défaut. Une valeur publiée (ancienne démo) est refusée.
+ * Sans valeur, les comptes sont créés sans mot de passe et restent inutilisables.
+ */
+function demoSecret(name) {
+  const value = process.env[name] || '';
+  if (!value) {
+    console.warn(`[seed] ${name} absent : comptes de démonstration créés sans mot de passe (connexion impossible).`);
+    return null;
+  }
+  // Valeur publiée ou trop courte : ignorée (jamais appliquée à un compte), sans bloquer le démarrage.
+  if (isPublicPassword(value) || value.length < 12) {
+    console.warn(`[seed] ${name} ignoré : valeur publiée ou de moins de 12 caractères. Comptes de démonstration sans mot de passe.`);
+    return null;
+  }
+  return value;
+}
+
 async function seedUsers(conn) {
   // Valeur interne aléatoire : l'ancien code fixe 0000 n'est plus accepté.
   const codeHash = await bcrypt.hash(randomUUID(), 12);
@@ -1289,12 +1309,7 @@ async function seedPharmacies(conn) {
 
 async function seedDoctorUser(conn) {
   const codeHash = await bcrypt.hash(randomUUID(), 12);
-  const provisionalPassword = process.env.DEMO_DOCTOR_PASSWORD
-    || (process.env.NODE_ENV !== 'production' ? 'Nova-Demo-2026!' : '');
-  if (!provisionalPassword) {
-    throw new Error('DEMO_DOCTOR_PASSWORD est requis pour créer le médecin de démonstration en production.');
-  }
-  const passwordHash = await bcrypt.hash(provisionalPassword, 12);
+  const provisionalPassword = demoSecret('DEMO_DOCTOR_PASSWORD');
   const now = new Date().toISOString();
   await conn.query(
     `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?)
@@ -1306,35 +1321,39 @@ async function seedDoctorUser(conn) {
      ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), pharmacy_id = VALUES(pharmacy_id), name = VALUES(name), avatar = VALUES(avatar)`,
     ['user-ph-001','0700000002',codeHash,'pharmacist',null,null,'ph-001','Pharmacie du Plateau','PH',now]
   );
-  await conn.query(
-    `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
-    ['user-admin-001','0700000001',codeHash,'admin',null,null,null,'Admin Système','AS',now]
-  );
-  await conn.query(
-    `UPDATE nova_users SET password_hash = ?, must_change_password = 1
-     WHERE id = 'user-doc-001' AND must_change_password = 1 AND mfa_enabled = 0`,
-    [passwordHash]
-  );
+  // Jamais d'administrateur de démonstration en production : le premier admin se crée avec npm run create:admin.
+  if (process.env.NODE_ENV !== 'production') {
+    await conn.query(
+      `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
+      ['user-admin-001','0700000001',codeHash,'admin',null,null,null,'Admin Système','AS',now]
+    );
+  }
+  if (provisionalPassword) {
+    await conn.query(
+      `UPDATE nova_users SET password_hash = ?, must_change_password = 1
+       WHERE id = 'user-doc-001' AND must_change_password = 1 AND mfa_enabled = 0`,
+      [await bcrypt.hash(provisionalPassword, 12)]
+    );
+  }
   await conn.query(`UPDATE nova_doctors SET email = COALESCE(email, 'aicha.toure@nova.ci') WHERE id = 'doc-001'`);
 
   // Comptes démo à connexion téléphone + mot de passe (patients, pharmacien, admin).
   // Mot de passe défini une seule fois : un changement fait depuis l'application est conservé.
-  const demoPassword = process.env.DEMO_PASSWORD
-    || (process.env.NODE_ENV !== 'production' ? 'Nova-Demo-2026!' : '');
-  if (!demoPassword) {
-    throw new Error('DEMO_PASSWORD est requis pour créer les comptes de démonstration en production.');
-  }
+  const demoPassword = demoSecret('DEMO_PASSWORD');
   await conn.query(
     `INSERT IGNORE INTO nova_users (id, phone, code_hash, role, name, avatar, created_at)
      VALUES ('user-gov-001', '0700000003', ?, 'governor', 'Direction Régionale de la Santé', 'DR', ?)`,
     [codeHash, now]
   );
-  await conn.query(
-    `UPDATE nova_users SET password_hash = ?, must_change_password = 0
-     WHERE id IN ('user-001','user-002','user-ph-001','user-admin-001','user-gov-001') AND password_hash IS NULL`,
-    [await bcrypt.hash(demoPassword, 12)]
-  );
+  // Mot de passe provisoire : changement obligatoire à la première connexion, avant tout enrôlement MFA.
+  if (demoPassword) {
+    await conn.query(
+      `UPDATE nova_users SET password_hash = ?, must_change_password = 1
+       WHERE id IN ('user-001','user-002','user-ph-001','user-admin-001','user-gov-001') AND password_hash IS NULL`,
+      [await bcrypt.hash(demoPassword, 12)]
+    );
+  }
 }
 
 async function seedDoctorData(conn) {

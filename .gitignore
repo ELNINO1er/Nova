@@ -6,3 +6,7 @@ data/uploads/
 backups/
 .env
 .env.local
+
+# Clés de chiffrement des sauvegardes : seule la clé publique est déposée sur le serveur, jamais versionnée.
+deploy/keys/*
+!deploy/keys/README.md

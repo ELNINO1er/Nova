@@ -89,16 +89,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Compte MySQL en lecture seule (deploy/create-backup-user.sh), jamais root.
+    # Chiffrement GPG avec la clé PUBLIQUE ./deploy/keys/backup-public.asc (clé privée hors serveur).
     environment:
       DB_HOST: db
       DB_NAME: ${DB_NAME:-nova}
-      MYSQL_PWD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      BACKUP_DB_USER: ${BACKUP_DB_USER:-nova_backup}
+      MYSQL_PWD: ${BACKUP_DB_PASSWORD:?BACKUP_DB_PASSWORD is required (voir docs/SAUVEGARDES.md)}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_GPG_RECIPIENT_FILE: /keys/backup-public.asc
     volumes:
       - ./deploy/backup.sh:/backup.sh:ro
+      - ./deploy/keys:/keys:ro
       - ./backups:/backups
       - nova_uploads:/uploads:ro
-    entrypoint: ["sh", "/backup.sh"]
+    entrypoint: ["bash", "/backup.sh"]
 
 volumes:
   nova_mysql:

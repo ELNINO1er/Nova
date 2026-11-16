@@ -79,7 +79,7 @@ router.post('/password/login', async (req, res, next) => {
     if (result.error) {
       const status = result.error === 'account_locked' ? 423
         : result.error === 'use_doctor_login' ? 409
-        : result.error === 'no_password' ? 403 : 401;
+        : ['no_password', 'compromised_password', 'activation_expired'].includes(result.error) ? 403 : 401;
       // 401 réservé aux identifiants refusés : code distinct des erreurs de session côté client.
       return res.status(status).json({ error: result.error, message: result.message });
     }
@@ -232,10 +232,13 @@ router.post('/refresh', async (req, res, next) => {
   const { pool } = await import('../db/database.js');
   let conn;
   try {
-    conn=await pool.getConnection();
+    // Vérification du jeton AVANT de réserver une connexion : verifyRefreshToken consulte la liste
+    // de révocation via le pool. Garder une connexion en attendant une seconde bloquait le pool
+    // (10 renouvellements simultanés = API figée).
     const token = req.body?.refreshToken || getCookie(req, 'nova_refresh_token');
     const payload = token && await verifyRefreshToken(token);
     if (!payload) return res.status(401).json({ error: 'invalid_refresh', message: 'Session expiree.' });
+    conn = await pool.getConnection();
     await conn.beginTransaction();
     const [[account]] = await conn.execute('SELECT * FROM nova_users WHERE id=? FOR UPDATE', [payload.id]);
     if (!account || account.deleted_at || account.disabled_at || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
@@ -249,7 +252,10 @@ router.post('/refresh', async (req, res, next) => {
     await conn.commit();
     setAuthCookies(res, access, refresh);
     res.set('Cache-Control','no-store').json({ok:true});
-  } catch(err) { if(conn)await conn.rollback(); next(err); } finally { conn?.release(); }
+  } catch(err) {
+    if (conn) await conn.rollback().catch(() => {});
+    next(err);
+  } finally { conn?.release(); }
 });
 
 /* ── POST /api/auth/logout — invalider le token ─────────────── */

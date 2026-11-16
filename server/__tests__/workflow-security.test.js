@@ -1,3 +1,4 @@
+import './isolated-db.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initDb, pool } from '../db/database.js';
 import { answerDoctorAssistant, answerPatientAssistant } from '../services/ai.service.js';

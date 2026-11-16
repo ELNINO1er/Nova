@@ -1,0 +1,10 @@
+# Retour arrière de l'API seule vers l'image taguée avant le déploiement du 16/11/2026.
+# Les autres services (base, sauvegardes chiffrées, Caddy) restent ceux de la version courante.
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.rollback.yml up -d --no-build --pull never api
+# Prérequis : image « nova-api:avant-20261116 » créée avant le déploiement, et
+#   node server/scripts/patient-activations.js pre-rollback --apply   exécuté AVANT de basculer.
+services:
+  api:
+    # !reset retire « build » : aucune reconstruction ne peut écraser l'image de retour arrière.
+    build: !reset null
+    image: nova-api:avant-20261116

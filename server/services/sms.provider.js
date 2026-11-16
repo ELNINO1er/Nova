@@ -25,7 +25,10 @@ async function sendViaTwilio(to, message) {
     throw new Error('Twilio SMS configuration incomplete.');
   }
 
-  const params = new URLSearchParams({ To: to, From: from, Body: message });
+  // Twilio exige le format international : numéro ivoirien à 10 chiffres -> +225 suivi des 10 chiffres.
+  const digits = String(to).replace(/[^\d+]/g, '');
+  const international = /^0\d{9}$/.test(digits) ? `+225${digits}` : digits;
+  const params = new URLSearchParams({ To: international, From: from, Body: message });
   const auth = Buffer.from(`${sid}:${token}`).toString('base64');
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',

@@ -1,3 +1,4 @@
+import { isPublicPassword, publicPasswordAllowedAtLogin } from './public-passwords.js';
 import bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomUUID, randomInt } from 'node:crypto';
 import { pool } from '../db/database.js';
@@ -142,6 +143,15 @@ export async function startDoctorPasswordLogin(email, password) {
     return { error: 'invalid_credentials', message: 'Identifiants médecin invalides.' };
   }
 
+  if (isPublicPassword(password) && !publicPasswordAllowedAtLogin()) {
+    // Mot de passe de démonstration publié : aucune session ni enrôlement MFA possible avec lui.
+    return { error: 'compromised_password', message: 'Ce mot de passe n’est plus accepté. Contactez l’administrateur pour obtenir un nouvel accès.' };
+  }
+
+  if (user.must_change_password && user.activation_expires_at && new Date(user.activation_expires_at).getTime() <= Date.now()) {
+    return { error: 'activation_expired', message: 'Ce code d’activation a expiré. Demandez un nouveau code à votre médecin.' };
+  }
+
   await pool.execute('UPDATE nova_users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
 
   if (user.must_change_password) {
@@ -217,6 +227,9 @@ export const STRONG_PASSWORD_ROLES = ['admin', 'doctor', 'governor'];
 
 export function passwordPolicyError(role, password) {
   const value = String(password || '');
+  if (isPublicPassword(value)) {
+    return 'Ce mot de passe a été publié et n’est plus accepté. Choisissez-en un autre.';
+  }
   if (STRONG_PASSWORD_ROLES.includes(role)) {
     if (value.length < 12 || !/[a-z]/.test(value) || !/[A-Z]/.test(value) || !/\d/.test(value) || !/[^A-Za-z0-9]/.test(value)) {
       return '12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.';
@@ -261,6 +274,15 @@ export async function startPhonePasswordLogin(identifier, password) {
       [user.id]
     );
     return INVALID_PHONE_LOGIN;
+  }
+
+  if (isPublicPassword(password) && !publicPasswordAllowedAtLogin()) {
+    // Mot de passe de démonstration publié : aucune session ni enrôlement MFA possible avec lui.
+    return { error: 'compromised_password', message: 'Ce mot de passe n’est plus accepté. Contactez l’administrateur pour obtenir un nouvel accès.' };
+  }
+
+  if (user.must_change_password && user.activation_expires_at && new Date(user.activation_expires_at).getTime() <= Date.now()) {
+    return { error: 'activation_expired', message: 'Ce code d’activation a expiré. Demandez un nouveau code à votre médecin.' };
   }
 
   await pool.execute('UPDATE nova_users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
@@ -310,13 +332,22 @@ export async function changeInitialPassword(challengeId, newPassword) {
   if (!user) throw Object.assign(new Error('Demande invalide.'), { status: 400, code: 'invalid_challenge' });
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await pool.execute(
+  // Activation unique : seule la première demande aboutit. Le code provisoire, les autres demandes de
+  // changement en cours et toute session antérieure deviennent invalides.
+  const [activated] = await pool.execute(
     `UPDATE nova_users
      SET password_hash = ?, must_change_password = 0, password_changed_at = NOW(),
-         failed_login_attempts = 0, locked_until = NULL
-     WHERE id = ?`,
+         failed_login_attempts = 0, locked_until = NULL, activation_expires_at = NULL,
+         session_version = session_version + 1
+     WHERE id = ? AND must_change_password = 1 AND deleted_at IS NULL AND disabled_at IS NULL
+       AND (activation_expires_at IS NULL OR activation_expires_at > NOW(3))`,
     [passwordHash, user.id]
   );
+  await pool.execute('UPDATE nova_auth_challenges SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [user.id]);
+  if (!activated.affectedRows) {
+    throw Object.assign(new Error('Ce compte a déjà été activé ou le code a expiré. Reconnectez-vous.'), { status: 409, code: 'activation_unavailable' });
+  }
+  user.session_version = Number(user.session_version || 0) + 1;
   if (user.role === 'admin') {
     const next = user.mfa_enabled && user.mfa_secret_enc
       ? await startTotpLogin(user.id)

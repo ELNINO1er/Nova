@@ -6,11 +6,12 @@ import jwt from 'jsonwebtoken';
 //   npm run seed:fictif
 //
 // Idempotent : ne fait rien si les comptes fictifs existent déjà.
-// Mot de passe commun des comptes : SEED_FICTIF_PASSWORD, sinon celui indiqué dans docs/COMPTES_DE_TEST.md.
+// Mot de passe commun des comptes : SEED_FICTIF_PASSWORD (obligatoire, jamais écrit dans le dépôt).
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { initDb, pool } from '../db/database.js';
+import { isPublicPassword } from '../services/public-passwords.js';
 import { createDoctorAccount, createStaffAccount } from '../services/admin.service.js';
 import {
   createConsultation, createDoctorLabRequest, createDoctorPrescription, createPatientByDoctor,
@@ -23,7 +24,14 @@ if (process.env.NODE_ENV === 'production' && process.env.ALLOW_FICTIF_SEED !== '
   process.exit(1);
 }
 
-const PASSWORD = process.env.SEED_FICTIF_PASSWORD || 'Nova-Test-2026!';
+// Mot de passe obligatoirement fourni : aucune valeur par défaut, les valeurs publiées sont refusées.
+const PASSWORD = process.env.SEED_FICTIF_PASSWORD || '';
+if (PASSWORD.length < 12 || isPublicPassword(PASSWORD)) {
+  console.error('Définissez SEED_FICTIF_PASSWORD (12 caractères minimum, valeur privée non publiée).');
+  process.exit(1);
+}
+// En production (pilote sans vraies données), changement obligatoire à la première connexion.
+const MUST_CHANGE = process.env.NODE_ENV === 'production' ? 1 : 0;
 
 // Générateur pseudo-aléatoire déterministe : mêmes données à chaque exécution sur une base vide.
 let seed = 20261027;
@@ -78,8 +86,8 @@ const VISITS = [
 
 async function setTestPassword(conn, userId) {
   await conn.execute(
-    'UPDATE nova_users SET password_hash = ?, must_change_password = 0, failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
-    [await bcrypt.hash(PASSWORD, 12), userId]
+    'UPDATE nova_users SET password_hash = ?, must_change_password = ?, failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
+    [await bcrypt.hash(PASSWORD, 12), MUST_CHANGE, userId]
   );
 }
 

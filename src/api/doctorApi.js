@@ -42,6 +42,8 @@ export const doctorApi = {
   saveSignature:       (payload) => request('/doctor/me/signature', { method: 'POST', body: JSON.stringify(payload) }),
   // Création patient
   createPatient:       (payload) => request('/doctor/me/patients', { method: 'POST', body: JSON.stringify(payload) }),
+  pendingActivations: () => request('/doctor/me/patient-activations'),
+  renewPatientActivation: (id) => request(`/doctor/me/patients/${encodeURIComponent(id)}/activation`, { method: 'POST' }),
   // Consentement
   requestConsent:      (patientId, scope) => request(`/doctor/me/consents/${patientId}/request`, { method: 'POST', body: JSON.stringify({ scope }) }),
   // Statut délivrance

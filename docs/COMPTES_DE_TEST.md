@@ -3,9 +3,9 @@
 Créés par `npm run seed:fictif` (script `server/scripts/seed-fictif.js`). **Toutes les personnes et données sont fictives.**
 
 - **Connexion :** numéro à 10 chiffres + mot de passe, dans le même formulaire pour tous les rôles.
-- **Mot de passe commun des comptes fictifs :** `Nova-Test-2026!`. On peut le remplacer avec la variable `SEED_FICTIF_PASSWORD` avant de lancer le script.
+- **Mot de passe commun des comptes fictifs :** valeur de la variable `SEED_FICTIF_PASSWORD`, obligatoire (12 caractères minimum). Elle n'est écrite nulle part dans le dépôt. Les anciens mots de passe publiés sont refusés.
 - **Médecins :** après le mot de passe, la première connexion demande d'activer une application Authenticator (Google ou Microsoft Authenticator). Les connexions suivantes demandent le code à 6 chiffres.
-- **Super admin :** compte réel du propriétaire (`0749157741`). Son mot de passe n'est écrit nulle part dans le projet.
+- **Super admin :** compte réel du propriétaire (numéro non publié). Son mot de passe n'est écrit nulle part dans le projet.
 
 ## Médecins
 
@@ -46,7 +46,7 @@ Chaque patient a :
 
 ## Comptes de démonstration d'origine (développement)
 
-Ces comptes existent si `SEED_DEMO=true`. Le mot de passe est celui de `DEMO_PASSWORD`, ou `Nova-Demo-2026!` par défaut en développement :
+Ces comptes existent si `SEED_DEMO=true`. Leur mot de passe provisoire est celui de `DEMO_PASSWORD` (aucune valeur par défaut ; sans elle, les comptes n'ont pas de mot de passe). Il doit être changé à la première connexion. Le compte admin de démonstration n'est jamais créé en production :
 
 | Numéro | Rôle |
 |---|---|

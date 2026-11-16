@@ -3,12 +3,13 @@ import bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { initDb, pool } from '../db/database.js';
 import { normalizePhone } from '../services/phone.js';
+import { passwordPolicyError } from '../services/auth.service.js';
 
 const phone = normalizePhone(process.env.ADMIN_PHONE);
 const name = String(process.env.ADMIN_NAME || 'Administrateur NOVA').trim();
 
 if (!phone) {
-  console.error('ADMIN_PHONE est requis : numero a 10 chiffres (ex. 0749157741).');
+  console.error('ADMIN_PHONE est requis : numero a 10 chiffres (ex. 0700000000).');
   process.exit(1);
 }
 
@@ -22,9 +23,8 @@ try {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   // ADMIN_PASSWORD (optionnel) : mot de passe définitif choisi par le propriétaire, jamais affiché.
   const chosen = process.env.ADMIN_PASSWORD || '';
-  if (chosen && (chosen.length < 8 || !/[A-Za-z]/.test(chosen) || !/\d/.test(chosen))) {
-    throw new Error('ADMIN_PASSWORD : 8 caracteres minimum avec lettres et chiffres.');
-  }
+  const policyError = chosen ? passwordPolicyError('admin', chosen) : null;
+  if (policyError) throw new Error(`ADMIN_PASSWORD : ${policyError}`);
   const provisional = chosen || `${Array.from(randomBytes(12), (b) => alphabet[b % alphabet.length]).join('')}a7K!`;
   const mustChange = chosen ? 0 : 1;
   const passwordHash = await bcrypt.hash(provisional, 12);
@@ -33,7 +33,8 @@ try {
     // Relancer le script sur un admin existant sert aussi à réinitialiser son mot de passe.
     await pool.execute(
       `UPDATE nova_users SET name = ?, password_hash = ?, must_change_password = ?,
-         failed_login_attempts = 0, locked_until = NULL, deleted_at = NULL, updated_at = ? WHERE id = ?`,
+         failed_login_attempts = 0, locked_until = NULL, deleted_at = NULL,
+         session_version = session_version + 1, updated_at = ? WHERE id = ?`,
       [name, passwordHash, mustChange, now, existing.id]
     );
     console.log(`Administrateur existant, mot de passe reinitialise: ${phone}`);

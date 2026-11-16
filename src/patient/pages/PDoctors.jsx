@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Star, MapPin, PhoneCall, Users, Wallet, X, ShieldCheck, Briefcase, Stethoscope, CalendarDays, Phone } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { formatDateFull } from '../../utils/format.js';
@@ -44,7 +44,10 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     return () => document.removeEventListener('keydown', onKey);
   }, [selected]);
 
+  // Seule la dernière fiche ouverte peut afficher ses créneaux : évite de réserver chez B un créneau de A.
+  const openRequest = useRef(0);
   const openDoctor = async (doc) => {
+    const request = ++openRequest.current;
     setSelected(doc);
     setShareRecord(false);
     setChosenSlot(null);
@@ -52,11 +55,11 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     setLS(true);
     try {
       const s = await patientApi.doctorSlots(doc.id);
-      setSlots(s);
+      if (request === openRequest.current) setSlots(s);
     } catch {
-      setSlots([]);
+      if (request === openRequest.current) setSlots([]);
     } finally {
-      setLS(false);
+      if (request === openRequest.current) setLS(false);
     }
   };
 

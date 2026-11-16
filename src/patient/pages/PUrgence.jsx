@@ -2,18 +2,17 @@ import React, { useState } from 'react';
 import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
+import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
+
+const EMERGENCY_ICONS = { samu: PhoneCall, pompiers: Siren, police: Shield, gendarmerie: Shield };
 
 export default function PUrgence({ data, card, sub, border, darkMode }) {
   const [showQR, setShowQR]   = useState(false);
   const [qrData, setQrData]   = useState(null);
   const [loadQR, setLoadQR]   = useState(false);
 
-  const urgenceNumbers = [
-    // Numéros d'urgence de Côte d'Ivoire.
-    { label: 'SAMU',     number: '185', hint: 'Urgence médicale', icon: PhoneCall },
-    { label: 'Police',   number: '170', hint: 'Secours et sécurité', icon: Shield },
-    { label: 'Pompiers', number: '180', hint: 'Incendie, accident', icon: Siren },
-  ];
+  // Numéros d'urgence de Côte d'Ivoire (source : src/utils/emergency.js).
+  const urgenceNumbers = EMERGENCY_NUMBERS.map(n => ({ ...n, icon: EMERGENCY_ICONS[n.id] || PhoneCall }));
 
   const fetchQR = async () => {
     setLoadQR(true);
@@ -82,9 +81,9 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
       {/* Numéros d'urgence : actions principales */}
       <section aria-labelledby="purgence-numbers">
         <h3 id="purgence-numbers" className="text-sm font-semibold mb-3">Appeler les secours</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">
           {urgenceNumbers.map(({ label, number, hint, icon: Icon }) => (
-            <a key={label} href={`tel:${number}`} aria-label={`Appeler ${label} au ${number}`}
+            <a key={label} href={telHref(number)} aria-label={`Appeler ${label} au ${number}`}
               className="group rounded-3xl bg-red-600 hover:bg-red-700 active:bg-red-700 text-white p-5 flex items-center sm:flex-col sm:items-start gap-4 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-red-300">
               <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
                 <Icon className="w-6 h-6" />
