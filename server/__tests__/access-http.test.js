@@ -7,6 +7,8 @@ import './isolated-db.js';
  * autorités, administration, accès anonyme, absence de service statique des documents.
  */
 import 'dotenv/config';
+import { CONSENT_TERMS_VERSION } from '../services/consent-terms.js';
+const ACK = { acknowledged: true, termsVersion: CONSENT_TERMS_VERSION };
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import express from 'express';
 import fs from 'node:fs';
@@ -70,9 +72,9 @@ beforeAll(async () => {
   tok.ADM = await addUser('admin');
 
   // Données de la patiente A : partage explicite avec D1 uniquement.
-  await patientSvc.grantDoctorAccess(A, D1);
+  await patientSvc.grantDoctorAccess(A, D1, ACK);
   rxA = (await doctorSvc.createDoctorPrescription(D1, { patientId: A, items: [{ name: 'Amlodipine 5 mg', quantityPrescribed: 30 }], validDays: 30 })).id;
-  await patientSvc.grantDoctorAccess(B, D2);
+  await patientSvc.grantDoctorAccess(B, D2, ACK);
   rxB = (await doctorSvc.createDoctorPrescription(D2, { patientId: B, items: [{ name: 'Paracétamol 1 g', quantityPrescribed: 10 }], validDays: 30 })).id;
   qrA = (await call('A', 'GET', `/api/patient/me/prescriptions/${rxA}/qr`)).json;
   fs.mkdirSync(path.join(UPLOADS, A), { recursive: true });
@@ -140,10 +142,11 @@ describe('Cloisonnement HTTP par rôle', () => {
   });
 
   it('révocation : le partage retiré ferme immédiatement l’accès du médecin', async () => {
+    expect((await call('A', 'POST', `/api/patient/me/care-team/${D2}/grant`)).status).toBe(422); // sans acceptation des conditions
     expect((await call('A', 'POST', `/api/patient/me/care-team/${D1}/revoke`)).status).toBe(200);
     expect((await call('D1', 'GET', `/api/doctor/me/patients/${A}`)).status).toBe(404);
     expect((await call('D1', 'POST', '/api/doctor/me/prescriptions', { patientId: A, items: [{ name: 'X', quantityPrescribed: 1 }] })).status).toBe(403);
-    expect((await call('A', 'POST', `/api/patient/me/care-team/${D1}/grant`)).status).toBe(200);
+    expect((await call('A', 'POST', `/api/patient/me/care-team/${D1}/grant`, ACK)).status).toBe(200);
     expect((await call('D1', 'GET', `/api/doctor/me/patients/${A}`)).status).toBe(200);
   });
 

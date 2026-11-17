@@ -564,13 +564,18 @@ router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
 }));
 
 /* ─── Consentements ──────────────────────────────────────────── */
+// Tout accord exige l'acceptation explicite des conditions de partage en vigueur.
+const CONSENT_ACK = z.object({
+  acknowledged: z.literal(true, { message: 'Acceptez les conditions de partage pour autoriser ce médecin.' }),
+  termsVersion: z.string().max(20),
+});
 
 router.get('/consents', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await getConsents(req.user.patientId));
 }));
 
-router.post('/consents/:id/grant', requirePermission('patient.consents'), wrap(async (req, res) => {
-  res.json(await grantConsent(req.user.patientId, req.params.id));
+router.post('/consents/:id/grant', requirePermission('patient.consents'), validateBody(CONSENT_ACK), auditLog('patient.access.grant', 'consent'), wrap(async (req, res) => {
+  res.json(await grantConsent(req.user.patientId, req.params.id, req.body));
 }));
 
 router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
@@ -587,8 +592,8 @@ router.post('/care-team/:doctorId/revoke', requirePermission('patient.consents')
   res.json(await revokeDoctorAccess(req.user.patientId, req.params.doctorId));
 }));
 
-router.post('/care-team/:doctorId/grant', requirePermission('patient.consents'), auditLog('patient.access.grant', 'doctor'), wrap(async (req, res) => {
-  res.json(await grantDoctorAccess(req.user.patientId, req.params.doctorId));
+router.post('/care-team/:doctorId/grant', requirePermission('patient.consents'), validateBody(CONSENT_ACK), auditLog('patient.access.grant', 'doctor'), wrap(async (req, res) => {
+  res.json(await grantDoctorAccess(req.user.patientId, req.params.doctorId, req.body));
 }));
 
 /* ─── Access Logs ────────────────────────────────────────────── */

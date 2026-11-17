@@ -70,11 +70,19 @@ select[class*="focus:ring"]:focus-visible {
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 .dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
-/* Print styles pour ordonnances */
+/* Impression d'une fiche seule (ordonnance) : rendue sous <body>, tout le reste est retiré de la mise en page. */
+.print-root { display: none; }
+@media print {
+  body > *:not(.print-root) { display: none !important; }
+  body > .print-root { display: block !important; visibility: visible !important; }
+  body > .print-root * { visibility: visible !important; }
+  @page { margin: 14mm; }
+}
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; }
+  html, body { background: #fff !important; }
   .no-print { display: none !important; }
 }
 

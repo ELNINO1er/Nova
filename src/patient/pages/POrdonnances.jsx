@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, FileText, Printer, QrCode, ShieldCheck } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import {
@@ -146,7 +147,16 @@ export default function POrdonnances({ data, sub, darkMode }) {
   // La sélection suit le premier résultat quand la recherche ou le filtre l'écarte.
   useEffect(() => { if (selectedId && !filtered.some((p) => p.id === selectedId)) setSelectedId(null); }, [filtered, selectedId]);
 
-  const handlePrint = (p) => { setPrinting(p); window.setTimeout(() => { window.print(); setPrinting(null); }, 300); };
+  // Impression de la seule fiche : rendue dans .print-area, retirée seulement après la fin de l'impression
+  // (Safari rend window.print() asynchrone : la retirer tout de suite imprimait des pages blanches).
+  const handlePrint = (p) => setPrinting(p);
+  useEffect(() => {
+    if (!printing) return undefined;
+    const done = () => setPrinting(null);
+    window.addEventListener('afterprint', done);
+    const timer = window.setTimeout(() => window.print(), 250);
+    return () => { window.clearTimeout(timer); window.removeEventListener('afterprint', done); };
+  }, [printing]);
   const showQr = async (p) => {
     setQrLoading(p.id); setQrError('');
     try { setQrModal(await patientApi.prescriptionQR(p.id)); }
@@ -167,7 +177,7 @@ export default function POrdonnances({ data, sub, darkMode }) {
 
   return (
     <div className="space-y-5">
-      {printing && <div className="hidden print:block fixed inset-0 bg-white p-8 z-[999]"><div className="max-w-2xl mx-auto"><PrescriptionDocument p={printing} print /></div></div>}
+      {printing && createPortal(<div className="print-root bg-white text-slate-900 p-8"><div className="max-w-2xl mx-auto"><PrescriptionDocument p={printing} print /></div></div>, document.body)}
 
       {qrModal && (
         <>

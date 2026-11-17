@@ -93,6 +93,12 @@ export async function migrate(conn) {
         await column(conn, 'nova_users', 'failed_mfa_attempts', 'INT NOT NULL DEFAULT 0');
         await column(conn, 'nova_users', 'mfa_last_counter', 'BIGINT NULL');
       }],
+      ['20261117_16_consent_terms', async () => {
+        // Consentement éclairé : version des conditions acceptées et date d'acceptation.
+        // Les accords antérieurs gardent NULL : ils restent valides mais le patient est invité à les confirmer.
+        await column(conn, 'nova_consents', 'terms_version', 'VARCHAR(20) NULL');
+        await column(conn, 'nova_consents', 'acknowledged_at', 'DATETIME(3) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Eye, Lock, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import ConsentDialog from '../../components/ConsentDialog.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { Avatar, Button, Card, CardTitle, Chip, DataTable, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile } from '../../components/patient/ui.jsx';
 
@@ -30,6 +31,8 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   const [tab, setTab] = useState('team');
   const [team, setTeam] = useState([]);
   const [busy, setBusy] = useState('');
+  // Consentement éclairé en cours : { doctorName, confirming, run(ack) }.
+  const [ask, setAsk] = useState(null);
   const [consents, setConsents] = useState([]);
   const [logs, setLogs] = useState([]);
   const [query, setQuery] = useUrlQuery();
@@ -46,11 +49,15 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   }, [data]);
 
   // Demande en attente : réponse à la demande ; accès révoqué : nouvel accord au médecin (l'API refuse de « ré-accorder » une demande close).
-  const grant = async (id) => {
+  const grant = (id) => {
     const consent = consents.find((c) => c.id === id);
+    setAsk({ doctorName: consent?.doctorName || 'ce médecin', run: (ack) => grantNow(consent, id, ack) });
+  };
+  const grantNow = async (consent, id, ack) => {
     try {
-      if (consent && consent.status !== 'pending' && consent.doctorId) await patientApi.grantDoctorAccess(consent.doctorId);
-      else await patientApi.grantConsent(id);
+      if (consent && consent.status !== 'pending' && consent.doctorId) await patientApi.grantDoctorAccess(consent.doctorId, ack);
+      else await patientApi.grantConsent(id, ack);
+      setAsk(null);
       onReload?.({ consents: await patientApi.consents(), accessLogs: await patientApi.accessLogs(), careTeam: await patientApi.careTeam() });
       notify?.('Consentement accordé');
     } catch (error) {
@@ -80,15 +87,17 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   }
 
   // Révoquer / autoriser un médecin : la décision la plus récente fait foi côté serveur.
-  const decide = async (m, action) => {
+  const decide = async (m, action, ack) => {
     if (action === 'revoke' && !window.confirm(`Retirer à ${m.doctorName} l’accès à votre dossier ?`)) return;
+    // Accorder ou confirmer : d'abord le consentement éclairé.
+    if (action !== 'revoke' && !ack) { setAsk({ doctorName: m.doctorName, confirming: action === 'confirm', run: (a) => decide(m, action, a) }); return; }
     setBusy(m.doctorId);
     try {
       if (action === 'revoke') await patientApi.revokeDoctorAccess(m.doctorId);
-      else await patientApi.grantDoctorAccess(m.doctorId);
+      else { await patientApi.grantDoctorAccess(m.doctorId, ack); setAsk(null); }
       const [consentsNext, accessLogs, careTeam] = await Promise.all([patientApi.consents(), patientApi.accessLogs(), patientApi.careTeam()]);
       onReload?.({ consents: consentsNext, accessLogs, careTeam });
-      notify?.(action === 'revoke' ? 'Accès révoqué.' : 'Accès autorisé.');
+      notify?.(action === 'revoke' ? 'Accès révoqué.' : action === 'confirm' ? 'Accès confirmé.' : 'Accès autorisé.');
     } catch (e) {
       notify?.(e.message || 'Action impossible.', 'error');
     } finally { setBusy(''); }
@@ -147,6 +156,12 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
             Un médecin accède à votre dossier si vous l’avez autorisé, ou s’il vous suit actuellement (rendez-vous récent ou à venir, acte de moins d’un an).
             Une révocation prime toujours et s’applique immédiatement.
           </p>
+          {team.some((m) => m.needsConfirmation) && (
+            <div role="status" className={`rounded-2xl border p-4 text-sm ${darkMode ? 'border-amber-900 bg-amber-950/30 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+              <strong>Accès à confirmer.</strong> Certains accès ont été accordés sans que les conditions de partage vous aient été présentées.
+              Confirmez-les après lecture, ou retirez-les.
+            </div>
+          )}
           {team.length === 0 ? (
             <EmptyState Icon={Lock} title="Aucun médecin n’a accès à votre dossier." darkMode={darkMode} />
           ) : teamResults.length === 0 ? noResults : (
@@ -160,13 +175,16 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                       <div className="flex-1 min-w-[10rem]">
                         <p className="font-semibold break-words">{hl(m.doctorName)}</p>
                         <p className={`text-xs mt-0.5 ${sub}`}>{hl([m.specialty, m.city].filter(Boolean).join(' · ') || '—')}</p>
-                        <div className="mt-2"><Chip tone={reasonTone}>{reasonLabel}</Chip></div>
+                        <div className="mt-2 flex flex-wrap gap-2"><Chip tone={reasonTone}>{reasonLabel}</Chip>{m.needsConfirmation && <Chip tone="alert">À confirmer</Chip>}</div>
                         {m.hasAccess && <p className={`mt-1 text-xs ${sub}`}>
                           {m.expiresAt ? `Jusqu’au ${new Date(m.expiresAt).toLocaleDateString('fr-FR')}` : 'Sans date de fin'}
                         </p>}
                       </div>
                       {m.hasAccess ? (
-                        <Button variant="danger" darkMode={darkMode} disabled={busy === m.doctorId} onClick={() => decide(m, 'revoke')}>Révoquer l’accès</Button>
+                        <div className="flex flex-wrap gap-2">
+                          {m.needsConfirmation && <Button darkMode={darkMode} disabled={busy === m.doctorId} onClick={() => decide(m, 'confirm')}>Lire et confirmer</Button>}
+                          <Button variant="danger" darkMode={darkMode} disabled={busy === m.doctorId} onClick={() => decide(m, 'revoke')}>Révoquer l’accès</Button>
+                        </div>
                       ) : (
                         <Button darkMode={darkMode} disabled={busy === m.doctorId} onClick={() => decide(m, 'grant')}>Autoriser l’accès</Button>
                       )}
@@ -202,7 +220,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                           <Button Icon={CheckCircle2} darkMode={darkMode} onClick={() => grant(c.id)}>Accorder</Button>
                         )}
                         {c.status !== 'revoked' && (
-                          <Button variant="danger" Icon={XCircle} darkMode={darkMode} onClick={() => revoke(c.id)}>Révoquer</Button>
+                          <Button variant="danger" Icon={XCircle} darkMode={darkMode} onClick={() => revoke(c.id)}>{c.status === 'pending' ? 'Refuser' : 'Révoquer'}</Button>
                         )}
                       </div>
                     </div>
@@ -248,6 +266,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
           </Card>
         )
       )}
+      {ask && <ConsentDialog doctorName={ask.doctorName} confirming={ask.confirming} darkMode={darkMode} onCancel={() => setAsk(null)} onAccept={ask.run} />}
     </div>
   );
 }

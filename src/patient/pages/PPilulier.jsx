@@ -20,6 +20,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
     p: item.period,
     i: item.interaction,
     status: item.intake?.status || 'pending',
+    at: item.intake?.taken_at || null,
   })) : []), [data]);
   const results = useSearch(meds, query, FIELDS);
   const visible = period === 'all' ? results : results.filter((m) => m.p === period);
@@ -37,7 +38,10 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
   const obsTone = obs >= 80 ? 'neutral' : obs >= 50 ? 'watch' : 'alert';
   const nextDue = meds.find((med) => !['taken', 'skipped', 'missed'].includes(pills[med.id] || med.status));
   const interactionMeds = meds.filter((m) => m.i);
+  // Prise déjà renseignée : on affiche le résultat ; « Modifier » rouvre les choix.
+  const [editing, setEditing] = useState(null);
   const markMedicationStatus = async (id, status) => {
+    setEditing(null);
     setPills({ ...pills, [id]: status });
     try {
       await patientApi.markMedication(id, { status });
@@ -130,20 +134,30 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
                             </div>
                             <p className={`text-xs ${sub}`}><Highlight text={m.d} query={query} /> · <Highlight text={m.t} query={query} /></p>
                           </div>
+                          {isDone && editing !== m.id ? (
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={`inline-flex items-center gap-1.5 h-8 px-3 whitespace-nowrap rounded-full text-xs font-semibold ${isTaken ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : isMissed ? 'bg-red-50 text-red-700 border border-red-200' : darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                                {isTaken ? <Check className="w-4 h-4" strokeWidth={3} /> : isMissed ? <X className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                                {isTaken ? 'Pris' : isMissed ? 'Oublié' : 'Ignoré'}{isTaken && m.at ? ` à ${new Date(m.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                              </span>
+                              <button type="button" onClick={() => setEditing(m.id)} aria-label={`Modifier la prise de ${m.n}`} className={`px-2 py-0.5 text-xs font-semibold underline underline-offset-2 ${sub}`}>Modifier</button>
+                            </div>
+                          ) : (
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <button type="button" onClick={() => markMedicationStatus(m.id, 'taken')} aria-label={`Marquer ${m.n} comme pris`} aria-pressed={isTaken} title="Pris"
-                              className={`w-9 h-9 rounded-full flex items-center justify-center ${isTaken ? 'bg-red-600 text-white' : ring}`}>
-                              <Check className="w-4 h-4" strokeWidth={3} />
-                            </button>
-                            <button type="button" onClick={() => markMedicationStatus(m.id, 'missed')} aria-label={`Marquer ${m.n} comme oublié`} aria-pressed={isMissed} title="Oublié"
-                              className={`w-9 h-9 rounded-full flex items-center justify-center ${isMissed ? 'bg-red-600 text-white' : ring}`}>
-                              <X className="w-4 h-4" strokeWidth={3} />
-                            </button>
-                            <button type="button" onClick={() => markMedicationStatus(m.id, 'skipped')} aria-label={`Marquer ${m.n} comme ignoré`} aria-pressed={skipped} title="Ignoré"
-                              className={`w-9 h-9 rounded-full flex items-center justify-center ${skipped ? 'bg-red-50 text-red-700 border border-red-200' : ring}`}>
-                              <Clock className="w-4 h-4" />
-                            </button>
-                          </div>
+                              <button type="button" onClick={() => markMedicationStatus(m.id, 'taken')} aria-label={`Marquer ${m.n} comme pris`} aria-pressed={isTaken} title="Pris"
+                                className={`w-9 h-9 rounded-full flex items-center justify-center ${isTaken ? 'bg-red-600 text-white' : ring}`}>
+                                <Check className="w-4 h-4" strokeWidth={3} />
+                              </button>
+                              <button type="button" onClick={() => markMedicationStatus(m.id, 'missed')} aria-label={`Marquer ${m.n} comme oublié`} aria-pressed={isMissed} title="Oublié"
+                                className={`w-9 h-9 rounded-full flex items-center justify-center ${isMissed ? 'bg-red-600 text-white' : ring}`}>
+                                <X className="w-4 h-4" strokeWidth={3} />
+                              </button>
+                              <button type="button" onClick={() => markMedicationStatus(m.id, 'skipped')} aria-label={`Marquer ${m.n} comme ignoré`} aria-pressed={skipped} title="Ignoré"
+                                className={`w-9 h-9 rounded-full flex items-center justify-center ${skipped ? 'bg-red-50 text-red-700 border border-red-200' : ring}`}>
+                                <Clock className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

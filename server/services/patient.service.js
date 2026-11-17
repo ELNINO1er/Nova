@@ -7,6 +7,7 @@ import { getDoctorAccessDetails } from './access.js';
 import { notifyDoctorConsent, notifyDoctorAppointment, notifyDoctorAppointmentChange } from './notification.service.js';
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
+import { CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS } from './consent-terms.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
 
@@ -1198,11 +1199,11 @@ export async function getConsents(patientId) {
   }));
 }
 
-export async function grantConsent(patientId,consentId){
+export async function grantConsent(patientId,consentId,ack){
  const [[c]]=await pool.execute('SELECT doctor_id,status FROM nova_consents WHERE id=? AND patient_id=?',[consentId,patientId]);
  if(!c)throw Object.assign(new Error('Demande introuvable.'),{status:404});
  if(c.status!=='pending')throw Object.assign(new Error('Utilisez les actions de votre équipe de soins pour une nouvelle décision.'),{status:409});
- return setDoctorDecision(patientId,c.doctor_id,'granted',consentId);
+ return setDoctorDecision(patientId,c.doctor_id,'granted',consentId,ack);
 }
 export async function revokeConsent(patientId,consentId){
  const [[c]]=await pool.execute('SELECT doctor_id FROM nova_consents WHERE id=? AND patient_id=?',[consentId,patientId]);
@@ -1231,7 +1232,7 @@ export async function getCareTeam(patientId) {
   const team = [];
   for (const d of candidates) {
     const [[decision]] = await pool.execute(
-      `SELECT status, responded_at FROM nova_consents
+      `SELECT status, responded_at, acknowledged_at FROM nova_consents
        WHERE patient_id = ? AND doctor_id = ? AND status IN ('granted', 'revoked')
        ORDER BY COALESCE(responded_at, requested_at) DESC LIMIT 1`,
       [patientId, d.id]
@@ -1246,18 +1247,21 @@ export async function getCareTeam(patientId) {
       reason: access?.reason || (decision?.status === 'revoked' ? 'revoked' : 'none'),
       expiresAt: access?.expiresAt || null,
       decidedAt: decision?.responded_at || null,
+      needsConfirmation: Boolean(access?.reason === 'consent' && decision?.status === 'granted' && !decision.acknowledged_at),
     });
   }
   return team;
 }
 
-async function setDoctorDecision(patientId,doctorId,status,requestId=null){
+async function setDoctorDecision(patientId,doctorId,status,requestId=null,ack=null){
+ // Consentement éclairé : aucun accord sans acceptation des conditions en vigueur.
+ if(status==='granted'&&ack?.termsVersion!==CONSENT_TERMS_VERSION)throw Object.assign(new Error('Lisez et acceptez les conditions de partage avant d’autoriser ce médecin.'),{status:422,code:'consent_terms_required'});
  const conn=await pool.getConnection();
  try{
   await conn.beginTransaction();await conn.execute('SELECT id FROM nova_patients WHERE id=? FOR UPDATE',[patientId]);
   const [[doctor]]=await conn.execute('SELECT id FROM nova_doctors WHERE id=?',[doctorId]);
   if(!doctor)throw Object.assign(new Error('Médecin introuvable.'),{status:404});
-  const [[last]]=await conn.execute("SELECT id,status,expires_at,COALESCE(responded_at,requested_at) decided_at FROM nova_consents WHERE doctor_id=? AND patient_id=? AND status IN ('granted','revoked') ORDER BY COALESCE(responded_at,requested_at) DESC LIMIT 1",[doctorId,patientId]);
+  const [[last]]=await conn.execute("SELECT id,status,expires_at,acknowledged_at,COALESCE(responded_at,requested_at) decided_at FROM nova_consents WHERE doctor_id=? AND patient_id=? AND status IN ('granted','revoked') ORDER BY COALESCE(responded_at,requested_at) DESC LIMIT 1",[doctorId,patientId]);
   if(requestId){const [[request]]=await conn.execute("SELECT responded_at FROM nova_consents WHERE id=? AND patient_id=? AND doctor_id=? AND status='pending' FOR UPDATE",[requestId,patientId,doctorId]);if(!request||request.responded_at&&last?.status!=='granted')throw Object.assign(new Error('Cette demande a déjà été traitée. Actualisez vos accès.'),{status:409});}
   const [[booking]] = await conn.execute(
     'SELECT MAX(record_shared_at) AS shared_at FROM nova_appointments WHERE patient_id = ? AND doctor_id = ?',
@@ -1270,9 +1274,13 @@ async function setDoctorDecision(patientId,doctorId,status,requestId=null){
   // jamais de demande « En attente » à côté d'un accès déjà accordé ou retiré.
   await conn.execute("UPDATE nova_consents SET responded_at=? WHERE patient_id=? AND doctor_id=? AND status='pending' AND responded_at IS NULL",[instant,patientId,doctorId]);
   // Un retrait doit être daté à nouveau : un partage de rendez-vous a pu intervenir depuis le précédent.
-  if(last?.status===status&&(status==='granted' && (requestId||!last.expires_at||new Date(last.expires_at)>new Date()))){await conn.commit();return {id:last.id,doctorId,status};}
-  const id=randomUUID(),expires=status==='granted'?new Date(instant.getTime()+365*86400000):null;
-  await conn.execute('INSERT INTO nova_consents(id,patient_id,doctor_id,status,scope,requested_at,responded_at,expires_at) VALUES (?,?,?,?,?,?,?,?)',[id,patientId,doctorId,status,JSON.stringify(['clinical_record']),instant,instant,expires]);
+  if(last?.status===status&&(status==='granted' && (requestId||!last.expires_at||new Date(last.expires_at)>new Date()))){
+    // Accès déjà accordé : la confirmation enregistre l'acceptation des conditions sur l'accord en cours.
+    if(!last.acknowledged_at)await conn.execute('UPDATE nova_consents SET terms_version=?, acknowledged_at=? WHERE id=?',[CONSENT_TERMS_VERSION,instant,last.id]);
+    await conn.commit();return {id:last.id,doctorId,status};
+  }
+  const id=randomUUID(),expires=status==='granted'?new Date(instant.getTime()+CONSENT_DURATION_DAYS*86400000):null;
+  await conn.execute('INSERT INTO nova_consents(id,patient_id,doctor_id,status,scope,requested_at,responded_at,expires_at,terms_version,acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?,?)',[id,patientId,doctorId,status,JSON.stringify(['clinical_record']),instant,instant,expires,status==='granted'?CONSENT_TERMS_VERSION:null,status==='granted'?instant:null]);
   const [[patient]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[patientId]);
   await notifyDoctorConsent(doctorId,`${patient.first_name} ${patient.last_name}`,status==='granted',conn);
   await conn.commit();return {id,doctorId,status};
@@ -1280,7 +1288,7 @@ async function setDoctorDecision(patientId,doctorId,status,requestId=null){
 }
 
 export const revokeDoctorAccess = (patientId, doctorId) => setDoctorDecision(patientId, doctorId, 'revoked');
-export const grantDoctorAccess = (patientId, doctorId) => setDoctorDecision(patientId, doctorId, 'granted');
+export const grantDoctorAccess = (patientId, doctorId, ack) => setDoctorDecision(patientId, doctorId, 'granted', null, ack);
 
 /* ═══════════════════════════════════════════════════════════════
    ACCESS LOGS — qui a consulté mon dossier

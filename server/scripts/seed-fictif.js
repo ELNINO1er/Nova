@@ -12,6 +12,7 @@ import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { initDb, pool } from '../db/database.js';
 import { isPublicPassword } from '../services/public-passwords.js';
+import { CONSENT_TERMS_VERSION } from '../services/consent-terms.js';
 import { createDoctorAccount, createStaffAccount } from '../services/admin.service.js';
 import {
   createConsultation, createDoctorLabRequest, createDoctorPrescription, createPatientByDoctor,
@@ -164,7 +165,7 @@ async function main() {
         emergencyPhone: `0750000${String(i + 1).padStart(3, '0')}`,
       });
       const patientId = created.patientId;
-      await grantDoctorAccess(patientId,doctor.id); // Consentement fictif, uniquement pour le jeu de démonstration.
+      await grantDoctorAccess(patientId,doctor.id,{ acknowledged: true, termsVersion: CONSENT_TERMS_VERSION }); // Consentement fictif, uniquement pour le jeu de démonstration.
       await setTestPassword(conn, created.userId);
       await updateMedicalProfile(patientId, {
         allergies: profile.allergies, chronicDiseases: profile.chronic,

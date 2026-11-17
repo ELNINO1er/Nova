@@ -5,6 +5,8 @@ import './isolated-db.js';
  * Une base indisponible fait échouer la vérification.
  */
 import 'dotenv/config';
+import { CONSENT_TERMS_VERSION } from '../services/consent-terms.js';
+const ACK = { acknowledged: true, termsVersion: CONSENT_TERMS_VERSION };
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import jwt from 'jsonwebtoken';
 
@@ -27,7 +29,7 @@ runIf('Intégration lot 1', () => {
     doctorSvc = await import('../services/doctor.service.js');
     pharmacy = await import('../services/pharmacy.service.js');
     // Point de départ connu : le médecin de démo a un accès explicite.
-    await patient.grantDoctorAccess(PATIENT, DOCTOR);
+    await patient.grantDoctorAccess(PATIENT, DOCTOR, ACK);
   });
 
   afterAll(async () => {
@@ -49,7 +51,7 @@ runIf('Intégration lot 1', () => {
   });
 
   it('un nouvel accord rétablit l’accès', async () => {
-    await patient.grantDoctorAccess(PATIENT, DOCTOR);
+    await patient.grantDoctorAccess(PATIENT, DOCTOR, ACK);
     expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(true);
   });
 

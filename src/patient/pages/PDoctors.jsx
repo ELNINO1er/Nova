@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Star, MapPin, PhoneCall, Users, Wallet, X, ShieldCheck, Briefcase, Stethoscope, CalendarDays, Phone } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import ConsentDialog from '../../components/ConsentDialog.jsx';
 import { formatDateFull } from '../../utils/format.js';
 import { PageHeader, Card, Chip, Button, IconButton, EmptyState, Field, Pills, SearchInput, Highlight, NoResults } from '../../components/patient/ui.jsx';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
@@ -83,10 +84,13 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     }
   };
 
-  const grantAccess = async () => {
-    if (!window.confirm(`Autoriser ${selected.fullName} à consulter votre dossier clinique ? Vous pourrez révoquer cet accès depuis Mon compte.`)) return;
+  // Consentement éclairé avant tout accès accordé depuis la fiche du médecin.
+  const [consentFor, setConsentFor] = useState(null);
+  const grantAccess = () => setConsentFor(selected);
+  const grantAccessNow = async (ack) => {
     try {
-      await patientApi.grantDoctorAccess(selected.id);
+      await patientApi.grantDoctorAccess(consentFor.id, ack);
+      setConsentFor(null);
       notify?.('Accès accordé au médecin.');
     } catch (e) {
       notify?.(e.message, 'error');
@@ -295,6 +299,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
           </>
         )}
       </div>
+      {consentFor && <ConsentDialog doctorName={consentFor.fullName} darkMode={darkMode} onCancel={() => setConsentFor(null)} onAccept={grantAccessNow} />}
     </div>
   );
 }

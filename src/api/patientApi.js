@@ -102,13 +102,13 @@ export const patientApi = {
   }),
   // Consentements
   consents: () => request('/patient/me/consents'),
-  grantConsent: (id) => request(`/patient/me/consents/${id}/grant`, { method: 'POST' }),
+  grantConsent: (id, ack) => request(`/patient/me/consents/${id}/grant`, { method: 'POST', body: JSON.stringify(ack || {}) }),
   revokeConsent: (id) => request(`/patient/me/consents/${id}/revoke`, { method: 'POST' }),
   // Access logs
   accessLogs: () => request('/patient/me/access-logs'),
   careTeam: () => request('/patient/me/care-team'),
   revokeDoctorAccess: (doctorId) => request(`/patient/me/care-team/${doctorId}/revoke`, { method: 'POST' }),
-  grantDoctorAccess: (doctorId) => request(`/patient/me/care-team/${doctorId}/grant`, { method: 'POST' }),
+  grantDoctorAccess: (doctorId, ack) => request(`/patient/me/care-team/${doctorId}/grant`, { method: 'POST', body: JSON.stringify(ack || {}) }),
   // Famille
   familyMembers: () => request('/patient/me/family'),
   createFamilyMember: (payload) => request('/patient/me/family', { method: 'POST', body: JSON.stringify(payload) }),
