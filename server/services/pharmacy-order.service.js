@@ -3,7 +3,7 @@ import { pool } from '../db/database.js';
 import { createNotification } from './notification.service.js';
 import { getPrescriptionForPharmacy, withPatient } from './pharmacy.service.js';
 import { emitToUser } from '../realtime.js';
-import { isPrescriptionExpired } from './prescription-status.js';
+import { isPrescriptionExpired, prescriptionStatus } from './prescription-status.js';
 
 /*
  * Commandes d'ordonnance : le patient envoie une ordonnance active à une pharmacie de son choix,
@@ -110,7 +110,7 @@ export async function getOrdersForPharmacy(pharmacyId) {
       id: r.id, status: r.status, notes: r.notes, pharmacistMessage: r.pharmacist_message || null,
       createdAt: r.created_at, updatedAt: r.updated_at,
       patientName: `${r.first_name || ''} ${(r.last_name || '').charAt(0)}.`.trim(),
-      prescription: rx && { id: rx.id, doctorName: rx.doctorName, doctorSpecialty: rx.doctorSpecialty, issuedAt: rx.issuedAt, validUntil: rx.validUntil, status: rx.status,
+      prescription: rx && { id: rx.id, doctorName: rx.doctorName, doctorSpecialty: rx.doctorSpecialty, issuedAt: rx.issuedAt, validUntil: rx.validUntil, status: prescriptionStatus({ status: rx.status, valid_until: rx.validUntil }),
         items: rx.items.map(({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining }) => ({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining })) },
     }, rx ? r.patient_id : null);
   }));
@@ -124,6 +124,12 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
   const [[o]] = await pool.execute('SELECT * FROM nova_pharmacy_orders WHERE id = ? AND pharmacy_id = ?', [orderId, pharmacyId]);
   if (!o) throw err(404, 'Commande introuvable.');
   if (!NEXT[status].includes(o.status)) throw err(409, 'Cette commande est déjà terminée ou annulée par le patient.', 'order_closed');
+  if (status === 'ready' && o.status === 'ready') throw err(409, 'Le patient a déjà été prévenu que l’ordonnance est prête.', 'already_ready');
+  if (status === 'ready') {
+    const [[rx]] = await pool.execute('SELECT status, valid_until, issued_at FROM nova_prescriptions WHERE id = ? AND deleted_at IS NULL', [o.prescription_id]);
+    if (!rx || !['active', 'partial'].includes(rx.status) || isPrescriptionExpired(rx))
+      throw err(409, 'Cette ordonnance est expirée ou déjà délivrée : elle ne peut pas être préparée. Indiquez-la indisponible.', 'prescription_closed');
+  }
   await pool.execute('UPDATE nova_pharmacy_orders SET status = ?, pharmacist_message = ?, updated_at = ? WHERE id = ?', [status, message?.trim() || null, new Date(), orderId]);
   const [[ph]] = await pool.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
   await createNotification({
@@ -139,8 +145,19 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
 }
 
 /** Appelé dans la transaction de délivrance : la commande en cours de cette pharmacie est close. */
-export async function closeOrdersOnDispense(conn, { pharmacyId, prescriptionId, dispenseId, status }) {
-  if (status === 'refused') return [];
+export async function closeOrdersOnDispense(conn, { pharmacyId, prescriptionId, dispenseId, status, notes }) {
+  if (status === 'refused') {
+    // Refus au comptoir : la commande de cette pharmacie passe « indisponible » avec le motif (le patient peut en choisir une autre).
+    const [rows] = await conn.execute("SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready')", [pharmacyId, prescriptionId]);
+    if (rows.length) await conn.execute("UPDATE nova_pharmacy_orders SET status = 'unavailable', pharmacist_message = ?, updated_at = ? WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready')", [`Délivrance refusée : ${String(notes || '').slice(0, 450)}`, new Date(), pharmacyId, prescriptionId]);
+    return rows;
+  }
+  if (status === 'partial') {
+    // Délivrance partielle : la commande reste ouverte chez cette pharmacie pour le reste à fournir.
+    const [rows] = await conn.execute("SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')", [pharmacyId, prescriptionId]);
+    if (rows.length) await conn.execute("UPDATE nova_pharmacy_orders SET status = 'pending', dispense_id = ?, pharmacist_message = 'Délivrance partielle : reste à fournir.', updated_at = ? WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')", [dispenseId, new Date(), pharmacyId, prescriptionId]);
+    return rows;
+  }
   // Toutes les demandes ouvertes de l'ordonnance sont closes : « délivrée » chez la pharmacie qui délivre, annulée ailleurs.
   const [rows] = await conn.execute(
     "SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE prescription_id = ? AND status IN ('pending','ready','unavailable')",

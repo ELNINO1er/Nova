@@ -16,12 +16,17 @@ function GovernorDashboard({ card, sub, darkMode }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [filters,setFilters]=useState({from:new Date(Date.now()-29*86400000).toISOString().slice(0,10),to:new Date().toISOString().slice(0,10),city:''});
-  const exportReport=async()=>{try{const r=await governorApi.report(filters);const url=URL.createObjectURL(new Blob([r.content],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=r.filename;a.click();URL.revokeObjectURL(url);}catch(e){setError(e.message);}};
+  const [applied,setApplied]=useState(null);const [busy,setBusy]=useState(false);
+  const exportReport=async()=>{try{const r=await governorApi.report(applied||filters);const url=URL.createObjectURL(new Blob([r.content],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=r.filename;a.click();URL.revokeObjectURL(url);}catch(e){setError(e.message);}};
 
   const load = () => {
     setError('');
-    governorApi.dashboard(filters).then(setData).catch((err) => setError(err.message || 'Chargement impossible.'));
+    if (filters.from > filters.to) { setError('La date de début doit précéder la date de fin.'); return; }
+    setBusy(true);
+    const asked = { ...filters };
+    governorApi.dashboard(asked).then((d) => { setData(d); setApplied(asked); }).catch((err) => setError(err.message || 'Chargement impossible.')).finally(() => setBusy(false));
   };
+  const pending = applied && JSON.stringify(applied) !== JSON.stringify(filters);
   useEffect(load, []);
 
   if (error && !data) return <PageError message={error} onRetry={load} card={card} sub={sub} />;
@@ -30,12 +35,13 @@ function GovernorDashboard({ card, sub, darkMode }) {
   }
 
   const k = data.kpis;
-  const n = (v) => v == null ? 'Masqué' : Number(v).toLocaleString('fr-FR');
+  const n = (v) => v == null ? 'Masqué (< 5)' : Number(v).toLocaleString('fr-FR');
   const monthly = (data.monthlyConsultations || []).filter(m=>m.consultations!==null).map((m) => {
     const [y, mo] = m.month.split('-').map(Number);
     return { label: MONTHS[mo - 1].slice(0, 4), full: `${MONTHS[mo - 1]} ${y}`, value: m.consultations };
   });
   const sexLabel = { M: 'Hommes', F: 'Femmes' };
+  const hiddenMonths = (data.monthlyConsultations || []).filter(m => m.consultations === null).map((m) => { const [y, mo] = m.month.split('-').map(Number); return `${MONTHS[mo - 1]} ${y}`; });
   const sexes = data.sexes || [];
   const totalSex = sexes.some(r=>r.patients===null)?null:sexes.reduce((s, r) => s + r.patients, 0);
 
@@ -44,14 +50,14 @@ function GovernorDashboard({ card, sub, darkMode }) {
       <DashHeader
         title="Statistiques de santé"
         subtitle={`Données NOVA agrégées, petits effectifs masqués · mises à jour le ${new Date(data.generatedAt).toLocaleString('fr-FR')}`}
-        actions={<GhostButton Icon={RefreshCw} onClick={load} darkMode={darkMode}>Actualiser</GhostButton>}
+        actions={<GhostButton Icon={RefreshCw} onClick={load} darkMode={darkMode}>{busy ? 'Actualisation…' : 'Actualiser'}</GhostButton>}
       />
 
       {error && <p role="alert" className="text-red-700">{error}</p>}
       <form onSubmit={e => { e.preventDefault(); load(); }} className={`${card} rounded-xl border p-4`}>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="grid min-w-0 gap-1 text-sm font-semibold">Du
-            <input className="rounded-lg border border-red-200 bg-transparent px-3 py-2" type="date" required value={filters.from}
+            <input className="rounded-lg border border-red-200 bg-transparent px-3 py-2" type="date" required max={filters.to} value={filters.from}
               onChange={e => setFilters({ ...filters, from: e.target.value })} />
           </label>
           <label className="grid min-w-0 gap-1 text-sm font-semibold">Au
@@ -67,9 +73,10 @@ function GovernorDashboard({ card, sub, darkMode }) {
           </label>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="submit" className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white">Appliquer</button>
-          <button type="button" onClick={exportReport} className={`min-h-11 rounded-lg border border-red-200 px-4 text-sm font-semibold ${darkMode ? 'text-red-200' : 'text-red-800'}`}>Exporter le rapport agrégé</button>
+          <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white disabled:opacity-60">{busy ? 'Chargement…' : 'Appliquer'}</button>
+          <button type="button" onClick={exportReport} disabled={busy || pending} title={pending ? 'Appliquez d’abord les filtres : le rapport reprend les chiffres affichés.' : undefined} className={`min-h-11 rounded-lg border border-red-200 px-4 text-sm font-semibold ${darkMode ? 'text-red-200' : 'text-red-800'}`}>Exporter le rapport agrégé</button>
         </div>
+        {pending && <p className="mt-2 text-xs text-amber-700">Filtres modifiés : cliquez sur « Appliquer » pour mettre à jour les chiffres et le rapport.</p>}
       </form>
       <details className={`${card} space-y-2 rounded-xl border p-4 text-sm`}>
         <summary className="cursor-pointer font-semibold">Méthodologie et qualité des données</summary>
@@ -79,8 +86,8 @@ function GovernorDashboard({ card, sub, darkMode }) {
       </details>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Patients inscrits" Icon={Users} value={n(k.patients)} hint="Dossiers enregistrés" card={card} sub={sub} />
-        <KpiCard label="Médecins" Icon={Stethoscope} value={n(k.doctors)} hint="Professionnels inscrits" card={card} sub={sub} />
-        <KpiCard label="Pharmacies" Icon={Building2} value={n(k.pharmacies)} hint="Officines partenaires" card={card} sub={sub} />
+        <KpiCard label="Médecins" Icon={Stethoscope} value={n(k.doctors)} hint="Disponibles sur NOVA (toutes villes)" card={card} sub={sub} />
+        <KpiCard label="Pharmacies" Icon={Building2} value={n(k.pharmacies)} hint="Officines partenaires (toutes villes)" card={card} sub={sub} />
         <KpiCard label="Consultations" Icon={Activity} value={n(k.consultations30)} hint="Période sélectionnée" card={card} sub={sub} />
       </div>
 
@@ -89,7 +96,8 @@ function GovernorDashboard({ card, sub, darkMode }) {
           <Panel title="Consultations par mois" subtitle="Période sélectionnée ; valeurs masquées exclues" card={card} sub={sub}>
             {monthly.length >= 2 ? <LineChart data={monthly} valueLabel="consultation(s)" min={0} darkMode={darkMode} />
               : monthly.length === 1 ? <ColumnChart data={monthly} valueLabel="consultation(s)" darkMode={darkMode} />
-                : <Empty sub={sub}>Pas encore de consultations.</Empty>}
+                : <Empty sub={sub}>{hiddenMonths.length ? 'Tous les mois de la période sont masqués (moins de 5 consultations).' : 'Pas encore de consultations.'}</Empty>}
+            {hiddenMonths.length > 0 && monthly.length > 0 && <p className={`mt-2 text-xs ${sub}`}>Mois masqués (moins de 5 consultations, absents du graphique) : {hiddenMonths.join(', ')}.</p>}
           </Panel>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <Panel title="Patients par ville" card={card} sub={sub}>

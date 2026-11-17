@@ -156,4 +156,42 @@ describe('Commandes d’ordonnance en pharmacie', () => {
     expect(old.status).toBe('cancelled');
     expect(old.prescription).toBeNull();
   });
+  it('le journal d’accès du patient inscrit les lectures de la pharmacie, sans exposer son identifiant', async () => {
+    const orders = await call('PH1', 'GET', '/api/pharmacy/me/orders');
+    expect(orders.text).not.toContain(A);
+    const [rows] = await pool.execute("SELECT data_accessed FROM nova_access_logs WHERE patient_id = ? AND accessor_role = 'pharmacist'", [A]);
+    const kinds = new Set(rows.map((r) => r.data_accessed));
+    expect(kinds.has('pharmacy_prescription')).toBe(true);
+    expect(kinds.has('pharmacy_order')).toBe(true);
+  });
+
+  it('délivrance partielle : la commande reste ouverte ; refus au comptoir : elle passe indisponible', async () => {
+    const rx = (await doctorSvc.createDoctorPrescription(D1, { patientId: B, items: [{ name: 'Métformine 500 mg', quantityPrescribed: 4 }], validDays: 30 })).id;
+    const o = await call('B', 'POST', '/api/patient/me/pharmacy-orders', { pharmacyId: PH1, prescriptionId: rx });
+    expect(o.status).toBe(201);
+    const qr = await call('B', 'GET', `/api/patient/me/prescriptions/${rx}/qr`);
+    const detail = await fetch(`${base}/api/pharmacy/me/prescription/${rx}`, { headers: { Authorization: `Bearer ${tok.PH1}`, 'X-Prescription-QR': qr.json.token } }).then((r) => r.json());
+    const part = await call('PH1', 'POST', '/api/pharmacy/me/dispense', { prescriptionId: rx, qrToken: qr.json.token, requestKey: randomUUID(), status: 'partial',
+      items: [{ prescriptionItemId: detail.items[0].id, quantityDispensed: 1 }] });
+    expect(part.json.status).toBe('partial');
+    let mine = (await call('B', 'GET', '/api/patient/me/pharmacy-orders')).json.find((x) => x.id === o.json.id);
+    expect(mine.status).toBe('pending');
+    const refuse = await call('PH1', 'POST', '/api/pharmacy/me/dispense', { prescriptionId: rx, qrToken: qr.json.token, requestKey: randomUUID(), status: 'refused', items: [], notes: 'Ordonnance illisible' });
+    expect(refuse.status).toBe(201);
+    mine = (await call('B', 'GET', '/api/patient/me/pharmacy-orders')).json.find((x) => x.id === o.json.id);
+    expect(mine.status).toBe('unavailable');
+    expect(mine.pharmacistMessage).toContain('Ordonnance illisible');
+    const [[doc]] = await pool.execute("SELECT n.title FROM nova_notifications n JOIN nova_users u ON u.id = n.user_id WHERE u.doctor_id = ? AND n.type = 'dispense' ORDER BY n.created_at DESC, n.id DESC LIMIT 1", [D1]);
+    expect(doc.title).toBe('Délivrance refusée');
+  });
+
+  it('une ordonnance expirée ne peut pas être annoncée « prête »', async () => {
+    const rx = (await doctorSvc.createDoctorPrescription(D1, { patientId: B, items: [{ name: 'Vitamine C', quantityPrescribed: 1 }], validDays: 30 })).id;
+    const o = await call('B', 'POST', '/api/patient/me/pharmacy-orders', { pharmacyId: PH2, prescriptionId: rx });
+    await pool.execute("UPDATE nova_prescriptions SET valid_until = '2020-01-01' WHERE id = ?", [rx]);
+    const r = await call('PH2', 'PATCH', `/api/pharmacy/me/orders/${o.json.id}`, { status: 'ready' });
+    expect(r.status).toBe(409);
+    const list = (await call('PH2', 'GET', '/api/pharmacy/me/orders')).json.find((x) => x.id === o.json.id);
+    expect(list.prescription.status).toBe('expired');
+  });
 });

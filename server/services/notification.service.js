@@ -109,7 +109,7 @@ export async function notifyDoctorDispense(doctorId, patientName, pharmacyName, 
     userId: user.id,
     targetRole: 'doctor',
     type: 'dispense',
-    title: 'Ordonnance délivrée',
+    title: status === 'refused' ? 'Délivrance refusée' : status === 'full' ? 'Ordonnance délivrée' : 'Délivrance partielle',
     body: `L'ordonnance de ${patientName} a été ${label} par ${pharmacyName}.`,
     linkPage: 'prescriptions',
   },conn);

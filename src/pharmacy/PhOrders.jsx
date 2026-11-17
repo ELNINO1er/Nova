@@ -93,7 +93,10 @@ export default function PhOrders({ notify, setPage, onCountChange }) {
               {o.pharmacistMessage && <p className="mt-2 text-xs text-slate-500">Votre message : « {o.pharmacistMessage} »</p>}
               {['pending', 'ready', 'unavailable'].includes(o.status) && (
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {o.status !== 'ready' && (
+                  {o.prescription && !['active', 'partial'].includes(o.prescription.status) && (
+                    <p className="w-full text-sm font-semibold text-red-700">Ordonnance {o.prescription.status === 'expired' ? 'expirée' : 'déjà délivrée'} : indiquez-la indisponible pour que le patient en demande une nouvelle.</p>
+                  )}
+                  {o.status !== 'ready' && (!o.prescription || ['active', 'partial'].includes(o.prescription.status)) && (
                     <button type="button" disabled={busy === o.id} onClick={() => answer(o, 'ready')} className="h-10 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50">
                       <CheckCircle2 className="w-4 h-4" />Ordonnance prête
                     </button>

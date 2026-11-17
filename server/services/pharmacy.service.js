@@ -4,7 +4,7 @@ import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 import { closeOrdersOnDispense, signalOrders } from './pharmacy-order.service.js';
 import { prescriptionQrSecret } from './prescription-qr.js';
-import { validUntilOf, isPrescriptionExpired } from './prescription-status.js';
+import { validUntilOf, isPrescriptionExpired, prescriptionStatus } from './prescription-status.js';
 
 // Une ordonnance partiellement délivrée doit pouvoir être complétée.
 const DISPENSABLE_STATUSES = ['active', 'partial'];
@@ -18,7 +18,8 @@ export async function getPharmacyDashboard(pharmacyId) {
 
   const [[counts]] = await pool.execute(
     `SELECT COUNT(*) AS total,
-            COUNT(CASE WHEN DATE(dispensed_at) = CURDATE() THEN 1 END) AS today,
+            COUNT(CASE WHEN DATE(dispensed_at) = CURDATE() AND status <> 'refused' THEN 1 END) AS today,
+            COUNT(CASE WHEN status <> 'refused' THEN 1 END) AS delivered,
             COUNT(CASE WHEN status = 'full' THEN 1 END) AS complete,
             COUNT(CASE WHEN status = 'partial' THEN 1 END) AS partial,
             COUNT(CASE WHEN status = 'refused' THEN 1 END) AS refused
@@ -30,8 +31,8 @@ export async function getPharmacyDashboard(pharmacyId) {
     `SELECT d.*, p.first_name, p.last_name
      FROM nova_dispenses d
      JOIN nova_patients p ON p.id = d.patient_id
-     WHERE d.pharmacy_id = ?
-     ORDER BY d.dispensed_at DESC LIMIT 10`,
+     WHERE d.pharmacy_id = ? AND d.dispensed_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+     ORDER BY d.dispensed_at DESC LIMIT 300`,
     [pharmacyId]
   );
 
@@ -40,7 +41,7 @@ export async function getPharmacyDashboard(pharmacyId) {
       id: pharmacy.id, name: pharmacy.name, city: pharmacy.city, phone: pharmacy.phone, address: pharmacy.address,
     } : null,
     todayDispenses: Number(counts.today),
-    totalDispenses: Number(counts.total),
+    totalDispenses: Number(counts.delivered),
     dispenseCounts: { full: Number(counts.complete), partial: Number(counts.partial), refused: Number(counts.refused) },
     recentDispenses: recentDispenses.map(r => ({
       id: r.id,
@@ -94,7 +95,7 @@ export async function verifyPrescriptionQR(qrToken) {
     doctorSpecialty: rx.doctorSpecialty,
     issuedAt: rx.issuedAt,
     validUntil: rx.validUntil,
-    status: rx.status,
+    status: prescriptionStatus({ status: rx.status, valid_until: rx.validUntil }),
     isExpired,
     isAlreadyDispensed: alreadyFull,
     lastDispense: dispense ? {
@@ -174,9 +175,9 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
 
 export async function dispensePrescription(pharmacyId, pharmacistUserId, payload) {
   assertQrMatches(payload.qrToken, payload.prescriptionId);
-  if (!payload.requestKey || payload.requestKey.length > 100) throw Object.assign(new Error('Cle de nouvelle tentative requise.'),{status:422});
+  if (!payload.requestKey || payload.requestKey.length > 100) throw Object.assign(new Error('Clé de nouvelle tentative requise.'),{status:422});
   const items=(payload.items||[]).filter(i=>i.quantityDispensed>0).sort((a,b)=>a.prescriptionItemId.localeCompare(b.prescriptionItemId));
-  if(new Set(items.map(i=>i.prescriptionItemId)).size!==items.length) throw Object.assign(new Error('Ligne dupliquee.'),{status:422});
+  if(new Set(items.map(i=>i.prescriptionItemId)).size!==items.length) throw Object.assign(new Error('Ligne dupliquée.'),{status:422});
   const hash=createHash('sha256').update(JSON.stringify({prescriptionId:payload.prescriptionId,status:payload.status,items,notes:payload.notes||null})).digest('hex');
   const conn=await pool.getConnection();
   try {
@@ -185,22 +186,22 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
     if(!rx||rx.deleted_at) throw Object.assign(new Error('Ordonnance introuvable.'),{status:404});
     const [[prior]]=await conn.execute('SELECT * FROM nova_dispense_requests WHERE pharmacy_id=? AND request_key=?',[pharmacyId,payload.requestKey]);
     if(prior) {
-      if(prior.payload_hash!==hash) throw Object.assign(new Error('Cette cle correspond a une autre operation.'),{status:409});
+      if(prior.payload_hash!==hash) throw Object.assign(new Error('Cette clé correspond à une autre opération.'),{status:409});
       await conn.commit(); return typeof prior.response_json==='string'?JSON.parse(prior.response_json):prior.response_json;
     }
     const [[actor]]=await conn.execute("SELECT id FROM nova_users WHERE id=? AND pharmacy_id=? AND role='pharmacist' AND disabled_at IS NULL AND deleted_at IS NULL",[pharmacistUserId,pharmacyId]);
-    if(!actor) throw Object.assign(new Error('Officine non autorisee.'),{status:403});
-    if(payload.status!=='refused' && (!DISPENSABLE_STATUSES.includes(rx.status)||isPrescriptionExpired(rx))) throw Object.assign(new Error('Ordonnance expiree ou cloturee.'),{status:409});
+    if(!actor) throw Object.assign(new Error('Officine non autorisée.'),{status:403});
+    if(payload.status!=='refused' && (!DISPENSABLE_STATUSES.includes(rx.status)||isPrescriptionExpired(rx))) throw Object.assign(new Error('Ordonnance expirée ou déjà clôturée.'),{status:409});
     const [lines]=await conn.execute('SELECT * FROM nova_prescription_items WHERE prescription_id=? FOR UPDATE',[rx.id]);
     const [used]=await conn.execute("SELECT i.prescription_item_id,SUM(i.quantity_dispensed) n FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=? AND d.status<>'refused' GROUP BY i.prescription_item_id",[rx.id]);
     const totals=new Map(used.map(x=>[x.prescription_item_id,Number(x.n)]));
     const refused=payload.status==='refused';
     if(refused && !String(payload.notes||'').trim()) throw Object.assign(new Error('Motif du refus obligatoire.'),{status:422});
-    if(!refused && (!items.length||lines.some(l=>l.quantity_prescribed==null))) throw Object.assign(new Error('Quantites prescrites manquantes : demander une ordonnance complete au prescripteur.'),{status:422});
+    if(!refused && (!items.length||lines.some(l=>l.quantity_prescribed==null))) throw Object.assign(new Error('Quantités prescrites manquantes : demandez une ordonnance complète au prescripteur.'),{status:422});
     for(const i of items) {
       const line=lines.find(l=>l.id===i.prescriptionItemId);
-      if(!line) throw Object.assign(new Error('Ligne etrangere a cette ordonnance.'),{status:422});
-      if(!Number.isInteger(i.quantityDispensed)||i.quantityDispensed<1||i.quantityDispensed>Number(line.quantity_prescribed)-(totals.get(line.id)||0)) throw Object.assign(new Error('Quantite superieure au reliquat autorise.'),{status:409});
+      if(!line) throw Object.assign(new Error('Ligne étrangère à cette ordonnance.'),{status:422});
+      if(!Number.isInteger(i.quantityDispensed)||i.quantityDispensed<1||i.quantityDispensed>Number(line.quantity_prescribed)-(totals.get(line.id)||0)) throw Object.assign(new Error('Quantité supérieure au reste à délivrer.'),{status:409});
       if(i.substituted&&(!i.substitutionName?.trim()||!i.substitutionReason?.trim())) throw Object.assign(new Error('Substitution : nom et justification obligatoires.'),{status:422});
       if(!refused) totals.set(line.id,(totals.get(line.id)||0)+i.quantityDispensed);
     }
@@ -216,11 +217,11 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
     const [[pat]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[rx.patient_id]);
     await notifyPatientDispense(rx.patient_id,ph?.name||'Votre pharmacie',status,conn);
     if(rx.doctor_id)await notifyDoctorDispense(rx.doctor_id,displayName(pat?.first_name,pat?.last_name)||'votre patient',ph?.name||'une pharmacie',status,conn);
-    const closed=await closeOrdersOnDispense(conn,{pharmacyId,prescriptionId:rx.id,dispenseId:id,status});
+    const closed=await closeOrdersOnDispense(conn,{pharmacyId,prescriptionId:rx.id,dispenseId:id,status,notes:payload.notes});
     await conn.commit();
     await signalOrders(closed).catch(()=>{});
     return response;
-  } catch(err) { await conn.rollback(); if(err.code==='ER_DUP_ENTRY') throw Object.assign(new Error('Cle deja utilisee pour une autre operation.'),{status:409}); throw err; } finally {conn.release();}
+  } catch(err) { await conn.rollback(); if(err.code==='ER_DUP_ENTRY') throw Object.assign(new Error('Clé déjà utilisée pour une autre opération.'),{status:409}); throw err; } finally {conn.release();}
 }
 
 /* ─── Historique délivrances ──────────────────────────────────── */
@@ -244,7 +245,7 @@ export async function getDispenseHistory(pharmacyId, query = {}) {
     args.push(query.date);
   }
 
-  sql += ' ORDER BY d.dispensed_at DESC';
+  sql += ' ORDER BY d.dispensed_at DESC LIMIT 500';
 
   const [rows] = await pool.execute(sql, args);
   return rows.map(r => ({

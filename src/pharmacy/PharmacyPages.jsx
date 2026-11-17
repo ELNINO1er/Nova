@@ -150,7 +150,7 @@ function PhDashboard({ data, setPage, card, sub, darkMode }) {
   const counts = data.dispenseCounts || {};
   const metrics = [
     { label: 'Délivrances du jour', value: data.todayDispenses, Icon: CalendarDays },
-    { label: 'Délivrances enregistrées', value: data.totalDispenses, Icon: Package },
+    { label: 'Délivrances au total (hors refus)', value: data.totalDispenses, Icon: Package },
     { label: 'Délivrances partielles', value: counts.partial, Icon: Pill },
   ];
 
@@ -192,7 +192,7 @@ function PhDashboard({ data, setPage, card, sub, darkMode }) {
             })}
           </div>
           <div className="mt-3 flex items-center justify-between gap-2">
-            <p className={`text-xs ${sub}`}>{date ? fmtDay(date) : 'Dernières délivrances'}</p>
+            <p className={`text-xs ${sub}`}>{date ? fmtDay(date) : '7 derniers jours'}</p>
             {date && <PhLink onClick={() => setDate(null)}>Retirer le filtre</PhLink>}
           </div>
           {byDate.length ? <ul className="mt-2 space-y-2">
@@ -201,7 +201,7 @@ function PhDashboard({ data, setPage, card, sub, darkMode }) {
               <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{row.patientName}</p><p className={`text-[11px] ${sub}`}>{fmtDay(row.dispensedAt)} · {fmtTime(row.dispensedAt)}</p></div>
               <DispenseStatus status={row.status} />
             </li>)}
-          </ul> : <Empty sub={sub}>{date ? 'Aucune délivrance récente pour cette date.' : 'Aucune délivrance enregistrée.'}</Empty>}
+          </ul> : <Empty sub={sub}>{date ? 'Aucune opération ce jour-là.' : 'Aucune opération sur les 7 derniers jours.'}</Empty>}
         </PhPanel>
 
         <PhPanel title="Dernières délivrances" Icon={ClipboardList} action={
@@ -254,19 +254,26 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
   const [dispenseItems, setDispenseItems] = useState([]);
   const inputRef = useRef(null);
   const operation = useRef(null);
+  // Résultat calculé comme sur le serveur : tout le reste remis = complète, sinon partielle.
+  const outcome = !detail ? null
+    : dispenseItems.every((d) => (d.quantityDispensed || 0) <= 0) ? null
+    : detail.items.every((it, idx) => (dispenseItems[idx]?.quantityDispensed || 0) >= (it.remaining || 0)) ? 'full' : 'partial';
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const verify = async () => {
-    if (!prescriptionId.trim()) return;
+  const [scanning, setScanning] = useState(false);
+  const cameraSupported = typeof window !== 'undefined' && 'BarcodeDetector' in window && Boolean(navigator.mediaDevices?.getUserMedia);
+  const verify = async (value) => {
+    const token = (typeof value === 'string' ? value : prescriptionId).trim();
+    if (!token) return;
     setLoading(true);
     setVerification(null);
     setDetail(null);
     try {
-      const v = await pharmacyApi.verifyPrescription(prescriptionId.trim());
+      const v = await pharmacyApi.verifyPrescription(token);
       setVerification(v);
       if (v.verification.canDispense) {
-        const d = await pharmacyApi.prescription(v.id, prescriptionId.trim());
+        const d = await pharmacyApi.prescription(v.id, token);
         setDetail(d);
         setDispenseItems(d.items.map(i => ({ prescriptionItemId: i.id, quantityDispensed: i.remaining ?? 0, substituted: false, name: i.name })));
       }
@@ -293,7 +300,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
         status,
         items: status==='refused'?[]:lines,
       });
-      notify('Opération enregistrée ; le statut est calculé selon les quantités délivrées.');
+      notify(status === 'refused' ? 'Refus enregistré : le patient et le prescripteur sont prévenus.' : status === 'full' ? 'Délivrance complète enregistrée.' : 'Délivrance partielle enregistrée : le reste pourra être remis plus tard.');
       setVerification(null);
       setDetail(null);
       setPrescriptionId(''); operation.current=null;
@@ -320,15 +327,21 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
         <div className="flex flex-col gap-3 sm:flex-row">
           <input ref={inputRef} type="text" value={prescriptionId} onChange={e => setPrescriptionId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && verify()}
-            placeholder="Scanner ou coller le token QR ordonnance..."
+            placeholder="Scannez le QR avec la douchette, ou collez son contenu" aria-label="Contenu du QR de l’ordonnance"
             className={`min-w-0 flex-1 px-4 py-3 rounded-xl border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'} focus:outline-none focus:ring-2 focus:ring-red-500`}
           />
-          <button onClick={verify} disabled={loading}
+          {cameraSupported && <button type="button" onClick={() => setScanning(true)} disabled={loading || scanning}
+            className={`px-4 py-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+            <Camera className="w-4 h-4" aria-hidden="true" /> Caméra
+          </button>}
+          <button type="button" onClick={() => verify()} disabled={loading}
             className="px-6 py-3 rounded-xl bg-red-600 text-white font-bold text-sm flex items-center gap-2 hover:bg-red-700 disabled:opacity-50">
             {loading ? <Clock className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Vérifier
           </button>
         </div>
+          {scanning && <CameraScanner onResult={(text) => { setScanning(false); setPrescriptionId(text); verify(text); }} onClose={() => setScanning(false)} notify={notify} />}
+          {!cameraSupported && <p className={`mt-2 text-xs ${sub}`}>Lecture par caméra indisponible sur ce navigateur : utilisez une douchette ou collez le contenu du QR.</p>}
       </div>
 
       {/* Résultat vérification */}
@@ -356,7 +369,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
             <InfoCell label="Prescripteur" value={verification.doctorName} sub={sub} />
             <InfoCell label="Spécialité" value={verification.doctorSpecialty} sub={sub} />
             <InfoCell label="Émise le" value={verification.issuedAt ? new Date(verification.issuedAt).toLocaleDateString('fr-FR') : '—'} sub={sub} />
-            <InfoCell label="Valide jusqu'au" value={verification.validUntil ? new Date(verification.validUntil).toLocaleDateString('fr-FR') : 'Illimitée'} sub={sub} />
+            <InfoCell label="Valide jusqu'au" value={verification.validUntil ? new Date(verification.validUntil).toLocaleDateString('fr-FR') : '—'} sub={sub} />
           </div>
 
           {verification.lastDispense && (
@@ -397,11 +410,11 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
                     {item.instructions && <p className={`text-xs ${sub} mt-1 italic`}>{item.instructions}</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <label className={`text-xs ${sub}`}>Qté</label>
-                    <input type="number" min="0" max={item.remaining ?? 0} disabled={item.remaining==null} value={dispenseItems[idx]?.quantityDispensed ?? 0}
+                    <label htmlFor={`qty-${item.id}`} className={`text-xs ${sub}`}>Qté remise</label>
+                    <input id={`qty-${item.id}`} type="number" min="0" max={item.remaining ?? 0} disabled={item.remaining==null} value={dispenseItems[idx]?.quantityDispensed ?? 0}
                       onChange={e => {
                         const next = [...dispenseItems];
-                        next[idx] = { ...next[idx], quantityDispensed: parseInt(e.target.value) || 0 };
+                        next[idx] = { ...next[idx], quantityDispensed: Math.min(Math.max(parseInt(e.target.value, 10) || 0, 0), item.remaining ?? 0) };
                         setDispenseItems(next);
                       }}
                       className={`w-16 px-2 py-1 rounded-lg border text-sm text-center ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
@@ -412,15 +425,17 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
             ))}
           </div>
 
+          <p role="status" className={`mb-3 text-sm font-semibold ${outcome === 'full' ? 'text-emerald-700' : outcome === 'partial' ? 'text-amber-700' : 'text-red-700'}`}>
+            {outcome === 'full' ? 'Résultat : délivrance complète (tout le reste est remis).'
+              : outcome === 'partial' ? 'Résultat : délivrance partielle (il restera des médicaments à fournir).'
+              : 'Indiquez au moins une quantité à remettre.'}
+          </p>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button onClick={() => doDispense('full')} disabled={dispensing || detail.items.some(i=>i.remaining==null)}
+            <button type="button" onClick={() => doDispense(outcome)} disabled={dispensing || !outcome || detail.items.some(i=>i.remaining==null)}
               className="flex-1 px-4 py-3 rounded-xl bg-red-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-700 disabled:opacity-50">
-              <CheckCircle2 className="w-4 h-4" /> Délivrance complète
+              <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> {outcome === 'partial' ? 'Enregistrer la délivrance partielle' : 'Enregistrer la délivrance complète'}
             </button>
-            <button onClick={() => doDispense('partial')} disabled={dispensing || detail.items.some(i=>i.remaining==null)}
-              className={`flex-1 px-4 py-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 ${darkMode ? 'border-slate-700' : 'border-slate-300'} disabled:opacity-50`}>
-              <Clock className="w-4 h-4" /> Délivrance partielle
-            </button><button type="button" onClick={()=>doDispense('refused')} disabled={dispensing} className="px-4 py-2 border rounded-xl text-red-700">Refuser (motif obligatoire)</button>
+            <button type="button" onClick={()=>doDispense('refused')} disabled={dispensing} className="px-4 py-3 border rounded-xl text-red-700 font-semibold text-sm">Refuser (motif obligatoire)</button>
             <button onClick={() => { setVerification(null); setDetail(null); setPrescriptionId(''); }}
               className="px-4 py-3 rounded-xl bg-red-50 text-red-600 font-bold text-sm flex items-center justify-center gap-2 border border-red-200 hover:bg-red-100">
               <X className="w-4 h-4" /> Annuler
@@ -511,6 +526,37 @@ function PhSkeleton({ darkMode, card }) {
       <div className="grid grid-cols-3 gap-4">
         {[0,1,2].map(i => <div key={i} className={`${card} border rounded-2xl p-5 h-28`}><div className={`${block} h-10 w-10 rounded-lg mb-3`}></div><div className={`${block} h-4 w-16`}></div></div>)}
       </div>
+    </div>
+  );
+}
+
+/* Lecture du QR par la caméra (API BarcodeDetector du navigateur, sans bibliothèque externe). */
+function CameraScanner({ onResult, onClose, notify }) {
+  const video = useRef(null);
+  useEffect(() => {
+    let stream, timer, stopped = false;
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then((s) => {
+      stream = s;
+      if (stopped) return s.getTracks().forEach((t) => t.stop());
+      video.current.srcObject = s;
+      video.current.play().catch(() => {});
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const codes = await detector.detect(video.current);
+          if (codes[0]?.rawValue) { stopped = true; onResult(codes[0].rawValue); return; }
+        } catch { /* image pas encore prête */ }
+        timer = setTimeout(tick, 300);
+      };
+      tick();
+    }).catch(() => { notify('Caméra inaccessible : autorisez-la ou utilisez une douchette.', 'error'); onClose(); });
+    return () => { stopped = true; clearTimeout(timer); stream?.getTracks().forEach((t) => t.stop()); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="mt-4 space-y-2">
+      <video ref={video} className="w-full max-w-sm rounded-xl bg-black" muted playsInline aria-label="Aperçu de la caméra" />
+      <button type="button" onClick={onClose} className="text-sm font-semibold text-red-700 underline">Arrêter la caméra</button>
     </div>
   );
 }
