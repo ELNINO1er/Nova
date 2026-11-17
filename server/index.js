@@ -19,6 +19,7 @@ import authRoutes     from './routes/auth.routes.js';
 import pharmacyRoutes from './routes/pharmacy.routes.js';
 import adminRoutes    from './routes/admin.routes.js';
 import governorRoutes from './routes/governor.routes.js';
+import publicRoutes from './routes/public.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 import { initRealtime } from './realtime.js';
@@ -133,6 +134,7 @@ app.use('/api/doctor/me',   doctorRoutes);
 app.use('/api/pharmacy/me', pharmacyRoutes);
 app.use('/api/admin/me',    adminRoutes);
 app.use('/api/governor/me', governorRoutes);
+app.use('/api/public', publicRoutes);
 
 if (isProduction) {
   app.use(express.static(distDir, { index: false, maxAge: '1h' }));

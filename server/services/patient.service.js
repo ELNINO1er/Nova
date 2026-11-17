@@ -1290,7 +1290,7 @@ export async function getAccessLogs(patientId) {
   );
   return rows.map(r => ({
     id: r.id,
-    accessorName: r.accessor_name || 'Inconnu',
+    accessorName: r.accessor_role === 'emergency' ? 'Scan du QR d’urgence' : (r.accessor_name || 'Inconnu'),
     accessorRole: r.accessor_role,
     dataAccessed: r.data_accessed,
     accessedAt: r.accessed_at,

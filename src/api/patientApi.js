@@ -62,6 +62,7 @@ export const patientApi = {
   addVital: (payload) => request('/patient/me/vitals', { method: 'POST', body: JSON.stringify(payload) }),
   emergencyCard: () => request('/patient/me/emergency-card'),
   emergencyCardQr: () => request('/patient/me/emergency-card/qr'),
+  renewEmergencyQr: () => request('/patient/me/emergency-card/qr/renew', { method: 'POST' }),
   wellnessGoals: () => request('/patient/me/wellness-goals'),
   createWellnessGoal: (payload) => request('/patient/me/wellness-goals', { method: 'POST', body: JSON.stringify(payload) }),
   updateWellnessGoal: (id, payload) => request(`/patient/me/wellness-goals/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),

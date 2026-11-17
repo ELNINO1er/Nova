@@ -104,6 +104,15 @@ export async function migrate(conn) {
         await column(conn, 'nova_messages', 'attachment_type', 'VARCHAR(20) NULL');
         await column(conn, 'nova_messages', 'attachment_id', 'VARCHAR(64) NULL');
       }],
+      ['20261117_18_emergency_links', async () => {
+        // QR d'urgence : lien secret par patient (révocable), à la place du texte brut illisible par l'appareil photo.
+        await conn.query(`CREATE TABLE IF NOT EXISTS nova_emergency_links (
+          patient_id VARCHAR(36) PRIMARY KEY,
+          token VARCHAR(64) NOT NULL,
+          created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          UNIQUE KEY uq_emergency_token (token)
+        )`);
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

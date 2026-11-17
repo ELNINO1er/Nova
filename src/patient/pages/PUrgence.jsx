@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
-import { alertDialog } from '../../components/dialogs.jsx';
+import { alertDialog, confirmDialog } from '../../components/dialogs.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
 import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
@@ -15,6 +15,14 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
 
   // Numéros d'urgence de Côte d'Ivoire (source : src/utils/emergency.js).
   const urgenceNumbers = EMERGENCY_NUMBERS.map(n => ({ ...n, icon: EMERGENCY_ICONS[n.id] || PhoneCall }));
+
+  // Carte perdue ou photo partagée : un nouveau QR rend l'ancien inutilisable.
+  const renewQR = async () => {
+    const ok = await confirmDialog({ title: 'Changer de QR code ?', message: 'L’ancien QR (cartes imprimées, photos) ne fonctionnera plus. Pensez à réimprimer votre carte.', confirmLabel: 'Changer de QR code', danger: true });
+    if (!ok) return;
+    try { await patientApi.renewEmergencyQr(); setQrData(await patientApi.emergencyCardQr()); }
+    catch (e) { alertDialog({ title: 'QR code non modifié', message: e.message || 'Réessayez dans un instant.' }); }
+  };
 
   const fetchQR = async () => {
     setLoadQR(true);
@@ -54,7 +62,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
           <Card darkMode={darkMode} role="dialog" aria-modal="true" aria-labelledby="purgence-qr-title"
             className="fixed z-50 left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 shadow-2xl text-center">
             <p id="purgence-qr-title" className="font-semibold">QR Code — Fiche Urgence</p>
-            <p className={`text-xs mt-1 mb-4 ${sub}`}>Scannez en cas d'urgence pour accéder aux infos vitales</p>
+            <p className={`text-xs mt-1 mb-4 ${sub}`}>Scannez-le avec l’appareil photo d’un téléphone : la fiche d’urgence s’ouvre, sans compte NOVA.</p>
             <div className="mx-auto w-fit p-3 rounded-2xl border border-red-100 bg-white">
               <img src={qrData.qr} alt="QR Urgence" className="w-48 h-48" />
             </div>
@@ -62,6 +70,10 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
             <div className="flex gap-2 mt-5">
               <Button Icon={Download} onClick={handlePrint} darkMode={darkMode} className="flex-1">Imprimer</Button>
               <Button variant="secondary" onClick={() => setShowQR(false)} darkMode={darkMode} className="flex-1">Fermer</Button>
+            </div>
+            <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs font-semibold">
+              {qrData.url && <a href={qrData.url} target="_blank" rel="noreferrer" className="text-red-700 underline underline-offset-2">Voir la fiche publique</a>}
+              <button type="button" onClick={renewQR} className={`underline underline-offset-2 ${sub}`}>Changer de QR code</button>
             </div>
           </Card>
         </>

@@ -6,7 +6,12 @@ import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { DialogHost } from './components/dialogs.jsx';
 
-const router=createBrowserRouter([{path:'*',element:<App/>}]);
+// Fiche d'urgence ouverte par le QR : page publique, hors de l'application connectée.
+const EmergencyPublic=React.lazy(()=>import('./public/EmergencyPublic.jsx'));
+const router=createBrowserRouter([
+  {path:'/urgence/:token',element:<React.Suspense fallback={null}><EmergencyPublic/></React.Suspense>},
+  {path:'*',element:<App/>},
+]);
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary fullPage>

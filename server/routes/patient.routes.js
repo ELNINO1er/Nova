@@ -1,4 +1,5 @@
 import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
+import { emergencyUrl, getOrCreateEmergencyToken, renewEmergencyToken } from '../services/emergency.service.js';
 import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -447,7 +448,9 @@ router.get('/emergency-card/qr', wrap(async (req, res) => {
   const card = await getEmergencyCard(req.user.patientId);
   if (!card) return res.status(404).json({ error: 'not_found' });
 
-  // Contenu en clair : un secouriste le lit avec n'importe quel téléphone, sans compte NOVA.
+  // Le QR contient un lien : l'appareil photo de n'importe quel téléphone ouvre la fiche d'urgence, sans compte.
+  // (Le résumé texte reste renvoyé pour l'affichage et l'impression à côté du QR.)
+  const url = emergencyUrl(await getOrCreateEmergencyToken(req.user.patientId));
   const lines = [
     'NOVA - FICHE D URGENCE',
     `${card.firstName} ${card.lastName}`,
@@ -459,14 +462,21 @@ router.get('/emergency-card/qr', wrap(async (req, res) => {
     card.emergencyContact?.phone ? `Contact : ${card.emergencyContact.name || ''} ${card.emergencyContact.phone}`.trim() : null,
   ].filter(Boolean);
 
-  const dataUrl = await QRCode.toDataURL(lines.join('\n'), {
+  const dataUrl = await QRCode.toDataURL(url, {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 300,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  res.json({ qr: dataUrl, content: lines });
+  res.set('Cache-Control', 'no-store');
+  res.json({ qr: dataUrl, url, content: lines });
+}));
+
+// Nouveau QR d'urgence : l'ancien lien cesse immédiatement de fonctionner.
+router.post('/emergency-card/qr/renew', auditLog('patient.emergency_qr.renew', 'patient'), wrap(async (req, res) => {
+  await renewEmergencyToken(req.user.patientId);
+  res.json({ ok: true });
 }));
 
 /* ─── Wellness Goals ─────────────────────────────────────────── */
