@@ -50,7 +50,7 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
 
   return (
     <div className="space-y-4">
-      {resultRequest && <ResultForm request={resultRequest} onClose={()=>setResultRequest(null)} onDone={()=>{setResultRequest(null);onReload();}} notify={notify} />}
+      {resultRequest && <ResultForm request={resultRequest} onClose={()=>setResultRequest(null)} onDone={()=>{setResultRequest(null);onReload();}} notify={notify} darkMode={darkMode} sub={sub} />}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div><h2 className="text-2xl font-bold">Demandes d'analyses</h2><p className={`text-sm ${sub}`}>{requests.length} demandes</p></div>
         <button onClick={handleShowForm}
@@ -146,16 +146,166 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
    SUIVI CHRONIQUES
    ════════════════════════════════════════════════════════════════ */
 
-function ResultForm({request,onClose,onDone,notify}) {
- const [lab,setLab]=useState(''),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[text,setText]=useState(''),[busy,setBusy]=useState(false);
- useUnsaved(true,JSON.stringify({lab,date,text}));
- const save=async()=>{if(busy)return;setBusy(true);try{
- const items=text.split('\n').filter(x=>x.trim()).map(x=>{const [name,value,unit,status]=x.split('|').map(v=>v.trim());return {name,value,unit,status:status||'normal'};});
- await doctorApi.recordLabResult(request.id,{laboratoryName:lab,performedAt:new Date(date+'T00:00:00Z').toISOString(),items});notify('Résultat enregistré.');onDone();
- }catch(e){notify(e.message,'error');}finally{setBusy(false);}};
- return <section className="p-5 border rounded-xl space-y-3"><h3 className="font-bold">Résultat : {request.title}</h3><p className="text-sm">Transcription par le médecin prescripteur d’un document reçu. Indiquez le laboratoire d’origine.</p>
- <label className="block">Laboratoire<input className="block border rounded p-2 w-full" value={lab} onChange={e=>setLab(e.target.value)}/></label>
- <label className="block">Date de réalisation<input type="date" className="block border rounded p-2" value={date} max={new Date().toISOString().slice(0,10)} onChange={e=>setDate(e.target.value)}/></label>
- <label className="block">Résultats (une ligne par analyse : nom | valeur | unité | statut)<textarea className="block border rounded p-2 w-full" rows={5} value={text} onChange={e=>setText(e.target.value)} placeholder="Glycémie | 0.95 | g/L | normal"/></label><p className="text-xs">Statuts : normal, high, low, critical. La validation clinique reste à la charge du médecin.</p>
- <button type="button" disabled={busy||lab.trim().length<2||!text.trim()} onClick={save} className="bg-red-600 text-white rounded px-4 py-2 disabled:opacity-50">Enregistrer</button><button type="button" onClick={onClose} className="px-4 py-2">Annuler</button></section>;
+/* Transcription d'un résultat reçu : une ligne par analyse, champs guidés, interprétation proposée
+   automatiquement d'après les valeurs de référence (modifiable). */
+const LAB_STATUS = [
+  { id: 'normal', label: 'Normal' },
+  { id: 'high', label: 'Élevé' },
+  { id: 'low', label: 'Bas' },
+  { id: 'critical', label: 'Critique' },
+];
+const toNumber = (v) => { const n = Number(String(v ?? '').replace(',', '.').trim()); return String(v ?? '').trim() !== '' && Number.isFinite(n) ? n : null; };
+// Interprétation suggérée : bas / élevé si la valeur sort de l'intervalle de référence.
+function suggestStatus(row) {
+  const v = toNumber(row.value), min = toNumber(row.refMin), max = toNumber(row.refMax);
+  if (v === null || (min === null && max === null)) return null;
+  if (min !== null && v < min) return 'low';
+  if (max !== null && v > max) return 'high';
+  return 'normal';
+}
+const emptyRow = (name = '') => ({ key: Math.random().toString(36).slice(2), name, value: '', unit: '', refMin: '', refMax: '', status: 'normal', statusTouched: false });
+
+function ResultForm({ request, onClose, onDone, notify, darkMode, sub }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [lab, setLab] = useState('');
+  const [date, setDate] = useState(today);
+  const [rows, setRows] = useState(() => [emptyRow(request.title || '')]);
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [tried, setTried] = useState(false);
+  useUnsaved(true, JSON.stringify({ lab, date, notes, rows: rows.map(({ key, statusTouched, ...r }) => r) }));
+
+  const update = (key, patch) => setRows((list) => list.map((r) => {
+    if (r.key !== key) return r;
+    const next = { ...r, ...patch };
+    if ('status' in patch) next.statusTouched = true;
+    else if (!next.statusTouched) next.status = suggestStatus(next) || next.status;
+    return next;
+  }));
+  const addRow = () => setRows((list) => [...list, emptyRow()]);
+  const removeRow = (key) => setRows((list) => (list.length > 1 ? list.filter((r) => r.key !== key) : list));
+
+  // Lignes entièrement vides ignorées ; une ligne commencée doit avoir un nom et une valeur.
+  const filled = rows.filter((r) => [r.name, r.value, r.unit, r.refMin, r.refMax].some((v) => v.trim()));
+  const rowError = (r) => {
+    if (!filled.includes(r)) return null;
+    if (!r.name.trim()) return 'Indiquez le nom de l’analyse.';
+    if (!r.value.trim()) return `Indiquez la valeur${r.name.trim() ? ` de « ${r.name.trim()} »` : ''}.`;
+    return null;
+  };
+  const errors = {
+    lab: lab.trim().length < 2 ? 'Indiquez le laboratoire (2 caractères au moins).' : null,
+    rows: filled.length === 0 ? 'Ajoutez au moins une analyse avec sa valeur.' : null,
+  };
+  const invalid = errors.lab || errors.rows || filled.some(rowError);
+
+  const save = async () => {
+    setTried(true);
+    if (busy || invalid) return;
+    setBusy(true);
+    try {
+      const items = filled.map((r) => ({
+        name: r.name.trim(), value: r.value.trim(), status: r.status,
+        ...(r.unit.trim() && { unit: r.unit.trim() }),
+        ...(r.refMin.trim() && { refMin: r.refMin.trim() }),
+        ...(r.refMax.trim() && { refMax: r.refMax.trim() }),
+      }));
+      await doctorApi.recordLabResult(request.id, { laboratoryName: lab.trim(), performedAt: new Date(`${date}T00:00:00Z`).toISOString(), items, ...(notes.trim() && { notes: notes.trim() }) });
+      notify('Résultat enregistré.');
+      onDone();
+    } catch (e) { notify(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+
+  const field = `mt-1 w-full h-11 px-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-400 ${darkMode ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-slate-200'}`;
+  const bad = '!border-red-400';
+  const label = `block text-xs font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-600'}`;
+  const hint = sub || 'text-slate-500';
+  const STATUS_TONE = { normal: 'text-emerald-700', high: 'text-amber-700', low: 'text-amber-700', critical: 'text-red-700' };
+
+  return (
+    <section className={`p-5 sm:p-6 rounded-2xl border space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-red-100'}`}>
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-lg font-bold">Saisir le résultat : {request.title}</h3>
+          <p className={`text-sm mt-0.5 ${hint}`}>Recopiez les valeurs du compte rendu reçu du laboratoire.</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Fermer" className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}><X className="w-5 h-5" /></button>
+      </div>
+
+      <div className="grid sm:grid-cols-[1fr_12rem] gap-4">
+        <label className={label}>Laboratoire
+          <input className={`${field} ${tried && errors.lab ? bad : ''}`} value={lab} onChange={(e) => setLab(e.target.value)} placeholder="Ex. : Laboratoire Pasteur, Cocody" />
+          {tried && errors.lab && <span className="block mt-1 text-xs font-normal text-red-600">{errors.lab}</span>}
+        </label>
+        <label className={label}>Date de réalisation
+          <input type="date" className={field} value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+        </label>
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">Analyses</p>
+        {rows.map((r, i) => {
+          const err = tried ? rowError(r) : null;
+          const suggested = suggestStatus(r);
+          return (
+            <div key={r.key} className={`rounded-xl border p-3 sm:p-4 ${err ? 'border-red-300' : darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+              <div className="grid grid-cols-2 sm:grid-cols-12 gap-3">
+                <label className={`${label} col-span-2 sm:col-span-4`}>Analyse
+                  <input className={`${field} ${err && !r.name.trim() ? bad : ''}`} value={r.name} onChange={(e) => update(r.key, { name: e.target.value })} placeholder="Ex. : Glycémie à jeun" />
+                </label>
+                <label className={`${label} sm:col-span-2`}>Valeur
+                  <input className={`${field} ${err && r.name.trim() && !r.value.trim() ? bad : ''}`} value={r.value} onChange={(e) => update(r.key, { value: e.target.value })} inputMode="decimal" placeholder="0,95" />
+                </label>
+                <label className={`${label} sm:col-span-2`}>Unité
+                  <input className={field} value={r.unit} onChange={(e) => update(r.key, { unit: e.target.value })} placeholder="g/L" />
+                </label>
+                <div className={`${label} col-span-2 sm:col-span-4`}>Valeurs de référence <span className="font-normal">(facultatif)</span>
+                  <div className="flex items-center gap-2">
+                    <input aria-label={`Référence minimale, analyse ${i + 1}`} className={field} value={r.refMin} onChange={(e) => update(r.key, { refMin: e.target.value })} inputMode="decimal" placeholder="min" />
+                    <span className="mt-1">–</span>
+                    <input aria-label={`Référence maximale, analyse ${i + 1}`} className={field} value={r.refMax} onChange={(e) => update(r.key, { refMax: e.target.value })} inputMode="decimal" placeholder="max" />
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`text-xs font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Interprétation :</span>
+                <div role="radiogroup" aria-label={`Interprétation, analyse ${i + 1}`} className="flex flex-wrap gap-1.5">
+                  {LAB_STATUS.map((s) => (
+                    <button key={s.id} type="button" role="radio" aria-checked={r.status === s.id} onClick={() => update(r.key, { status: s.id })}
+                      className={`h-8 px-3 rounded-full text-xs font-semibold border ${r.status === s.id
+                        ? (s.id === 'normal' ? 'bg-emerald-600 border-emerald-600 text-white' : s.id === 'critical' ? 'bg-red-600 border-red-600 text-white' : 'bg-amber-500 border-amber-500 text-white')
+                        : darkMode ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {suggested && !r.statusTouched && <span className={`text-xs ${STATUS_TONE[suggested]}`}>proposé d’après les références</span>}
+                {rows.length > 1 && (
+                  <button type="button" onClick={() => removeRow(r.key)} className={`ml-auto text-xs font-semibold ${darkMode ? 'text-slate-400 hover:text-red-400' : 'text-slate-500 hover:text-red-700'}`}>Retirer</button>
+                )}
+              </div>
+              {err && <p role="alert" className="mt-2 text-xs text-red-600">{err}</p>}
+            </div>
+          );
+        })}
+        <button type="button" onClick={addRow} className={`inline-flex items-center gap-1.5 h-10 px-4 rounded-xl border border-dashed text-sm font-semibold ${darkMode ? 'border-slate-700 text-slate-200 hover:bg-slate-800' : 'border-red-200 text-red-700 hover:bg-red-50'}`}>
+          <Plus className="w-4 h-4" /> Ajouter une analyse
+        </button>
+        {tried && errors.rows && <p role="alert" className="text-xs text-red-600">{errors.rows}</p>}
+      </div>
+
+      <label className={label}>Commentaire <span className="font-normal">(facultatif)</span>
+        <textarea rows={2} maxLength={2000} className={`${field} h-auto py-2`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Conclusion du laboratoire, conditions du prélèvement…" />
+      </label>
+
+      <p className={`text-xs ${hint}`}>L’interprétation est proposée d’après les valeurs de référence ; la validation clinique reste à la charge du médecin.</p>
+      <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+        <button type="button" onClick={onClose} className={`h-11 px-5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-50'}`}>Annuler</button>
+        <button type="button" disabled={busy} onClick={save} className="h-11 px-5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50">
+          <Save className="w-4 h-4" />{busy ? 'Enregistrement…' : 'Enregistrer le résultat'}
+        </button>
+      </div>
+    </section>
+  );
 }
