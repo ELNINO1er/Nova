@@ -49,7 +49,7 @@ const ACCOUNT_LINKS = {
   ],
   pharmacist: [{ page: 'settings', label: 'Paramètres', Icon: Settings }],
   admin: [{ page: 'settings', label: 'Paramètres', Icon: Settings }],
-  governor: [],
+  governor: [{ page: 'settings', label: 'Paramètres', Icon: Settings }],
 };
 
 /* Menu de compte (tous écrans) : identité, paramètres et déconnexion explicite. */
@@ -397,7 +397,7 @@ export default function App() {
                   onBadgesChange={(nextBadges) => setBadges((current) => ({ ...current, ...nextBadges }))} {...props} />}
                 {role === 'pharmacist' && <PharmacyPages key={user?.id} page={page} setPage={setPage} {...props} />}
                 {role === 'admin' && <AdminPages key={user?.id} page={page} setPage={setPage} {...props} />}
-                {role === 'governor' && <GovernorPages key={user?.id} page={page} {...props} />}
+                {role === 'governor' && <GovernorPages key={user?.id} page={page} setPage={setPage} {...props} />}
               </Suspense>
             </ErrorBoundary>
             {page === 'dashboard' && <CompactQrAction role={role} setShowQR={setShowQR} setPage={setPage} darkMode={darkMode} />}

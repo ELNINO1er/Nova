@@ -86,7 +86,7 @@ export async function verifyPrescriptionQR(qrToken) {
   const alreadyFull = rx.status === 'dispensed' || rx.dispenseHistory.some(entry => entry.status === 'full');
   const quantitiesMissing = !rx.items.length || rx.items.some(item => item.remaining == null);
 
-  return {
+  return withPatient({
     id: rx.id,
     patientName: rx.patientName,
     cmuNumber: rx.cmuNumber,
@@ -109,7 +109,7 @@ export async function verifyPrescriptionQR(qrToken) {
       quantitiesMissing,
       canDispense: !isExpired && !alreadyFull && !quantitiesMissing && DISPENSABLE_STATUSES.includes(rx.status),
     },
-  };
+  }, patientIdOf(rx));
 }
 
 /* ─── Détail ordonnance (médicaments uniquement, PAS le dossier) ── */
@@ -142,7 +142,7 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
     [prescriptionId]
   );
 
-  return {
+  return withPatient({
     id: rx.id,
     patientName: displayName(rx.first_name, rx.last_name),
     cmuNumber: maskIdentifier(rx.cmu_number),
@@ -167,7 +167,7 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
       pharmacyName: d.pharmacyName,
       dispensedAt: d.dispensed_at,
     })),
-  };
+  }, rx.patient_id);
 }
 
 /* ─── Délivrer ordonnance ─────────────────────────────────────── */
@@ -258,6 +258,13 @@ export async function getDispenseHistory(pharmacyId, query = {}) {
     rxIssuedAt: r.rx_issued_at,
   }));
 }
+
+/** Patient concerné, gardé hors de la réponse JSON (propriété non énumérable) pour le journal d'accès. */
+export function withPatient(obj, patientId) {
+  Object.defineProperty(obj, 'patientId', { value: patientId, enumerable: false });
+  return obj;
+}
+export const patientIdOf = (obj) => obj?.patientId || null;
 
 function displayName(firstName, lastName) {
   const first = String(firstName || '').trim();

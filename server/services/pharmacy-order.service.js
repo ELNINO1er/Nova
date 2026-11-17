@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/database.js';
 import { createNotification } from './notification.service.js';
-import { getPrescriptionForPharmacy } from './pharmacy.service.js';
+import { getPrescriptionForPharmacy, withPatient } from './pharmacy.service.js';
 import { emitToUser } from '../realtime.js';
 import { isPrescriptionExpired } from './prescription-status.js';
 
@@ -105,13 +105,14 @@ export async function getOrdersForPharmacy(pharmacyId) {
     const open = OPEN_STATUSES.includes(r.status);
     // L'ordonnance n'est lisible que pendant la commande en cours.
     const rx = open && r.prescription_id ? await getPrescriptionForPharmacy(r.prescription_id) : null;
-    return {
+    // Seules les commandes en cours (ordonnance lisible) comptent comme une lecture du dossier.
+    return withPatient({
       id: r.id, status: r.status, notes: r.notes, pharmacistMessage: r.pharmacist_message || null,
       createdAt: r.created_at, updatedAt: r.updated_at,
       patientName: `${r.first_name || ''} ${(r.last_name || '').charAt(0)}.`.trim(),
       prescription: rx && { id: rx.id, doctorName: rx.doctorName, doctorSpecialty: rx.doctorSpecialty, issuedAt: rx.issuedAt, validUntil: rx.validUntil, status: rx.status,
         items: rx.items.map(({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining }) => ({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining })) },
-    };
+    }, rx ? r.patient_id : null);
   }));
 }
 

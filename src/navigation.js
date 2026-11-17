@@ -9,7 +9,7 @@ export const ROLE_PAGES = {
   doctor: ['dashboard','patients','agenda','consultations','prescriptions','lab-requests','stats','chronic-patients','urgences','assistant-ia','finances','reputation','signature','messages','documents','profile','settings','notifications'],
   pharmacist: ['dashboard','orders','scan','history','settings'],
   admin: ['dashboard','audit','users','system','settings'],
-  governor: ['dashboard'],
+  governor: ['dashboard','settings'],
 };
 
 /*
@@ -100,6 +100,7 @@ export const ROLE_SPACES = {
   ],
   governor: [
     { id: 'situation', label: 'Situation sanitaire', Icon: BarChart3, pages: [{ id: 'dashboard', label: 'Indicateurs', Icon: BarChart3 }] },
+    { id: 'account', label: 'Compte', Icon: Settings, pages: [{ id: 'settings', label: 'Paramètres', Icon: Settings }] },
   ],
 };
 

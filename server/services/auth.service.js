@@ -233,7 +233,7 @@ function toSessionUser(user) {
  * et pharmaciens ; 12 caractères avec majuscule, minuscule, chiffre et symbole pour admin, gouverneur et médecin.
  * Renvoie un message d'erreur, ou null si le mot de passe est accepté.
  */
-export const STRONG_PASSWORD_ROLES = ['admin', 'doctor', 'governor'];
+export const STRONG_PASSWORD_ROLES = ['admin', 'doctor', 'governor', 'pharmacist'];
 
 export function passwordPolicyError(role, password) {
   const value = String(password || '');

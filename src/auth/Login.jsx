@@ -6,7 +6,7 @@ import { authApi } from '../api/authApi.js';
 const strongPassword = (value) => value.length >= 12 && /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
 const simplePassword = (value) => value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value);
 // Mêmes règles que le serveur (auth.service.js > passwordPolicyError).
-const isStrongRole = (role) => ['doctor', 'admin', 'governor'].includes(role);
+const isStrongRole = (role) => ['doctor', 'admin', 'governor', 'pharmacist'].includes(role);
 
 export default function Login({ setAuth, onLogin }) {
   const [step, setStep] = useState('login');

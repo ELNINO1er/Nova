@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requirePharmacist, requirePermission } from '../middleware/auth.js';
 import { wrap, validateBody } from '../middleware/helpers.js';
-import { auditLog } from '../middleware/audit.js';
+import { auditLog, recordAccess } from '../middleware/audit.js';
 import {
   verifyPrescriptionQR,
   assertQrMatches,
@@ -27,6 +27,7 @@ router.post('/verify-prescription', requirePermission('pharmacy.verify'), valida
 })), wrap(async (req, res) => {
   const result = await verifyPrescriptionQR(req.body.qrToken);
   if (!result) return res.status(404).json({ error: 'not_found', message: 'Ordonnance introuvable.' });
+  await recordAccess(req, [result.patientId], 'pharmacy_prescription');
   res.json(result);
 }));
 
@@ -35,6 +36,7 @@ router.get('/prescription/:id', requirePermission('pharmacy.verify'), wrap(async
   assertQrMatches(String(req.get('x-prescription-qr') || ''), req.params.id);
   const data = await getPrescriptionForPharmacy(req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found', message: 'Ordonnance introuvable.' });
+  await recordAccess(req, [data.patientId], 'pharmacy_prescription');
   res.json(data);
 }));
 
@@ -64,7 +66,9 @@ router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.
 /* ─── Commandes envoyées par les patients ─────────────────────── */
 router.get('/orders', requirePermission('pharmacy.verify'), wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(await getOrdersForPharmacy(req.user.pharmacyId));
+  const orders = await getOrdersForPharmacy(req.user.pharmacyId);
+  await recordAccess(req, orders.map((o) => o.patientId), 'pharmacy_order');
+  res.json(orders);
 }));
 router.patch('/orders/:id', requirePermission('pharmacy.verify'), validateBody(z.object({
   status: z.enum(['ready', 'unavailable']),

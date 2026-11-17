@@ -31,7 +31,7 @@ const DATA_LABELS = {
   appointments: 'Rendez-vous', dashboard: 'Tableau de bord (rendez-vous du jour)', chronic_followup: 'Suivi des maladies chroniques',
   alerts: 'Alertes de suivi', dispense_status: 'Délivrance d’une ordonnance', attachment_list: 'Éléments du dossier à joindre',
   attachment_prescription: 'Ordonnance (pièce jointe)', attachment_lab_result: 'Résultat d’analyse (pièce jointe)',
-  attachment_document: 'Document (pièce jointe)', attachment_medical_summary: 'Résumé médical (pièce jointe)',
+  attachment_document: 'Document (pièce jointe)', pharmacy_prescription: 'Ordonnance (pharmacie, QR présenté)', pharmacy_order: 'Ordonnance envoyée à la pharmacie', attachment_medical_summary: 'Résumé médical (pièce jointe)',
   consultations: 'Liste des consultations', prescriptions: 'Liste des ordonnances', prescription: 'Ordonnance', lab_requests: 'Demandes d’analyses',
   lab_result: 'Résultat d’analyse', messages: 'Messagerie', 'Fiche d’urgence (QR)': 'Fiche d’urgence (QR)',
 };

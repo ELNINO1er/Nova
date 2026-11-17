@@ -9,6 +9,7 @@ import { promptDialog } from '../components/dialogs.jsx';
 import { pharmacyApi } from '../api/pharmacyApi.js';
 import PageError from '../components/PageError.jsx';
 import PhOrders from './PhOrders.jsx';
+import SettingsPage from '../patient/pages/SettingsPage.jsx';
 import { PageHeader } from '../components/patient/ui.jsx';
 import {
   Empty, dayKey, fmtDay, fmtTime, initialsOf,
@@ -46,7 +47,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
   useEffect(()=>{const update=()=>{setApiData({});loadPage(page,true);};window.addEventListener('nova:data-changed',update);window.addEventListener('focus',update);return()=>{window.removeEventListener('nova:data-changed',update);window.removeEventListener('focus',update);};},[page]);
 
   return (
-    <div className="space-y-5">
+    <div data-theme={darkMode ? 'dark' : 'light'} className="group space-y-5">
       {notice && (
         <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl
           ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
@@ -63,7 +64,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
       {page === 'orders'    && <PhOrders notify={notify} setPage={setPage} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
-      {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} {...p} />}
+      {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} setPage={setPage} {...p} />}
       </>)}
     </div>
   );
@@ -72,7 +73,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
 /* ═══════════════════════════════════════════════════════════════
    PARAMÈTRES PHARMACIE
    ═══════════════════════════════════════════════════════════════ */
-function PhSettings({ data, loading, card, sub, border, darkMode }) {
+function PhSettings({ data, loading, card, sub, border, darkMode, setPage }) {
   if (loading && !data) return <PhSkeleton darkMode={darkMode} card={card} />;
   const ph = data?.pharmacy || {};
 
@@ -90,15 +91,9 @@ function PhSettings({ data, loading, card, sub, border, darkMode }) {
         </div>
       </div>
 
-      <div className={`${card} border rounded-2xl p-5`}>
-        <h3 className="font-bold mb-2 flex items-center gap-2">
-          <User className="w-5 h-5 text-red-600" /> Compte
-        </h3>
-        <p className={`text-sm ${sub}`}>
-          La gestion du compte et des préférences de l'officine sera disponible prochainement.
-          Pour toute modification, contactez l'administrateur.
-        </p>
-      </div>
+      <p className={`text-xs ${sub}`}>Pour modifier le nom, l’adresse, le téléphone ou les horaires de l’officine, contactez l’administrateur NOVA.</p>
+      {/* Sécurité du compte : mêmes réglages que les autres professionnels. */}
+      <SettingsPage api={pharmacyApi} card={card} sub={sub} darkMode={darkMode} />
     </div>
   );
 }
@@ -345,9 +340,8 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
               <p className={`text-sm ${sub}`}>CMU : {verification.cmuNumber || 'masque'}</p>
             </div>
             <div className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-              verification.verification.canDispense ? 'bg-red-100 text-red-700'
-              : verification.verification.expired ? 'bg-red-100 text-red-700'
-              : 'bg-red-100 text-red-700'
+              verification.verification.canDispense ? 'bg-emerald-100 text-emerald-800'
+              : 'bg-red-100 text-red-800'
             }`}>
               {verification.verification.canDispense ? '✓ Valide — dispensable'
               : verification.verification.expired ? '✗ Expirée'
@@ -369,7 +363,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
               <p className="text-xs text-red-800 font-semibold flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
-                Dernière délivrance : {verification.lastDispense.status === 'full' ? 'Complète' : 'Partielle'} le {new Date(verification.lastDispense.dispensedAt).toLocaleDateString('fr-FR')}
+                Dernière opération : {dispenseLabels[verification.lastDispense.status] === 'Refusée' ? 'délivrance refusée' : `délivrance ${(dispenseLabels[verification.lastDispense.status] || '').toLowerCase()}`} le {new Date(verification.lastDispense.dispensedAt).toLocaleDateString('fr-FR')}
               </p>
             </div>
           )}
@@ -460,16 +454,17 @@ function PhHistory({ data, loading, card, sub, border, darkMode }) {
           {items.map(d => (
             <div key={d.id} className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0
-                ${d.status === 'full' ? 'bg-red-500' : d.status === 'partial' ? 'bg-red-500' : 'bg-red-500'}`}>
+                ${d.status === 'full' ? 'bg-emerald-600' : d.status === 'partial' ? 'bg-amber-500' : 'bg-slate-500'}`}>
                 {d.status === 'full' ? <Check className="w-5 h-5" /> : d.status === 'partial' ? <Clock className="w-5 h-5" /> : <X className="w-5 h-5" />}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{d.patientName}</p>
-                <p className={`text-xs ${sub}`}>{d.cmuNumber} • Dr. {d.doctorName}</p>
+                <p className={`text-xs ${sub}`}>{[d.cmuNumber && `CMU ${d.cmuNumber}`, d.doctorName && `Prescrite par ${d.doctorName}`].filter(Boolean).join(' • ')}</p>
+                {d.status === 'refused' && d.notes && <p className={`text-xs ${sub} mt-0.5`}>Motif : {d.notes}</p>}
               </div>
               <div className="text-right flex-shrink-0">
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold
-                  ${d.status === 'full' ? 'bg-red-100 text-red-700' : d.status === 'partial' ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>
+                  ${d.status === 'full' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'}`}>
                   {d.status === 'full' ? 'Complète' : d.status === 'partial' ? 'Partielle' : 'Refusée'}
                 </span>
                 <p className={`text-[10px] ${sub} mt-1`}>
@@ -497,13 +492,13 @@ function InfoCell({ label, value, sub }) {
 
 function StatusBadge({ ok, label, darkMode }) {
   return (
-    <div className={`flex items-center gap-2 p-3 rounded-lg ${ok
-      ? 'bg-red-50 border border-red-200'
-      : 'bg-red-50 border border-red-200'}`}>
+    <div className={`flex items-center gap-2 p-3 rounded-lg border ${ok
+      ? 'bg-emerald-50 border-emerald-200'
+      : 'bg-red-50 border-red-300'}`}>
       {ok
-        ? <ShieldCheck className="w-4 h-4 text-red-600 flex-shrink-0" />
-        : <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />}
-      <span className={`text-xs font-bold ${ok ? 'text-red-700' : 'text-red-700'}`}>{label}</span>
+        ? <ShieldCheck className="w-4 h-4 text-emerald-700 flex-shrink-0" aria-hidden="true" />
+        : <AlertCircle className="w-4 h-4 text-red-700 flex-shrink-0" aria-hidden="true" />}
+      <span className={`text-xs font-bold ${ok ? 'text-emerald-800' : 'text-red-800'}`}>{label} : {ok ? 'oui' : 'non'}</span>
     </div>
   );
 }

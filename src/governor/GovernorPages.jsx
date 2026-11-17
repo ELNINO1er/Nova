@@ -2,11 +2,17 @@ import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useEffect, useState } from 'react';
 import { Activity, BarChart3, Building2, ClipboardList, FlaskConical, Pill, RefreshCw, Stethoscope, Users } from 'lucide-react';
 import { governorApi } from '../api/governorApi.js';
+import SettingsPage from '../patient/pages/SettingsPage.jsx';
 import PageError from '../components/PageError.jsx';
 import { ColumnChart, DashHeader, Empty, GhostButton, KpiCard, LineChart, MONTHS, Panel } from '../components/dashboard/kit.jsx';
 
 // Espace gouverneur (autorité sanitaire) : statistiques agrégées en lecture seule.
-export default function GovernorPages({ card, sub, darkMode }) {
+export default function GovernorPages({ page = 'dashboard', ...props }) {
+  if (page === 'settings') return <SettingsPage api={governorApi} card={props.card} sub={props.sub} darkMode={props.darkMode} />;
+  return <GovernorDashboard {...props} />;
+}
+
+function GovernorDashboard({ card, sub, darkMode }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [filters,setFilters]=useState({from:new Date(Date.now()-29*86400000).toISOString().slice(0,10),to:new Date().toISOString().slice(0,10),city:''});
