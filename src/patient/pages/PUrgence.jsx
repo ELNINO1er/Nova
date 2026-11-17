@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
+import { alertDialog } from '../../components/dialogs.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
 import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
@@ -22,7 +23,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
       setQrData(d);
       setShowQR(true);
     } catch (e) {
-      alert('Erreur QR : ' + e.message);
+      alertDialog({ title: 'QR code indisponible', message: e.message || 'Réessayez dans un instant.' });
     } finally {
       setLoadQR(false);
     }

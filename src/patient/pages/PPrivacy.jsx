@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Eye, Lock, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { confirmDialog } from '../../components/dialogs.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import ConsentDialog from '../../components/ConsentDialog.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
@@ -88,7 +89,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
 
   // Révoquer / autoriser un médecin : la décision la plus récente fait foi côté serveur.
   const decide = async (m, action, ack) => {
-    if (action === 'revoke' && !window.confirm(`Retirer à ${m.doctorName} l’accès à votre dossier ?`)) return;
+    if (action === 'revoke' && !(await confirmDialog({ title: `Retirer l’accès de ${m.doctorName} ?`, message: 'Ce médecin ne pourra plus consulter votre dossier, et ce dès maintenant. Vous pourrez l’autoriser à nouveau plus tard.', confirmLabel: 'Retirer l’accès', danger: true }))) return;
     // Accorder ou confirmer : d'abord le consentement éclairé.
     if (action !== 'revoke' && !ack) { setAsk({ doctorName: m.doctorName, confirming: action === 'confirm', run: (a) => decide(m, action, a) }); return; }
     setBusy(m.doctorId);

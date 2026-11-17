@@ -1,6 +1,7 @@
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { User, Calendar, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown, Camera, Trash2, IdCard } from 'lucide-react';
+import { confirmDialog } from '../../components/dialogs.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { useUnsaved } from '../../unsaved.js';
 import { PHOTO_ACCEPT, announcePhotoChange, preparePhoto, usePatientPhoto } from '../../utils/photo.js';
@@ -72,7 +73,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
     finally { setPhotoBusy(false); }
   };
   const deletePhoto = async () => {
-    if (!window.confirm('Retirer votre photo de profil ?')) return;
+    if (!(await confirmDialog({ title: 'Retirer votre photo de profil ?', message: 'Vos initiales seront affichées à la place. Vous pourrez ajouter une nouvelle photo à tout moment.', confirmLabel: 'Retirer la photo', danger: true }))) return;
     setPhotoBusy(true); setPhotoError('');
     try { await patientApi.removePhoto(); announcePhotoChange(); }
     catch (err) { setPhotoError(err.message || 'Suppression impossible.'); }

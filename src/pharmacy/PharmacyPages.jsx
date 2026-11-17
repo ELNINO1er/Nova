@@ -5,6 +5,7 @@ import {
   Clock, ClipboardList, FileText, Package, Pill, QrCode, Search,
   ShieldCheck, Stethoscope, User, X, Camera, Scan
 } from 'lucide-react';
+import { promptDialog } from '../components/dialogs.jsx';
 import { pharmacyApi } from '../api/pharmacyApi.js';
 import PageError from '../components/PageError.jsx';
 import { PageHeader } from '../components/patient/ui.jsx';
@@ -281,7 +282,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
 
   const doDispense = async (status) => {
     if(dispensing) return;
-    const notes=status==='refused'?window.prompt('Motif du refus :'):null;
+    const notes=status==='refused'?await promptDialog({title:'Refuser la délivrance',message:'Le motif sera visible par le patient et le prescripteur.',label:'Motif du refus',multiline:true,maxLength:500,required:true,confirmLabel:'Refuser la délivrance'}):null;
     if(status==='refused'&&!notes?.trim()) return;
     const lines=dispenseItems.filter(i=>i.quantityDispensed>0).map(({name,...rest})=>rest);
     const fingerprint=JSON.stringify({id:verification?.id,status,lines,notes});

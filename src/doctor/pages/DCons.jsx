@@ -4,6 +4,7 @@ import {useDialogFocus} from '../../components/useDialogFocus.js';
 import {useUnsaved,hasUnsavedData} from '../../unsaved.js';
 import React, { useState, useEffect,useRef } from 'react';
 import { ClipboardList, Edit3, Plus, Save, Stethoscope, X } from 'lucide-react';
+import { confirmDialog, promptDialog } from '../../components/dialogs.jsx';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials, patientLabel } from '../../utils/format.js';
 
@@ -18,8 +19,8 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
 
   useUnsaved(showForm || !!editCons,JSON.stringify({form,editCons}));
   const editRef=useRef(null);
-  const discard=()=>!hasUnsavedData()||window.confirm('Abandonner les modifications non enregistrées ?');
-  const closeEdit=()=>{if(discard())setEditCons(null);};
+  const discard=async()=>!hasUnsavedData()||confirmDialog({title:'Abandonner les modifications ?',message:'Les informations saisies et non enregistrées seront perdues.',confirmLabel:'Abandonner',cancelLabel:'Continuer la saisie',danger:true});
+  const closeEdit=async()=>{if(await discard())setEditCons(null);};
   useDialogFocus(!!editCons,editRef,closeEdit);
   const consultations = Array.isArray(data) ? data : [];
   const patients = Array.isArray(patientsData) ? patientsData : [];
@@ -42,7 +43,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
   const handleEditSave = async () => {
     setEditSaving(true);
     try {
-      const amendmentReason=editCons.status==='completed'?window.prompt('Motif de la correction (le document original est conserve) :'):undefined;
+      const amendmentReason=editCons.status==='completed'?await promptDialog({title:'Motif de la correction',message:'La consultation est déjà clôturée : le document original est conservé et votre correction est tracée.',label:'Motif',multiline:true,maxLength:500,required:true,confirmLabel:'Enregistrer la correction'}):undefined;
       if(editCons.status==='completed'&&!amendmentReason?.trim()) return;
       await doctorApi.updateConsultation(editCons.id, {...editCons,amendmentReason});
       notify('Consultation mise à jour');
@@ -100,7 +101,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
         <div className={`${card} border rounded-2xl p-5 space-y-4`}>
           <div className="flex items-center justify-between">
             <h3 className="font-bold flex items-center gap-2"><ClipboardList className="w-4 h-4 text-red-600" /> Nouvelle consultation</h3>
-            <button onClick={()=>{if(discard())setShowForm(false);}}><X className={`w-4 h-4 ${sub}`} /></button>
+            <button onClick={async()=>{if(await discard())setShowForm(false);}}><X className={`w-4 h-4 ${sub}`} /></button>
           </div>
           <div>
             <label htmlFor="cons-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
@@ -119,7 +120,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
           {fld('Observations médicales', 'notes', 'textarea', 'Notes cliniques, examens...')}
           {fld('Recommandations', 'recommendations', 'textarea', 'Traitement, suivi, conseils...')}
           <div className="flex gap-3 pt-2">
-            <button onClick={()=>{if(discard())setShowForm(false);}} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
+            <button onClick={async()=>{if(await discard())setShowForm(false);}} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
               Annuler
             </button>
             <button onClick={handleSubmit} disabled={saving}

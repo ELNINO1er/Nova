@@ -5,6 +5,7 @@ import {
   Activity, AlertCircle, ArrowUpRight, Building2, CalendarDays, CheckCircle2, Copy, Database, Download, KeyRound, Lock,
   MoreVertical, RefreshCw, Search, ServerCog, ShieldCheck, Stethoscope, User, UserPlus, Users, X,
 } from 'lucide-react';
+import { alertDialog, confirmDialog, promptDialog } from '../components/dialogs.jsx';
 import PasswordInput from '../components/PasswordInput.jsx';
 import { adminApi } from '../api/adminApi.js';
 import PageError from '../components/PageError.jsx';
@@ -394,7 +395,7 @@ function ResetApprovals({ refreshKey, onIssued, sub, darkMode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [refreshKey]);
   const decide = async (r, approve) => {
-    if (!approve && !window.confirm(`Refuser la réinitialisation de ${r.user.name} ?`)) return;
+    if (!approve && !(await confirmDialog({ title: 'Refuser la réinitialisation ?', message: `La demande de nouveau mot de passe pour ${r.user.name} sera refusée. Le mot de passe actuel reste inchangé.`, confirmLabel: 'Refuser la demande', danger: true }))) return;
     setBusy(r.id); setError('');
     try {
       const res = await adminApi.decideReset(r.id, approve);
@@ -470,7 +471,7 @@ function AUsers({ card, sub, darkMode }) {
 
   const resetPassword = async (userId, name) => {
     if (!userId) return setError('Ce dossier n’a pas encore de compte de connexion.');
-    if (!window.confirm(`Générer un nouveau mot de passe provisoire pour ${name} ?`)) return;
+    if (!(await confirmDialog({ title: 'Réinitialiser le mot de passe ?', message: `Un nouveau mot de passe provisoire sera généré pour ${name}. L’ancien ne fonctionnera plus et ses sessions seront fermées.`, confirmLabel: 'Générer le mot de passe' }))) return;
     try {
       const res = await adminApi.resetPassword(userId);
       if (res.pending) { setNotice(PENDING_RESET_NOTICE); setResetTick((t) => t + 1); return; }
@@ -479,10 +480,10 @@ function AUsers({ card, sub, darkMode }) {
   };
 
   const createLogin = async (d) => {
-    const phone = window.prompt(`Numéro de connexion (10 chiffres) pour Dr. ${d.firstName} ${d.lastName} :`, '');
+    const phone = await promptDialog({ title: 'Créer l’accès de connexion', message: `Dr. ${d.firstName} ${d.lastName} se connectera avec ce numéro et un mot de passe provisoire.`, label: 'Numéro de téléphone', placeholder: '07 00 00 00 00', inputMode: 'tel', required: true, requiredMessage: 'Saisissez le numéro de connexion.', validate: (v) => (/^\d{10}$/.test(v.replace(/\s/g, '')) ? null : 'Le numéro doit comporter 10 chiffres.'), confirmLabel: 'Créer l’accès' });
     if (phone == null) return;
     try {
-      const res = await adminApi.createDoctorLogin(d.id, phone);
+      const res = await adminApi.createDoctorLogin(d.id, phone.replace(/\s/g, ''));
       setIssued({ title: 'Accès médecin créé', name: res.user.name, phone: res.user.phone, password: res.provisionalPassword });
       await load();
     } catch (err) { setError(err.message || 'Création impossible.'); }
@@ -490,7 +491,7 @@ function AUsers({ card, sub, darkMode }) {
 
   const toggleDoctor = async (d) => {
     const next = !Number(d.isAvailable);
-    if (!next && !window.confirm(`Suspendre Dr ${d.firstName} ${d.lastName} ? Il n’apparaîtra plus dans la recherche des patients.`)) return;
+    if (!next && !(await confirmDialog({ title: `Suspendre Dr ${d.firstName} ${d.lastName} ?`, message: 'Ce médecin n’apparaîtra plus dans la recherche des patients et ne pourra plus recevoir de rendez-vous. Vous pourrez le réactiver à tout moment.', confirmLabel: 'Suspendre', danger: true }))) return;
     try { await adminApi.setDoctorStatus(d.id, next); flash(next ? 'Médecin réactivé.' : 'Médecin suspendu.'); await load(); }
     catch (err) { setError(err.message || 'Mise à jour impossible.'); }
   };
@@ -699,11 +700,11 @@ function AAccounts({ sub, darkMode, onPending }) {
   useEffect(() => { load(); }, []);
 
   const reset = async (u) => {
-    if (!window.confirm(`Générer un nouveau mot de passe provisoire pour ${u.name} ?`)) return;
+    if (!(await confirmDialog({ title: 'Réinitialiser le mot de passe ?', message: `Un nouveau mot de passe provisoire sera généré pour ${u.name}. L’ancien ne fonctionnera plus et ses sessions seront fermées.`, confirmLabel: 'Générer le mot de passe' }))) return;
     setBusy(u.id); setError('');
     try {
       const res = await adminApi.resetPassword(u.id);
-      if (res.pending) { setError(''); onPending?.(); window.alert(PENDING_RESET_NOTICE); return; }
+      if (res.pending) { setError(''); onPending?.(); alertDialog({ title: 'Demande enregistrée', message: PENDING_RESET_NOTICE }); return; }
       setIssued({ title: 'Mot de passe réinitialisé', name: res.user.name, phone: res.user.phone, password: res.provisionalPassword });
       await load();
     } catch (err) { setError(err.message || 'Réinitialisation impossible.'); }

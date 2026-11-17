@@ -1,6 +1,7 @@
 import { clearPatientSearch } from './utils/search.js';
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOut, Menu, Moon, Pill, Settings, Shield, Siren, Stethoscope, Sun, User, X } from 'lucide-react';
+import { confirmDialog } from './components/dialogs.jsx';
 import Login from './auth/Login.jsx';
 import Sidebar from './layout/Sidebar.jsx';
 import { CompactIdentity, CompactNavigation, CompactQrAction, CompactShortcuts } from './layout/CompactWorkspace.jsx';
@@ -120,7 +121,7 @@ export default function App() {
   const [auth, setAuth] = useState('checking');
   const hasUnsaved=useHasUnsaved();
   const blocker=useBlocker(hasUnsaved && auth==='ok');
-  useEffect(()=>{if(blocker.state==='blocked'){if(window.confirm('Des modifications ne sont pas enregistrées. Quitter cette page ?')){clearUnsaved();blocker.proceed();}else blocker.reset();}},[blocker]);
+  useEffect(()=>{if(blocker.state!=='blocked')return;confirmDialog({title:'Quitter sans enregistrer ?',message:'Des modifications ne sont pas enregistrées. Elles seront perdues si vous quittez cette page.',confirmLabel:'Quitter la page',cancelLabel:'Rester',danger:true}).then((ok)=>{if(ok){clearUnsaved();blocker.proceed();}else blocker.reset();});},[blocker]);
   useEffect(()=>{const warn=e=>{if(hasUnsaved){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[hasUnsaved]);
   const location = useLocation();
   const navigate = useNavigate();

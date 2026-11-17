@@ -4,12 +4,14 @@ import './index.css';
 import App from './App.jsx';
 import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { DialogHost } from './components/dialogs.jsx';
 
 const router=createBrowserRouter([{path:'*',element:<App/>}]);
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary fullPage>
       <RouterProvider router={router}/>
+      <DialogHost/>
     </ErrorBoundary>
   </React.StrictMode>,
 );
