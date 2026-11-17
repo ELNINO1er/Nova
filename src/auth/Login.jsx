@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, ChevronLeft, Copy, HeartPulse, KeyRound, ShieldCheck, Smartphone } from 'lucide-react';
+import PasswordInput from '../components/PasswordInput.jsx';
 import { authApi } from '../api/authApi.js';
 
 const strongPassword = (value) => value.length >= 12 && /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
@@ -131,11 +132,11 @@ export default function Login({ setAuth, onLogin }) {
               className="mt-1 block w-full rounded-xl border p-3" required />
           </label>
           <label className="block text-sm">Nouveau mot de passe
-            <input type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+            <PasswordInput autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
               className="mt-1 block w-full rounded-xl border p-3" required />
           </label>
           <label className="block text-sm">Confirmer le mot de passe
-            <input type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+            <PasswordInput autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
               className="mt-1 block w-full rounded-xl border p-3" required />
           </label>
           <p className="text-xs text-slate-600">Au moins 8 caractères, dont une lettre et un chiffre.</p>
@@ -155,12 +156,12 @@ export default function Login({ setAuth, onLogin }) {
 }
 
 function LoginForm({ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }) {
-  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 00 00 00 00" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 outline-none" autoComplete="current-password" /><KeyRound className="w-5 h-5 text-slate-400" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : saisissez le code d’activation reçu par SMS ou remis par votre médecin, puis choisissez votre mot de passe. En cas d’oubli, contactez l’assistance pour vérifier votre identité.</p></section>;
+  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 00 00 00 00" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><PasswordInput inline value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 min-w-0 outline-none" autoComplete="current-password" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : saisissez le code d’activation reçu par SMS ou remis par votre médecin, puis choisissez votre mot de passe. En cas d’oubli, contactez l’assistance pour vérifier votre identité.</p></section>;
 }
 
 function PasswordForm({ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong }) {
   const valid = strong ? strongPassword(newPassword) : simplePassword(newPassword);
-  return <section className="space-y-5"><Header icon={KeyRound} title="Sécurisez votre compte" text="Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire." /><Field label="Nouveau mot de passe"><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex-1 outline-none" autoComplete="new-password" autoFocus /></Field><Field label="Confirmation"><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && changePassword()} className="flex-1 outline-none" autoComplete="new-password" /></Field><div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-600">{strong ? <><strong>12 caractères minimum</strong>, avec majuscule, minuscule, chiffre et caractère spécial.</> : <><strong>8 caractères minimum</strong>, avec au moins une lettre et un chiffre.</>}</div><Error value={error} /><Primary onClick={changePassword} disabled={loading || !valid || newPassword !== confirmPassword}>{loading ? 'Enregistrement…' : 'Enregistrer et continuer'}</Primary></section>;
+  return <section className="space-y-5"><Header icon={KeyRound} title="Sécurisez votre compte" text="Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire." /><Field label="Nouveau mot de passe"><PasswordInput inline value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex-1 min-w-0 outline-none" autoComplete="new-password" autoFocus /></Field><Field label="Confirmation"><PasswordInput inline value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && changePassword()} className="flex-1 min-w-0 outline-none" autoComplete="new-password" /></Field><div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-600">{strong ? <><strong>12 caractères minimum</strong>, avec majuscule, minuscule, chiffre et caractère spécial.</> : <><strong>8 caractères minimum</strong>, avec au moins une lettre et un chiffre.</>}</div><Error value={error} /><Primary onClick={changePassword} disabled={loading || !valid || newPassword !== confirmPassword}>{loading ? 'Enregistrement…' : 'Enregistrer et continuer'}</Primary></section>;
 }
 
 function Enrollment({ enrollment, code, setCode, error, loading, verifyTotp }) {

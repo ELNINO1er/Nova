@@ -157,3 +157,6 @@ select[class*="focus:ring"]:focus-visible {
 .nova-select-empty { display: block; padding: .65rem; font-size: .875rem; }
 .nova-select[data-dark] .nova-select-menu { background: #0f172a; color: #f1f5f9; border-color: #475569; }
 .nova-select[data-dark] :is([aria-selected="true"], [data-active="true"]) { background: #450a0a; color: #fecaca; }
+
+/* Œil natif d’Edge masqué : NOVA affiche le sien sur tous les navigateurs. */
+input::-ms-reveal, input::-ms-clear { display: none; }

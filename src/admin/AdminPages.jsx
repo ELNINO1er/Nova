@@ -5,6 +5,7 @@ import {
   Activity, AlertCircle, ArrowUpRight, Building2, CalendarDays, CheckCircle2, Copy, Database, Download, KeyRound, Lock,
   MoreVertical, RefreshCw, Search, ServerCog, ShieldCheck, Stethoscope, User, UserPlus, Users, X,
 } from 'lucide-react';
+import PasswordInput from '../components/PasswordInput.jsx';
 import { adminApi } from '../api/adminApi.js';
 import PageError from '../components/PageError.jsx';
 import { dayKey, Empty, KpiCard, MiniCalendar } from '../components/dashboard/kit.jsx';
@@ -910,9 +911,9 @@ function ASettings({ card, sub, darkMode }) {
       </div>
       <form onSubmit={submit} className={`${card} border rounded-2xl p-6 space-y-3`}>
         <h3 className="font-bold">Changer mon mot de passe</h3>
-        <label className="block text-xs font-semibold">Mot de passe actuel<input type="password" autoComplete="current-password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} className={input} /></label>
-        <label className="block text-xs font-semibold">Nouveau mot de passe<input type="password" autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} className={input} /></label>
-        <label className="block text-xs font-semibold">Confirmer le nouveau mot de passe<input type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
+        <label className="block text-xs font-semibold">Mot de passe actuel<PasswordInput autoComplete="current-password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} className={input} /></label>
+        <label className="block text-xs font-semibold">Nouveau mot de passe<PasswordInput autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} className={input} /></label>
+        <label className="block text-xs font-semibold">Confirmer le nouveau mot de passe<PasswordInput autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
         <p className={`text-xs ${sub}`}>12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.</p>
         {status.error && <p role="alert" className="text-sm text-red-600">{status.error}</p>}
         {status.ok && <p className="text-sm text-red-700">{status.ok}</p>}

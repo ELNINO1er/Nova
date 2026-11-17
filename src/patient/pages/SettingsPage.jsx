@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bell, ChevronRight, FileDown, KeyRound, Lock, QrCode, Shield, UserX } from 'lucide-react';
+import PasswordInput from '../../components/PasswordInput.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { request } from '../../api/client.js';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
@@ -304,9 +305,9 @@ function PasswordSection({ sub, darkMode, strong, title = 'Changer mon mot de pa
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <label className={label}>Mot de passe actuel<input type="password" autoComplete="current-password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} className={input} /></label>
-        <label className={label}>Nouveau mot de passe<input type="password" autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} className={input} /></label>
-        <label className={label}>Confirmation<input type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
+        <label className={label}>Mot de passe actuel<PasswordInput autoComplete="current-password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} className={input} /></label>
+        <label className={label}>Nouveau mot de passe<PasswordInput autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} className={input} /></label>
+        <label className={label}>Confirmation<PasswordInput autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} className={input} /></label>
       </div>
       <p className={`text-xs ${sub} flex items-start gap-1.5`}><Shield className="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-600" />{strong ? '12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.' : '8 caractères minimum, avec au moins une lettre et un chiffre.'}</p>
       {!strong && <div className="space-y-2 border-t pt-4">
