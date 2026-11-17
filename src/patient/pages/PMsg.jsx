@@ -1,14 +1,17 @@
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Send, ChevronLeft, ChevronUp, ChevronDown, CheckCheck, Plus } from 'lucide-react';
+import { MessageCircle, Send, ChevronLeft, ChevronUp, ChevronDown, CheckCheck, Plus, Paperclip, X } from 'lucide-react';
+import { useRealtime } from '../../realtime/socket.js';
+import { AttachmentCard, AttachmentIcon, AttachmentPicker, AttachmentViewer } from '../../components/messaging/Attachments.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { formatRelativeDate } from '../../utils/format.js';
 import { searchableDate, scoreFields, tokenize, useSearch, useUrlQuery } from '../../utils/search.js';
 import { Avatar, Button, Card, Chip, EmptyState, Highlight, IconButton, PageHeader, SearchInput, inputClass } from '../../components/patient/ui.jsx';
 
 /* Champs cherchables d'une conversation, du plus au moins important. */
-const convName = (c) => c?.doctorName || c?.patientName || 'Conversation';
-const CONV_FIELDS = (c) => [convName(c), c.doctorSpecialty, c.lastMessage, searchableDate(c.updatedAt)];
+// Le médecin voit le nom du patient, le patient celui du médecin.
+const convName = (c, viewerRole = 'patient') => (viewerRole === 'doctor' ? c?.patientName : c?.doctorName) || c?.doctorName || c?.patientName || 'Conversation';
+const convFields = (viewerRole) => (c) => [convName(c, viewerRole), viewerRole === 'doctor' ? '' : c.doctorSpecialty, c.lastMessage, searchableDate(c.updatedAt)];
 
 // viewerRole : qui lit la conversation (patient par défaut ; « doctor » depuis l'espace médecin) — ses messages sont à droite.
 export default function PMsg({ data, onConversationsChange, card, sub, border, darkMode, setShowVid, api: apiOverride, viewerRole = 'patient' }) {
@@ -51,7 +54,49 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [convData?.messages?.length]);
 
-  const results = useSearch(convList, query, CONV_FIELDS);
+  const fields = React.useMemo(() => convFields(viewerRole), [viewerRole]);
+  const results = useSearch(convList, query, fields);
+  const nameOf = (c) => convName(c, viewerRole);
+  const specialtyOf = (c) => (viewerRole === 'doctor' ? '' : c?.doctorSpecialty);
+
+  /* ── Temps réel ── */
+  const selIdRef = useRef(selId);
+  useEffect(() => { selIdRef.current = selId; }, [selId]);
+  useRealtime('message:new', ({ conversationId, message }) => {
+    const open = conversationId === selIdRef.current;
+    const fromOther = message.senderRole !== viewerRole;
+    if (open) setConvData(prev => prev && !(prev.messages || []).some(m => m.id === message.id) ? { ...prev, messages: [...prev.messages, message] } : prev);
+    if (!convListRef.current.some(c => c.id === conversationId)) { api.conversations().then(list => updateConvList(() => list)).catch(() => {}); return; }
+    updateConvList(list => list.map(c => c.id === conversationId ? {
+      ...c, lastMessage: message.body || `Pièce jointe : ${message.attachment?.title || ''}`, updatedAt: message.createdAt,
+      unreadCount: fromOther && !open ? Number(c.unreadCount || 0) + 1 : c.unreadCount,
+    } : c).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))));
+    if (open && fromOther && !document.hidden) api.markConversationRead(conversationId).catch(() => {});
+  });
+  // L'autre participant a lu : mes messages passent en « Lu ».
+  useRealtime('conversation:read', ({ conversationId }) => {
+    if (conversationId !== selIdRef.current) return;
+    setConvData(prev => prev ? { ...prev, messages: prev.messages.map(m => m.senderRole === viewerRole ? { ...m, isRead: true } : m) } : prev);
+  });
+  // Retour au premier plan ou reconnexion : on rattrape ce qui a pu être manqué.
+  useEffect(() => {
+    const resync = () => {
+      if (document.hidden) return;
+      api.conversations().then(list => updateConvList(() => list)).catch(() => {});
+      const id = selIdRef.current;
+      if (id) api.conversation(id).then(full => { if (selIdRef.current === id) setConvData(full); return api.markConversationRead(id); }).catch(() => {});
+    };
+    window.addEventListener('nova:realtime-reconnected', resync);
+    document.addEventListener('visibilitychange', resync);
+    return () => { window.removeEventListener('nova:realtime-reconnected', resync); document.removeEventListener('visibilitychange', resync); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
+
+  /* ── Pièces jointes ── */
+  const [picking, setPicking] = useState(false);
+  const [pending, setPending] = useState(null);   // élément choisi, envoyé avec le prochain message
+  const [viewing, setViewing] = useState(null);   // id du message dont on ouvre la pièce jointe
+  useEffect(() => { setPending(null); }, [selId]);
 
   // Ouvre la meilleure correspondance de recherche, ou la conversation la plus récente.
   useEffect(() => {
@@ -88,17 +133,19 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
   const sendMessage = async () => {
     const body = msgText.trim();
-    if (!body || !selId || sending) return;
+    const attachment = pending ? { type: pending.type, id: pending.id } : undefined;
+    if ((!body && !attachment) || !selId || sending) return;
     setSending(true);
     setMsgText('');
     try {
-      const fingerprint=selId+'|'+body;
+      const fingerprint=selId+'|'+body+'|'+(attachment?`${attachment.type}:${attachment.id}`:'');
       if(messageOperation.current?.fingerprint!==fingerprint)messageOperation.current={fingerprint,key:crypto.randomUUID()};
-      const msg = await api.sendMessage(selId, { body,requestKey:messageOperation.current.key });
+      const msg = await api.sendMessage(selId, { body,attachment,requestKey:messageOperation.current.key });
       messageOperation.current=null;
+      setPending(null);
       setConvData(prev => prev ? { ...prev, messages: [...(prev.messages || []).filter(m=>m.id!==msg.id), msg] } : prev);
       updateConvList(list => list.map(c =>
-        c.id === selId ? { ...c, lastMessage: body, updatedAt: msg.createdAt } : c
+        c.id === selId ? { ...c, lastMessage: body || `Pièce jointe : ${msg.attachment?.title || ''}`, updatedAt: msg.createdAt } : c
       ));
     } catch(e) {setMsgText(body);setConvError(e.message);}
     finally { setSending(false); }
@@ -206,7 +253,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
       {convList.length === 0 ? (
         <EmptyState Icon={MessageCircle} title="Aucune conversation" darkMode={darkMode}>
-          Vos échanges avec les médecins apparaîtront ici.
+          {viewerRole === 'doctor' ? 'Vos échanges avec vos patients apparaîtront ici.' : 'Vos échanges avec les médecins apparaîtront ici.'}
         </EmptyState>
       ) : (
         <Card darkMode={darkMode} className="!p-0 overflow-hidden flex" style={{ height: '72vh', minHeight: 500 }}>
@@ -219,12 +266,12 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                 <span className={`text-xs ${sub}`}>{query ? `${results.length} sur ${convList.length}` : convList.length}</span>
               </div>
               <SearchInput value={query} onChange={setQuery} count={results.length} darkMode={darkMode}
-                placeholder="Médecin, spécialité, message…" label="Rechercher dans les messages" />
+                placeholder={viewerRole === 'doctor' ? 'Patient, message…' : 'Médecin, spécialité, message…'} label="Rechercher dans les messages" />
             </div>
             {results.length === 0 ? (
               <div className="flex-1 overflow-y-auto p-5 text-center">
                 <p className="font-semibold text-sm mt-6 break-words">Aucun résultat pour « {query} »</p>
-                <p className={`text-xs mt-1 ${sub}`}>Essayez le nom du médecin, une spécialité ou un mot du message.</p>
+                <p className={`text-xs mt-1 ${sub}`}>{viewerRole === 'doctor' ? 'Essayez le nom du patient ou un mot du message.' : 'Essayez le nom du médecin, une spécialité ou un mot du message.'}</p>
                 <button type="button" onClick={() => setQuery('')} className={`mt-4 h-9 px-4 rounded-full border text-xs font-semibold ${darkMode ? 'border-red-900 text-red-300 hover:bg-red-950/40' : 'border-red-200 text-red-700 hover:bg-red-50'}`}>Effacer la recherche</button>
               </div>
             ) : (
@@ -239,15 +286,15 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                         ${active ? (darkMode ? 'bg-red-950/40' : 'bg-red-50')
                                  : (darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-red-50/50')}`}>
                       <div className="relative shrink-0">
-                        <Avatar name={convName(c)} />
+                        <Avatar name={nameOf(c)} />
                         {unread && <span className={`absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center border-2 ${darkMode ? 'border-slate-900' : 'border-white'}`}>{c.unreadCount}</span>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <p className={`text-sm truncate ${unread ? 'font-bold' : 'font-semibold'}`}><Highlight text={convName(c)} query={query} /></p>
+                          <p className={`text-sm truncate ${unread ? 'font-bold' : 'font-semibold'}`}><Highlight text={nameOf(c)} query={query} /></p>
                           <p className={`text-[11px] shrink-0 ${sub}`}>{formatRelativeDate(c.updatedAt)}</p>
                         </div>
-                        {c.doctorSpecialty && <p className="text-[11px] text-red-700/80 mt-0.5 truncate"><Highlight text={c.doctorSpecialty} query={query} /></p>}
+                        {specialtyOf(c) && <p className="text-[11px] text-red-700/80 mt-0.5 truncate"><Highlight text={specialtyOf(c)} query={query} /></p>}
                         <p className={`text-xs truncate mt-0.5 ${unread ? (darkMode ? 'text-slate-200 font-medium' : 'text-slate-800 font-medium') : sub}`}><Highlight text={c.lastMessage} query={query} /></p>
                       </div>
                     </button>
@@ -267,10 +314,10 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                   <span className="md:hidden">
                     <IconButton Icon={ChevronLeft} label="Retour aux conversations" darkMode={darkMode} onClick={() => setShowList(true)} />
                   </span>
-                  <Avatar name={convName(activeConv)} />
+                  <Avatar name={nameOf(activeConv)} />
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate"><Highlight text={convName(activeConv)} query={query} /></p>
-                    {activeConv.doctorSpecialty && <p className={`text-xs truncate ${sub}`}>{activeConv.doctorSpecialty}</p>}
+                    <p className="font-semibold text-sm truncate"><Highlight text={nameOf(activeConv)} query={query} /></p>
+                    {specialtyOf(activeConv) ? <p className={`text-xs truncate ${sub}`}>{specialtyOf(activeConv)}</p> : viewerRole === 'doctor' && <p className={`text-xs truncate ${sub}`}>Patient</p>}
                   </div>
                 </div>
                 {query && convData && (
@@ -321,14 +368,15 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                       return (
                         <div key={msg.id} ref={(el) => { if (el) msgRefs.current.set(msg.id, el); else msgRefs.current.delete(msg.id); }}
                           className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'} mb-2`}>
-                          {!isMine && <span className="mb-5"><Avatar name={convName(activeConv)} size="sm" /></span>}
+                          {!isMine && <span className="mb-5"><Avatar name={nameOf(activeConv)} size="sm" /></span>}
                           <div className="max-w-[78%] sm:max-w-[70%] min-w-0">
                             <div className={`px-4 py-2.5 rounded-3xl text-sm leading-relaxed whitespace-pre-wrap break-words
                               ${isMine
                                 ? 'bg-red-600 text-white rounded-br-md'
                                 : (darkMode ? 'bg-slate-900 text-slate-100 border border-slate-700 rounded-bl-md' : 'bg-white text-slate-800 border border-red-100 rounded-bl-md')
                               } ${isCurrent ? `ring-2 ring-red-400 ring-offset-2 ${darkMode ? 'ring-offset-slate-950' : 'ring-offset-white'}` : ''}`}>
-                              <Highlight text={msg.body} query={isMatch ? query : ''} />
+                              {msg.body && <Highlight text={msg.body} query={isMatch ? query : ''} />}
+                              {msg.attachment && <AttachmentCard attachment={msg.attachment} mine={isMine} onOpen={() => setViewing(msg.id)} />}
                             </div>
                             <p className={`text-[11px] mt-1 px-1 flex items-center gap-1 ${sub} ${isMine ? 'justify-end' : 'justify-start'}`}>
                               {formatMsgTime(msg.createdAt)}
@@ -344,7 +392,21 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
                 {/* Input */}
                 <div className={`p-3 sm:p-4 border-t ${line}`}>
-                  <div className={`flex items-end gap-2 rounded-3xl border pl-4 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-red-500/40 focus-within:border-red-400 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                  {pending && (
+                    <div className={`mb-2 flex items-center gap-3 p-2 pr-3 rounded-2xl border ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-red-100 bg-red-50/60'}`}>
+                      <AttachmentIcon type={pending.type} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-semibold truncate">{pending.title}</span>
+                        <span className={`block text-xs truncate ${sub}`}>Sera jointe au message</span>
+                      </span>
+                      <button type="button" onClick={() => setPending(null)} aria-label="Retirer la pièce jointe" className="p-1 rounded-lg"><X className="w-4 h-4" /></button>
+                    </div>
+                  )}
+                  <div className={`flex items-end gap-2 rounded-3xl border pl-1.5 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-red-500/40 focus-within:border-red-400 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                    <button type="button" onClick={() => setPicking(true)} aria-label="Joindre un élément du dossier" title="Joindre une ordonnance, une analyse, un document…"
+                      className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-red-50 hover:text-red-700'}`}>
+                      <Paperclip className="w-4 h-4" />
+                    </button>
                     <textarea
                       ref={inputRef}
                       value={msgText}
@@ -359,7 +421,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                     <button
                       type="button"
                       onClick={sendMessage}
-                      disabled={!msgText.trim() || sending}
+                      disabled={(!msgText.trim() && !pending) || sending}
                       aria-label="Envoyer le message"
                       title="Envoyer"
                       className="shrink-0 w-9 h-9 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -380,6 +442,8 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
           </div>
         </Card>
       )}
+      {picking && selId && <AttachmentPicker darkMode={darkMode} load={() => api.attachables(selId)} onClose={() => setPicking(false)} onPick={(it) => { setPending(it); setPicking(false); inputRef.current?.focus(); }} />}
+      {viewing && selId && <AttachmentViewer darkMode={darkMode} load={() => api.attachment(selId, viewing)} loadFile={() => api.attachmentFile(selId, viewing)} onClose={() => setViewing(null)} />}
     </div>
   );
 }

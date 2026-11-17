@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:4001',
       '/uploads': 'http://localhost:4001',
+      '/socket.io': { target: 'http://localhost:4001', ws: true },
     },
   },
 });

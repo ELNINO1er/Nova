@@ -105,6 +105,12 @@ export async function request(path, options = {}) {
   return data;
 }
 
+/** Renouvelle la session (cookies) si nécessaire ; utilisé par la connexion temps réel. */
+export const renewSession = () => (sessionClosing ? Promise.resolve(false) : sharedRefresh());
+
+/** Origine de l'API si elle est servie ailleurs que l'interface (sinon chaîne vide : même origine). */
+export const API_ORIGIN = /^https?:\/\//.test(API_BASE_URL) ? new URL(API_BASE_URL).origin : '';
+
 export function toQuery(params) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/database.js';
+import { emitToUser } from '../realtime.js';
 
 /**
  * Créer une notification pour un utilisateur (patient, médecin, pharmacien).
@@ -40,6 +41,11 @@ export async function createNotification(opts,conn=pool) {
      opts.type, opts.title, opts.body || null, opts.linkPage || null, opts.linkTargetId || null,
      opts.sourceUserId || null, opts.sourceRole || null, now]
   );
+  // Temps réel : simple signal « actualisez vos notifications » (aucun contenu médical transmis).
+  // Dans une transaction, le signal part après un court délai pour laisser la validation se faire ;
+  // en cas d'annulation, le client relit simplement une liste inchangée.
+  const ping = () => emitToUser(opts.userId, 'notification:new', { type: opts.type });
+  if (conn === pool) ping(); else setTimeout(ping, 1000).unref?.();
   return id;
 }
 

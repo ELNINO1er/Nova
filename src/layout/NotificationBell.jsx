@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Calendar, Microscope, MessageCircle, Pill, Syringe } from 'lucide-react';
 import { patientApi } from '../api/patientApi.js';
 import { formatRelativeDate } from '../utils/format.js';
+import { useRealtime } from '../realtime/socket.js';
 
 const TYPE_ICON = { appointment: Calendar, medication: Pill, prescription: Pill, vaccine: Syringe, message: MessageCircle, result: Microscope, lab_result: Microscope };
 
@@ -18,6 +19,8 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
     onCount?.(rows.filter((n) => !n.isRead).length);
   };
   const load = () => patientApi.notifications().then(apply).catch((err) => setError(err.message || 'Notifications indisponibles.'));
+  // Panneau ouvert : une nouvelle notification s'affiche aussitôt.
+  useRealtime('notification:new', () => { if (open) load(); });
 
   useEffect(() => {
     if (!open) return undefined;

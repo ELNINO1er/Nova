@@ -99,6 +99,11 @@ export async function migrate(conn) {
         await column(conn, 'nova_consents', 'terms_version', 'VARCHAR(20) NULL');
         await column(conn, 'nova_consents', 'acknowledged_at', 'DATETIME(3) NULL');
       }],
+      ['20261117_17_message_attachments', async () => {
+        // Pièce jointe d'un message : référence à un élément du dossier du patient (pas de copie).
+        await column(conn, 'nova_messages', 'attachment_type', 'VARCHAR(20) NULL');
+        await column(conn, 'nova_messages', 'attachment_id', 'VARCHAR(64) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

@@ -21,6 +21,7 @@ import adminRoutes    from './routes/admin.routes.js';
 import governorRoutes from './routes/governor.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
+import { initRealtime } from './realtime.js';
 
 const app = express();
 const port = Number(process.env.PORT || process.env.API_PORT || 4001);
@@ -46,14 +47,18 @@ if (isProduction && process.env.COOKIE_SECURE === 'false' && process.env.ALLOW_I
 
 if (isProduction) app.set('trust proxy', 1);
 
+const allowedOrigins = (process.env.WEB_ORIGIN || 'http://localhost:5174')
+  .split(',').map((origin) => origin.trim()).filter(Boolean);
 app.use(compression());
 app.use(helmet({
   contentSecurityPolicy: {
-    directives: { imgSrc: ["'self'", 'data:', 'blob:'] },
+    directives: {
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      // Temps réel : WebSocket vers la même origine (explicite pour les navigateurs qui n'incluent pas ws: dans 'self').
+      connectSrc: ["'self'", ...allowedOrigins.map((o) => o.replace(/^http/, 'ws'))],
+    },
   },
 }));
-const allowedOrigins = (process.env.WEB_ORIGIN || 'http://localhost:5174')
-  .split(',').map((origin) => origin.trim()).filter(Boolean);
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -148,6 +153,7 @@ process.on('unhandledRejection', (reason) => {
 const server = app.listen(port, () => {
   console.log(`NOVA API running on http://localhost:${port}`);
 });
+initRealtime(server, { allowedOrigins });
 
 const shutdown = async () => {
   server.close();

@@ -1,4 +1,4 @@
-import {persistMessage} from './messaging.service.js';
+import {persistMessage,listMessages,emitConversationRead} from './messaging.service.js';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/database.js';
@@ -1089,16 +1089,10 @@ export async function getDoctorConversation(doctorId, convId) {
   );
   if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
   await assertDoctorPatientAccess(doctorId, conv.patient_id);
-  const [messages] = await pool.execute(
-    'SELECT * FROM nova_messages WHERE conversation_id = ? ORDER BY created_at ASC', [convId]
-  );
   return {
     id: conv.id, patientId: conv.patient_id,
     doctorName: conv.doctor_name, doctorSpecialty: conv.doctor_specialty,
-    messages: messages.map(m => ({
-      id: m.id, senderRole: m.sender_role, body: m.body,
-      attachmentName: m.attachment_name, isRead: !!m.is_read, createdAt: m.created_at,
-    })),
+    messages: await listMessages(conv),
   };
 }
 
@@ -1111,6 +1105,7 @@ export async function markDoctorConversationRead(doctorId, convId) {
   if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
   await pool.execute('UPDATE nova_messages SET is_read = 1 WHERE conversation_id = ? AND sender_role = ?', [convId, 'patient']);
   await pool.execute('UPDATE nova_conversations SET unread_count = 0 WHERE id = ?', [convId]);
+  await emitConversationRead(convId, 'doctor');
   return { ok: true };
 }
 

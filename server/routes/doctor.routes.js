@@ -1,4 +1,4 @@
-import {startConversation} from '../services/messaging.service.js';
+import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import {updateProfessionalProfile,professionalSlots,addProfessionalSlot,removeProfessionalSlot} from '../services/professional.service.js';
 import { recordLabResult } from '../services/clinical.service.js';
 import { Router } from 'express';
@@ -502,12 +502,26 @@ router.get('/conversations/:id', accessLog('messages'), wrap(async (req, res) =>
   res.json(await getDoctorConversation(req.user.doctorId, req.params.id));
 }));
 router.post('/conversations/:id/messages', validateBody(z.object({
-  requestKey:z.string().min(8).max(100).optional(),
-  body:           z.string().min(1).max(2000),
-  attachmentName: z.string().max(255).optional(),
-})), wrap(async (req, res) => {
+  requestKey: z.string().min(8).max(100).optional(),
+  body: z.string().max(2000).default(''),
+  attachment: z.object({ type: z.enum(ATTACHMENT_TYPES), id: z.string().min(1).max(64) }).optional(),
+}).refine((v) => v.body.trim() || v.attachment, { message: 'Écrivez un message ou joignez un élément du dossier.' })), wrap(async (req, res) => {
   const { createDoctorMessage } = await import('../services/doctor.service.js');
   res.status(201).json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
+}));
+// Pièces jointes : éléments du dossier du patient de la conversation.
+router.get('/conversations/:id/attachables', accessLog('messages'), wrap(async (req, res) => {
+  res.json(await listAttachables('doctor', req.user.doctorId, req.params.id));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment', accessLog('messages'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await getAttachmentDetail('doctor', req.user.doctorId, req.params.id, req.params.messageId));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment/file', accessLog('messages'), wrap(async (req, res) => {
+  const file = await getAttachmentFile('doctor', req.user.doctorId, req.params.id, req.params.messageId);
+  res.set('Cache-Control', 'no-store');
+  res.type(file.mimeType);
+  res.download(file.path, file.filename);
 }));
 router.patch('/conversations/:id/read', wrap(async (req, res) => {
   const { markDoctorConversationRead } = await import('../services/doctor.service.js');

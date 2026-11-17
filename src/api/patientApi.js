@@ -44,6 +44,9 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   markConversationRead: (id) => request(`/patient/me/conversations/${id}/read`, { method: 'PATCH' }),
+  attachables: (id) => request(`/patient/me/conversations/${id}/attachables`),
+  attachment: (id, messageId) => request(`/patient/me/conversations/${id}/messages/${messageId}/attachment`),
+  attachmentFile: (id, messageId) => request(`/patient/me/conversations/${id}/messages/${messageId}/attachment/file`, { responseType: 'blob' }),
   notes: () => request('/patient/me/notes'),
   createNote: (payload) => request('/patient/me/notes', {
     method: 'POST',

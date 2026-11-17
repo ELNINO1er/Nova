@@ -78,6 +78,23 @@ export async function verifyRefreshToken(token) {
 
 /* ── Core verify ────────────────────────────────────────────────── */
 
+// Vérifie un jeton d'accès (HTTP et temps réel) : signature, révocation, compte actif et version de session.
+// Lève les erreurs JWT (jeton invalide ou expiré) ; renvoie { error, message } si la session est révoquée.
+export async function resolveAccessToken(token) {
+  if (await isBlacklisted(token)) return { error: 'token_revoked', message: 'Token révoqué. Reconnectez-vous.' };
+  const payload = jwt.verify(token, JWT_SECRET);
+  const [[account]] = await pool.execute('SELECT role, session_version, patient_id, doctor_id, pharmacy_id FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [payload.id || '']);
+  if (!account || account.role !== payload.role || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
+    return { error: 'token_revoked', message: 'Session révoquée. Reconnectez-vous.' };
+  }
+  // Rattachements (patient, médecin, pharmacie) toujours lus en base : un changement fait par
+  // l'administrateur s'applique immédiatement, sans attendre l'expiration du jeton.
+  payload.patientId = account.patient_id || null;
+  payload.doctorId = account.doctor_id || null;
+  payload.pharmacyId = account.pharmacy_id || null;
+  return { payload };
+}
+
 async function verifyToken(req, res) {
   const header = req.headers.authorization;
   const cookieToken = getCookie(req, 'nova_access_token');
@@ -87,23 +104,13 @@ async function verifyToken(req, res) {
     return null;
   }
   try {
-    if (await isBlacklisted(token)) {
-      res.status(401).json({ error: 'token_revoked', message: 'Token révoqué. Reconnectez-vous.' });
+    const result = await resolveAccessToken(token);
+    if (result.error) {
+      res.status(401).json({ error: result.error, message: result.message });
       return null;
     }
-    const payload = jwt.verify(token, JWT_SECRET);
-    const [[account]] = await pool.execute('SELECT role, session_version, patient_id, doctor_id, pharmacy_id FROM nova_users WHERE id=? AND deleted_at IS NULL AND disabled_at IS NULL', [payload.id || '']);
-    if (!account || account.role !== payload.role || Number(account.session_version) !== Number(payload.sessionVersion || 0)) {
-      res.status(401).json({ error: 'token_revoked', message: 'Session révoquée. Reconnectez-vous.' });
-      return null;
-    }
-    // Rattachements (patient, médecin, pharmacie) toujours lus en base : un changement fait par
-    // l'administrateur s'applique immédiatement, sans attendre l'expiration du jeton.
-    payload.patientId = account.patient_id || null;
-    payload.doctorId = account.doctor_id || null;
-    payload.pharmacyId = account.pharmacy_id || null;
     req.token = token; // Store for potential blacklisting on logout
-    return payload;
+    return result.payload;
   } catch (error) {
     if (!['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error?.name)) {
       res.status(503).json({ error: 'auth_unavailable', message: 'Service d’authentification temporairement indisponible.' });
@@ -114,7 +121,7 @@ async function verifyToken(req, res) {
   }
 }
 
-function getCookie(req, name) {
+export function getCookie(req, name) {
   const raw = req.headers.cookie || '';
   const found = raw.split(';').map(v => v.trim()).find(v => v.startsWith(`${name}=`));
   if (!found) return null;

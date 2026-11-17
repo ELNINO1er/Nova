@@ -1,4 +1,4 @@
-import {persistMessage} from './messaging.service.js';
+import {persistMessage,listMessages,emitConversationRead} from './messaging.service.js';
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
@@ -358,14 +358,9 @@ export async function getConversation(patientId, conversationId) {
   );
   if (!row) return null;
 
-  const [messages] = await pool.execute(
-    'SELECT * FROM nova_messages WHERE conversation_id = ? ORDER BY created_at ASC',
-    [conversationId]
-  );
-
   return {
     ...mapConversation(row),
-    messages: messages.map(mapMessage),
+    messages: await listMessages(row),
   };
 }
 
@@ -387,7 +382,7 @@ export async function markConversationRead(patientId, conversationId) {
     'UPDATE nova_conversations SET unread_count = 0 WHERE id = ?',
     [conversationId]
   );
-
+  await emitConversationRead(conversationId, 'patient');
   return { ok: true };
 }
 
@@ -973,17 +968,6 @@ function mapConversation(row) {
   };
 }
 
-function mapMessage(row) {
-  return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    senderRole: row.sender_role,
-    body: row.body,
-    attachmentName: row.attachment_name,
-    isRead: Boolean(row.is_read),
-    createdAt: row.created_at,
-  };
-}
 
 function mapDocument(row) {
   return {

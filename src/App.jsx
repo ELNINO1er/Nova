@@ -9,6 +9,8 @@ import NotificationBell from './layout/NotificationBell.jsx';
 import GlobalSearch from './layout/GlobalSearch.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
+import { doctorApi } from './api/doctorApi.js';
+import { connectRealtime, disconnectRealtime, useRealtime } from './realtime/socket.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { broadcastAuth, onAuthBroadcast } from './api/authChannel.js';
@@ -167,6 +169,7 @@ export default function App() {
   useEffect(() => { clearPatientSearch(); }, []);
 
   const resetSession = () => {
+    disconnectRealtime();
     setIdleLocked(false);
     clearPatientSearch();
     clearUnsaved();
@@ -228,12 +231,15 @@ export default function App() {
     void onLogout();
   });
 
-  useEffect(() => {
-    if (auth !== 'ok' || role !== 'patient') return;
-    let cancelled = false;
-    Promise.allSettled([patientApi.notifications(), patientApi.conversations()])
+  // Compteurs (notifications, messages non lus) : chargés à la connexion puis à chaque signal temps réel.
+  const badgeRequest = useRef(0);
+  const refreshBadges = () => {
+    if (auth !== 'ok' || !['patient', 'doctor'].includes(role)) return;
+    const api = role === 'doctor' ? doctorApi : patientApi;
+    const requestId = ++badgeRequest.current;
+    Promise.allSettled([api.notifications(), api.conversations()])
       .then(([notificationsResult, conversationsResult]) => {
-        if (cancelled) return;
+        if (requestId !== badgeRequest.current) return;
         const notifList = notificationsResult.status === 'fulfilled' ? (Array.isArray(notificationsResult.value) ? notificationsResult.value : notificationsResult.value?.data) : null;
         const notifications = Array.isArray(notifList) ? notifList.filter((n) => !n.isRead).length : 0;
         const messages = conversationsResult.status === 'fulfilled' && Array.isArray(conversationsResult.value)
@@ -241,8 +247,25 @@ export default function App() {
           : 0;
         setBadges({ notifications, messages });
       });
-    return () => { cancelled = true; };
+  };
+  useEffect(() => {
+    refreshBadges();
+    return () => { badgeRequest.current += 1; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth, role]);
+
+  // Temps réel : une connexion par session ouverte, fermée à la déconnexion.
+  useEffect(() => {
+    if (auth !== 'ok' || !user?.id || !['patient', 'doctor'].includes(role)) return undefined;
+    connectRealtime(user.id);
+    const resync = () => refreshBadges();
+    window.addEventListener('nova:realtime-reconnected', resync);
+    return () => { window.removeEventListener('nova:realtime-reconnected', resync); disconnectRealtime(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, user?.id, role]);
+  useRealtime('notification:new', () => refreshBadges());
+  useRealtime('message:new', () => refreshBadges());
+  useRealtime('conversation:read', () => refreshBadges());
 
   useEffect(()=>{
     if(auth==='ok' && (parts[0]!==pageRole || !ROLE_PAGES[pageRole]?.includes(parts[1])))navigate(`/${pageRole}/dashboard`,{replace:true});

@@ -73,6 +73,9 @@ export const doctorApi = {
   conversation: (id) => request(`/doctor/me/conversations/${id}`),
   sendMessage: (id, payload) => request(`/doctor/me/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(payload) }),
   markConversationRead: (id) => request(`/doctor/me/conversations/${id}/read`, { method: 'PATCH' }),
+  attachables: (id) => request(`/doctor/me/conversations/${id}/attachables`),
+  attachment: (id, messageId) => request(`/doctor/me/conversations/${id}/messages/${messageId}/attachment`),
+  attachmentFile: (id, messageId) => request(`/doctor/me/conversations/${id}/messages/${messageId}/attachment/file`, { responseType: 'blob' }),
   // Documents
   documents: () => request('/doctor/me/documents'),
   deleteDocument: (id) => request(`/doctor/me/documents/${id}`, { method: 'DELETE' }),

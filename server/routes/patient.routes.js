@@ -1,4 +1,4 @@
-import {startConversation} from '../services/messaging.service.js';
+import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -295,13 +295,28 @@ router.get('/conversations/:id', wrap(async (req, res) => {
 }));
 
 router.post('/conversations/:id/messages', validateBody(z.object({
-  requestKey:z.string().min(8).max(100).optional(),
-  body:           z.string().min(1).max(2000),
-  attachmentName: z.string().optional(),
-})), wrap(async (req, res) => {
+  requestKey: z.string().min(8).max(100).optional(),
+  body: z.string().max(2000).default(''),
+  attachment: z.object({ type: z.enum(ATTACHMENT_TYPES), id: z.string().min(1).max(64) }).optional(),
+}).refine((v) => v.body.trim() || v.attachment, { message: 'Écrivez un message ou joignez un élément du dossier.' })), wrap(async (req, res) => {
   const msg = await createMessage(req.user.patientId, req.params.id, req.body);
   if (!msg) return res.status(404).json({ error: 'not_found', message: 'Conversation introuvable' });
   res.status(201).json(msg);
+}));
+
+// Pièces jointes : éléments du dossier du patient de la conversation.
+router.get('/conversations/:id/attachables', wrap(async (req, res) => {
+  res.json(await listAttachables('patient', req.user.patientId, req.params.id));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment', wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await getAttachmentDetail('patient', req.user.patientId, req.params.id, req.params.messageId));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment/file', wrap(async (req, res) => {
+  const file = await getAttachmentFile('patient', req.user.patientId, req.params.id, req.params.messageId);
+  res.set('Cache-Control', 'no-store');
+  res.type(file.mimeType);
+  res.download(file.path, file.filename);
 }));
 
 router.patch('/conversations/:id/read', wrap(async (req, res) => {
