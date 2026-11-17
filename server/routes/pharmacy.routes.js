@@ -17,7 +17,7 @@ const router = Router();
 router.use(requirePharmacist);
 
 /* ─── Dashboard ───────────────────────────────────────────────── */
-router.get('/dashboard', wrap(async (req, res) => {
+router.get('/dashboard', requirePermission('pharmacy.history'), wrap(async (req, res) => {
   res.json(await getPharmacyDashboard(req.user.pharmacyId));
 }));
 
@@ -79,7 +79,10 @@ router.patch('/orders/:id', requirePermission('pharmacy.verify'), validateBody(z
 
 /* ─── Historique délivrances ──────────────────────────────────── */
 router.get('/dispenses', requirePermission('pharmacy.history'), wrap(async (req, res) => {
-  res.json(await getDispenseHistory(req.user.pharmacyId, req.query));
+  // Filtres reconnus seulement (statut connu, date AAAA-MM-JJ).
+  const status = ['full', 'partial', 'refused'].includes(req.query.status) ? req.query.status : undefined;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : undefined;
+  res.json(await getDispenseHistory(req.user.pharmacyId, { status, date }));
 }));
 
 export default router;

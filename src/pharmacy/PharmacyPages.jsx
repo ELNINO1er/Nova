@@ -49,8 +49,8 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
   return (
     <div data-theme={darkMode ? 'dark' : 'light'} className="group space-y-5">
       {notice && (
-        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl
-          ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+        <div role={notice.type === 'error' ? 'alert' : 'status'} aria-live="polite" className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl
+          ${notice.type === 'error' ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
           {notice.message}
         </div>
       )}
@@ -314,7 +314,7 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2 mb-2">
-        <button onClick={() => setPage('dashboard')} className={`text-xs font-semibold ${sub} flex items-center gap-1`}>
+        <button type="button" onClick={() => setPage('dashboard')} className={`text-xs font-semibold ${sub} flex items-center gap-1`}>
           ← Retour
         </button>
       </div>
@@ -451,18 +451,34 @@ function PhScan({ notify, setPage, card, sub, border, darkMode }) {
    HISTORIQUE DÉLIVRANCES
    ═══════════════════════════════════════════════════════════════ */
 function PhHistory({ data, loading, card, sub, border, darkMode }) {
+  const [status, setStatus] = useState('all');
+  const [day, setDay] = useState('');
   if (loading && !data) return <PhSkeleton darkMode={darkMode} card={card} />;
-  const items = data || [];
+  const all = data || [];
+  const items = all.filter((d) => (status === 'all' || d.status === status) && (!day || dayKey(d.dispensedAt) === day));
 
   return (
     <div className={`${card} border rounded-2xl p-5`}>
       <h3 className="font-bold mb-4 flex items-center gap-2">
-        <ClipboardList className="w-5 h-5 text-red-600" /> Historique des délivrances
+        <ClipboardList className="w-5 h-5 text-red-600" aria-hidden="true" /> Historique des délivrances
       </h3>
+      <div className="mb-4 flex flex-wrap gap-3 items-end">
+        <label className="text-xs font-semibold grid gap-1">Statut
+          <NovaSelect darkMode={darkMode} value={status} onChange={(e) => setStatus(e.target.value)} className={`rounded-lg border px-2 py-2 text-xs ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>
+            <option value="all">Tous</option>
+            {Object.entries(dispenseLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </NovaSelect>
+        </label>
+        <label className="text-xs font-semibold grid gap-1">Jour
+          <input type="date" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDay(e.target.value)} className={`rounded-lg border px-2 py-1.5 text-xs bg-transparent ${darkMode ? 'border-slate-700' : 'border-slate-300'}`} />
+        </label>
+        {(status !== 'all' || day) && <button type="button" onClick={() => { setStatus('all'); setDay(''); }} className="text-xs font-semibold text-red-700 underline">Retirer les filtres</button>}
+        <p className={`text-xs ${sub} ml-auto`}>{items.length} opération{items.length > 1 ? 's' : ''}{all.length >= 500 ? ' (500 dernières)' : ''}</p>
+      </div>
       {items.length === 0 ? (
         <div className="py-12 text-center">
           <Package className={`w-12 h-12 mx-auto ${sub} mb-3`} />
-          <p className={`text-sm font-semibold ${sub}`}>Aucune délivrance enregistrée</p>
+          <p className={`text-sm font-semibold ${sub}`}>{all.length ? 'Aucune opération ne correspond aux filtres' : 'Aucune délivrance enregistrée'}</p>
         </div>
       ) : (
         <div className="space-y-2">
