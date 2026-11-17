@@ -40,10 +40,12 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
     finally { setSaving(false); }
   };
 
+  // Statuts réels d'une demande : en attente du résultat, puis résultat transcrit.
   const statusCfg = {
-    pending:    { label: 'En attente', cls: 'bg-red-100 text-red-700' },
-    processing: { label: 'En cours',   cls: 'bg-red-100 text-red-700' },
-    available:  { label: 'Disponible', cls: 'bg-red-100 text-red-700' },
+    pending:    { label: 'En attente du résultat', cls: 'bg-amber-100 text-amber-800' },
+    processing: { label: 'En cours',               cls: 'bg-amber-100 text-amber-800' },
+    completed:  { label: 'Résultat reçu',          cls: 'bg-emerald-100 text-emerald-800' },
+    available:  { label: 'Résultat reçu',          cls: 'bg-emerald-100 text-emerald-800' },
   };
 
   const inp = `mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`;

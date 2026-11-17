@@ -4,6 +4,7 @@ import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 import { closeOrdersOnDispense, signalOrders } from './pharmacy-order.service.js';
 import { prescriptionQrSecret } from './prescription-qr.js';
+import { validUntilOf, isPrescriptionExpired } from './prescription-status.js';
 
 // Une ordonnance partiellement délivrée doit pouvoir être complétée.
 const DISPENSABLE_STATUSES = ['active', 'partial'];
@@ -148,7 +149,7 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
     doctorName: rx.doctor_name,
     doctorSpecialty: rx.doctor_specialty,
     issuedAt: rx.issued_at,
-    validUntil: rx.valid_until,
+    validUntil: validUntilOf(rx),
     status: rx.status,
     items: items.map(i => ({
       id: i.id,
@@ -189,7 +190,7 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
     }
     const [[actor]]=await conn.execute("SELECT id FROM nova_users WHERE id=? AND pharmacy_id=? AND role='pharmacist' AND disabled_at IS NULL AND deleted_at IS NULL",[pharmacistUserId,pharmacyId]);
     if(!actor) throw Object.assign(new Error('Officine non autorisee.'),{status:403});
-    if(payload.status!=='refused' && (!DISPENSABLE_STATUSES.includes(rx.status)||(rx.valid_until&&String(rx.valid_until).slice(0,10)<new Date().toISOString().slice(0,10)))) throw Object.assign(new Error('Ordonnance expiree ou cloturee.'),{status:409});
+    if(payload.status!=='refused' && (!DISPENSABLE_STATUSES.includes(rx.status)||isPrescriptionExpired(rx))) throw Object.assign(new Error('Ordonnance expiree ou cloturee.'),{status:409});
     const [lines]=await conn.execute('SELECT * FROM nova_prescription_items WHERE prescription_id=? FOR UPDATE',[rx.id]);
     const [used]=await conn.execute("SELECT i.prescription_item_id,SUM(i.quantity_dispensed) n FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=? AND d.status<>'refused' GROUP BY i.prescription_item_id",[rx.id]);
     const totals=new Map(used.map(x=>[x.prescription_item_id,Number(x.n)]));

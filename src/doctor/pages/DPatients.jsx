@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscop
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials, patientMeta } from '../../utils/format.js';
 import ActivationNotice from '../../components/ActivationNotice.jsx';
+import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
   const [search,   setSearch]   = useState('');
@@ -360,8 +361,11 @@ function PatientTabLabo({ pat, card, sub, border, darkMode }) {
           <p className={`text-xs ${sub}`}>Aucune ordonnance</p>
         ) : (pat.prescriptions || []).map(r => (
           <div key={r.id} className={`flex items-center justify-between py-2 border-b ${border} last:border-0`}>
-            <p className="text-xs font-semibold">{new Date(r.prescribedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${r.status === 'active' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{r.status === 'active' ? 'Active' : 'Expirée'}</span>
+            <div>
+              <p className="text-xs font-semibold">{r.issuedAt ? new Date(r.issuedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Date inconnue'}</p>
+              {r.validUntil && <p className={`text-[10px] ${sub}`}>Valable jusqu’au {new Date(r.validUntil).toLocaleDateString('fr-FR')}</p>}
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${prescriptionIsOpen(r.status) ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{prescriptionStatusLabel(r.status)}</span>
           </div>
         ))}
       </div>

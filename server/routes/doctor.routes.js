@@ -1,4 +1,4 @@
-import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
+import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,conversationPatientId,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import {updateProfessionalProfile,professionalSlots,addProfessionalSlot,removeProfessionalSlot} from '../services/professional.service.js';
 import { recordLabResult } from '../services/clinical.service.js';
 import { Router } from 'express';
@@ -49,7 +49,7 @@ import { upload, verifyUploadedFile } from '../middleware/upload.js';
 import { doctorPhotoFile, updateDoctorPhoto, patientPhotoFile, decodePhoto, savePatientPhoto } from '../services/photo.service.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
-import { auditLog, accessLog } from '../middleware/audit.js';
+import { auditLog, accessLog, recordAccess } from '../middleware/audit.js';
 import { isValidBirthDate } from '../services/birthdate.js';
 // Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
 const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
@@ -58,7 +58,7 @@ const router = Router();
 router.use(requireDoctor);
 
 /* ─── Dashboard ────────────────────────────────────────────── */
-router.get('/dashboard', wrap(async (req, res) => {
+router.get('/dashboard', accessLog('dashboard', (b) => [...(b?.todayAppointments || []).filter((a) => a.recordShared !== false).map((a) => a.patientId)]), wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
 }));
 
@@ -74,10 +74,12 @@ router.delete('/photo', auditLog('doctor.photo.remove', 'doctor'), wrap(async (r
   res.json(await updateDoctorPhoto(req.user.doctorId, null));
 }));
 
-router.get('/patients/:id/photo', requirePermission('doctor.patients'), accessLog('patient_photo'), wrap(async (req, res, next) => {
+router.get('/patients/:id/photo', requirePermission('doctor.patients'), wrap(async (req, res, next) => {
   const { assertDoctorPatientAccess } = await import('../services/access.js');
   await assertDoctorPatientAccess(req.user.doctorId, req.params.id);
-  sendPortrait(res, await patientPhotoFile(req.params.id), next);
+  const file = await patientPhotoFile(req.params.id);
+  if (file) await recordAccess(req, [req.params.id], 'patient_photo');
+  sendPortrait(res, file, next);
 }));
 
 router.post('/assistant', validateBody(z.object({
@@ -99,7 +101,7 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
   cmuNumber:             z.string().optional(),
   birthDate:             BIRTH_DATE,
   sex:                   z.enum(['M', 'F']).optional(),
-  bloodType:             z.string().optional(),
+  bloodType:             z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).optional(),
   email:                 z.string().email().optional(),
   address:               z.string().optional(),
   city:                  z.string().optional(),
@@ -140,7 +142,7 @@ router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('pat
 }));
 
 /* ─── Rendez-vous ──────────────────────────────────────────── */
-router.get('/appointments', wrap(async (req, res) => {
+router.get('/appointments', accessLog('appointments'), wrap(async (req, res) => {
   res.json(await getDoctorAppointments(req.user.doctorId, req.query));
 }));
 
@@ -228,18 +230,18 @@ router.post('/prescriptions', requirePermission('doctor.prescriptions'), validat
     instructions: z.string().optional(),
   })).min(1),
   notes:     z.string().optional(),
-  validDays: z.number().int().positive().optional(),
+  validDays: z.number().int().min(1).max(365).optional(),
 })), auditLog('prescription.create', 'prescription'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
 }));
 
 /* ─── Suivi chroniques ──────────────────────────────────────── */
-router.get('/chronic-patients', wrap(async (req, res) => {
+router.get('/chronic-patients', accessLog('chronic_followup', (b) => (b || []).map((p) => p.id)), wrap(async (req, res) => {
   res.json(await getChronicPatients(req.user.doctorId));
 }));
 
 /* ─── Alertes médecin ───────────────────────────────────────── */
-router.get('/alerts', wrap(async (req, res) => {
+router.get('/alerts', accessLog('alerts'), wrap(async (req, res) => {
   res.json(await getDoctorAlerts(req.user.doctorId));
 }));
 
@@ -356,7 +358,7 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
 }));
 
 /* ─── Voir statut délivrance d'une ordonnance ────────────────── */
-router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
+router.get('/prescriptions/:id/dispense-status', accessLog('dispense_status'), wrap(async (req, res) => {
   const { pool } = await import('../db/database.js');
   const [[rx]] = await pool.execute(
     'SELECT id, status, doctor_id, patient_id FROM nova_prescriptions WHERE id = ? AND doctor_id = ?',
@@ -373,6 +375,7 @@ router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
   );
 
   res.json({
+    patientId: rx.patient_id,
     prescriptionId: rx.id,
     prescriptionStatus: rx.status,
     dispenses: dispenses.map(d => ({
@@ -512,15 +515,19 @@ router.post('/conversations/:id/messages', validateBody(z.object({
   res.status(201).json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
 }));
 // Pièces jointes : éléments du dossier du patient de la conversation.
-router.get('/conversations/:id/attachables', accessLog('messages'), wrap(async (req, res) => {
+router.get('/conversations/:id/attachables', wrap(async (req, res) => {
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], 'attachment_list');
   res.json(await listAttachables('doctor', req.user.doctorId, req.params.id));
 }));
-router.get('/conversations/:id/messages/:messageId/attachment', accessLog('messages'), wrap(async (req, res) => {
+router.get('/conversations/:id/messages/:messageId/attachment', wrap(async (req, res) => {
+  const detail = await getAttachmentDetail('doctor', req.user.doctorId, req.params.id, req.params.messageId);
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], `attachment_${detail.type}`);
   res.set('Cache-Control', 'no-store');
-  res.json(await getAttachmentDetail('doctor', req.user.doctorId, req.params.id, req.params.messageId));
+  res.json(detail);
 }));
-router.get('/conversations/:id/messages/:messageId/attachment/file', accessLog('messages'), wrap(async (req, res) => {
+router.get('/conversations/:id/messages/:messageId/attachment/file', wrap(async (req, res) => {
   const file = await getAttachmentFile('doctor', req.user.doctorId, req.params.id, req.params.messageId);
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], 'attachment_document');
   res.set('Cache-Control', 'no-store');
   res.type(file.mimeType);
   res.download(file.path, file.filename);

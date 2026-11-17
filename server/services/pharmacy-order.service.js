@@ -3,6 +3,7 @@ import { pool } from '../db/database.js';
 import { createNotification } from './notification.service.js';
 import { getPrescriptionForPharmacy } from './pharmacy.service.js';
 import { emitToUser } from '../realtime.js';
+import { isPrescriptionExpired } from './prescription-status.js';
 
 /*
  * Commandes d'ordonnance : le patient envoie une ordonnance active à une pharmacie de son choix,
@@ -40,10 +41,10 @@ export async function createPharmacyOrder(patientId, { pharmacyId, prescriptionI
     await conn.execute('SELECT id FROM nova_patients WHERE id = ? FOR UPDATE', [patientId]);
     const [[ph]] = await conn.execute('SELECT id, name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
     if (!ph) throw err(404, 'Pharmacie introuvable.');
-    const [[rx]] = await conn.execute('SELECT id, status, valid_until FROM nova_prescriptions WHERE id = ? AND patient_id = ? AND deleted_at IS NULL', [prescriptionId, patientId]);
+    const [[rx]] = await conn.execute('SELECT id, status, valid_until, issued_at FROM nova_prescriptions WHERE id = ? AND patient_id = ? AND deleted_at IS NULL', [prescriptionId, patientId]);
     if (!rx) throw err(404, 'Ordonnance introuvable.');
     if (!['active', 'partial'].includes(rx.status)) throw err(409, 'Cette ordonnance a déjà été délivrée ou n’est plus active.', 'prescription_closed');
-    if (rx.valid_until && String(rx.valid_until).slice(0, 10) < today()) throw err(409, 'Cette ordonnance a expiré : demandez-en une nouvelle à votre médecin.', 'prescription_expired');
+    if (isPrescriptionExpired(rx)) throw err(409, 'Cette ordonnance a expiré : demandez-en une nouvelle à votre médecin.', 'prescription_expired');
     const [[open]] = await conn.execute(
       `SELECT o.id, ph.name FROM nova_pharmacy_orders o JOIN nova_pharmacies ph ON ph.id = o.pharmacy_id
        WHERE o.patient_id = ? AND o.prescription_id = ? AND o.status IN ('pending','ready') LIMIT 1`, [patientId, prescriptionId]);

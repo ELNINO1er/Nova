@@ -9,6 +9,8 @@ import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTran
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 import { CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS } from './consent-terms.js';
 import { vitalLevel } from './vital-norms.js';
+import { prescriptionStatus, validUntilOf } from './prescription-status.js';
+import { ratingColumns, ratingOf, reviewsOf } from './doctor-rating.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
 
@@ -414,12 +416,6 @@ export async function markConversationRead(patientId, conversationId) {
 
 /* ─── Ordonnances ────────────────────────────────────────────── */
 
-// Une ordonnance active ou partiellement délivrée dont la date de validité est passée est « expirée ».
-function prescriptionStatus(row) {
-  const today = new Date().toISOString().slice(0, 10);
-  if (['active', 'partial'].includes(row.status) && row.valid_until && String(row.valid_until).slice(0, 10) < today) return 'expired';
-  return row.status;
-}
 
 const prescriptionItemTotals = `SELECT i.*, COALESCE((
   SELECT SUM(di.quantity_dispensed)
@@ -466,7 +462,7 @@ export async function getPrescriptions(patientId, query = {}) {
     doctorName: row.doctor_name,
     doctorSpecialty: row.doctor_specialty,
     issuedAt: row.issued_at,
-    validUntil: row.valid_until,
+    validUntil: validUntilOf(row),
     status: prescriptionStatus(row),
     notes: row.notes,
     items: itemsByPrescription.get(row.id) || [],
@@ -488,7 +484,7 @@ export async function getPrescription(patientId, id) {
     doctorName: row.doctor_name,
     doctorSpecialty: row.doctor_specialty,
     issuedAt: row.issued_at,
-    validUntil: row.valid_until,
+    validUntil: validUntilOf(row),
     status: prescriptionStatus(row),
     notes: row.notes,
     items: items.map(patientPrescriptionItem),
@@ -512,7 +508,7 @@ export async function addVital(patientId, payload) {
 /* ─── Médecins ───────────────────────────────────────────────── */
 
 export async function getDoctors(query = {}) {
-  let sql = 'SELECT * FROM nova_doctors WHERE 1=1';
+  let sql = `SELECT d.*, ${ratingColumns('d')} FROM nova_doctors d WHERE 1=1`;
   const params = [];
 
   if (query.specialty) {
@@ -520,24 +516,24 @@ export async function getDoctors(query = {}) {
     params.push(query.specialty);
   }
   if (query.city) {
-    sql += ' AND city LIKE ?';
+    sql += ' AND d.city LIKE ?';
     params.push(`%${query.city}%`);
   }
   if (query.q) {
-    sql += ' AND (CONCAT(first_name," ",last_name) LIKE ? OR specialty LIKE ?)';
+    sql += ' AND (CONCAT(d.first_name," ",d.last_name) LIKE ? OR d.specialty LIKE ?)';
     params.push(`%${query.q}%`, `%${query.q}%`);
   }
   if (query.acceptsCmu === 'true') {
-    sql += ' AND accepts_cmu = 1';
+    sql += ' AND d.accepts_cmu = 1';
   }
-  sql += ' ORDER BY rating DESC, reviews_count DESC';
+  sql += ' ORDER BY real_rating IS NULL, real_rating DESC, real_reviews DESC, last_name';
 
   const [rows] = await pool.execute(sql, params);
   return rows.map(mapDoctor);
 }
 
 export async function getDoctor(id) {
-  const [[row]] = await pool.execute('SELECT * FROM nova_doctors WHERE id = ?', [id]);
+  const [[row]] = await pool.execute(`SELECT d.*, ${ratingColumns('d')} FROM nova_doctors d WHERE d.id = ?`, [id]);
   if (!row) return null;
   return mapDoctor(row);
 }
@@ -1062,8 +1058,8 @@ function mapDoctor(row) {
     city: row.city,
     address: row.address,
     phone: row.phone,
-    rating: row.rating,
-    reviewsCount: row.reviews_count,
+    rating: ratingOf(row),
+    reviewsCount: reviewsOf(row),
     experienceYears: row.experience_years,
     languages: row.languages,
     bio: row.bio,

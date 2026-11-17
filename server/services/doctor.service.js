@@ -9,6 +9,8 @@ import { deliverActivation, prepareActivation } from './patient-activation.js';
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { notifyPatientConsultation, notifyPatientPrescription, notifyDoctorReferral, notifyPatientAppointmentStatus } from './notification.service.js';
 import { ageFrom } from './birthdate.js';
+import { prescriptionStatus, validUntilOf, DEFAULT_PRESCRIPTION_DAYS } from './prescription-status.js';
+import { ratingColumns, ratingOf, reviewsOf } from './doctor-rating.js';
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 
@@ -17,7 +19,7 @@ export async function getDoctorDashboard(doctorId) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const monthStr = new Date().toISOString().slice(0, 7);
 
-  const [[doctor]]         = await pool.execute(`SELECT * FROM nova_doctors WHERE id = ?`, [doctorId]);
+  const [[doctor]]         = await pool.execute(`SELECT d.*, ${ratingColumns('d')} FROM nova_doctors d WHERE d.id = ?`, [doctorId]);
   const [todayAppts]       = await pool.execute(
     `SELECT a.*, p.first_name, p.last_name, p.cmu_number, p.birth_date, p.blood_type, p.photo_path IS NOT NULL AS has_photo
      , (${currentAccess.sql}) AS has_access
@@ -111,7 +113,7 @@ export async function getDoctorPatient(doctorId, patientId) {
       id: c.id, motif: c.motif, diagnosisMain: c.diagnosis_main, notes: c.notes,
       recommendations: c.recommendations, status: c.status, startedAt: c.started_at,
     })),
-    prescriptions: prescriptions.map(r => ({ id: r.id, issuedAt: r.issued_at, status: r.status })),
+    prescriptions: prescriptions.map(r => ({ id: r.id, issuedAt: r.issued_at, validUntil: validUntilOf(r), doctorName: r.doctor_name, status: prescriptionStatus(r) })),
     labResults: labResults.map(r => ({ id: r.id, title: r.title, performedAt: r.performed_at, status: r.status })),
   };
 }
@@ -428,7 +430,7 @@ export async function getDoctorStats(doctorId) {
 /* ─── Profil médecin ─────────────────────────────────────────── */
 
 export async function getDoctorProfile(doctorId) {
-  const [[doc]] = await pool.execute(`SELECT * FROM nova_doctors WHERE id = ?`, [doctorId]);
+  const [[doc]] = await pool.execute(`SELECT d.*, ${ratingColumns('d')} FROM nova_doctors d WHERE d.id = ?`, [doctorId]);
   return doc ? mapDoctorProfile(doc) : null;
 }
 
@@ -445,8 +447,8 @@ function mapDoctorProfile(r) {
     address:          r.address,
     phone:            r.phone,
     email:            r.email,
-    rating:           r.rating,
-    reviewsCount:     r.reviews_count,
+    rating:           ratingOf(r),
+    reviewsCount:     reviewsOf(r),
     experienceYears:  r.experience_years,
     languages:        r.languages,
     bio:              r.bio,
@@ -534,7 +536,7 @@ export async function getDoctorPrescriptions(doctorId) {
             (SELECT COUNT(*) FROM nova_prescription_items pi WHERE pi.prescription_id = p.id) AS items_count
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.doctor_id = ? AND ${access.sql}
+     WHERE p.doctor_id = ? AND p.deleted_at IS NULL AND ${access.sql}
      ORDER BY p.issued_at DESC`,
     [doctorId, ...access.params]
   );
@@ -544,8 +546,8 @@ export async function getDoctorPrescriptions(doctorId) {
     patientName: `${r.first_name} ${r.last_name}`,
     cmuNumber:   r.cmu_number,
     issuedAt:    r.issued_at,
-    validUntil:  r.valid_until,
-    status:      r.status,
+    validUntil:  validUntilOf(r),
+    status:      prescriptionStatus(r),
     notes:       r.notes,
     itemsCount:  Number(r.items_count),
   }));
@@ -555,7 +557,7 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
   const [[row]] = await pool.execute(
     `SELECT p.*, pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_prescriptions p JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.id = ? AND p.doctor_id = ?`,
+     WHERE p.id = ? AND p.doctor_id = ? AND p.deleted_at IS NULL`,
     [prescriptionId, doctorId]
   );
   if (!row) return null;
@@ -571,8 +573,8 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
     doctorName:      row.doctor_name,
     doctorSpecialty: row.doctor_specialty,
     issuedAt:        row.issued_at,
-    validUntil:      row.valid_until,
-    status:          row.status,
+    validUntil:      validUntilOf(row),
+    status:          prescriptionStatus(row),
     notes:           row.notes,
     items: items.map(i => ({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions, quantityPrescribed:i.quantity_prescribed, quantityUnit:i.quantity_unit })),
   };
@@ -593,9 +595,7 @@ export async function createDoctorPrescription(doctorId, payload) {
     const specialty  = doc?.specialty || '';
     const id  = randomUUID();
     const now = new Date().toISOString();
-    const validUntil = payload.validDays
-      ? new Date(Date.now() + Number(payload.validDays) * 86400000).toISOString().slice(0, 10)
-      : null;
+    const validUntil = new Date(Date.now() + Number(payload.validDays || DEFAULT_PRESCRIPTION_DAYS) * 86400000).toISOString().slice(0, 10);
     await conn.execute(
       `INSERT INTO nova_prescriptions (id, patient_id, doctor_name, doctor_specialty, issued_at, valid_until, status, notes, doctor_id, consultation_id)
        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
@@ -1117,7 +1117,7 @@ export async function getDoctorDocuments(doctorId) {
   return rows.map(r => ({
     id: r.id, title: r.title, category: r.category,
     mimeType: r.mime_type, sizeBytes: r.size_bytes,
-    filePath: r.file_path, createdAt: r.created_at,
+    hasFile: Boolean(r.file_path), createdAt: r.created_at,
   }));
 }
 

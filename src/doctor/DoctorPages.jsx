@@ -104,7 +104,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>setApiData(c=>({...c,notifications:v}))} {...p} />}
       {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} viewerRole="doctor" {...p} />}
       {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
-      {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           {...p} />}
+      {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           onSaved={(v) => setApiData((c) => ({ ...c, profile: v }))} {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'lab-requests'       && <DLabRequests     data={apiData['lab-requests']}       loading={apiLoading['lab-requests']}      onReload={() => loadPage('lab-requests', true)}      patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'chronic-patients'   && <DSuiviChroniques data={apiData['chronic-patients']}    loading={apiLoading['chronic-patients']}  onReload={() => loadPage('chronic-patients', true)} {...p} />}

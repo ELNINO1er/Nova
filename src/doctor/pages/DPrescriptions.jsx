@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { FileDown, Pill, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials, patientLabel } from '../../utils/format.js';
+import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
 
 function parseScheduleTimes(value) {
   if (!value.trim()) return [];
@@ -186,8 +187,8 @@ export default function DPrescriptions({ data, loading, onReload, patientsData, 
             <p className="font-bold truncate">{rx.patientName}</p>
             <p className={`text-xs ${sub}`}>{rx.cmuNumber}</p>
             <div className="flex items-center gap-3 mt-1 flex-wrap">
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${rx.status === 'active' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
-                {({active:'Active',partial:'Délivrance partielle',dispensed:'Délivrée',cancelled:'Annulée',expired:'Expirée'})[rx.status]||rx.status}
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${prescriptionIsOpen(rx.status) ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                {prescriptionStatusLabel(rx.status)}
               </span>
               <p className={`text-xs ${sub}`}>{new Date(rx.issuedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
               <p className={`text-xs ${sub}`}>{rx.itemsCount} médicament{rx.itemsCount > 1 ? 's' : ''}</p>

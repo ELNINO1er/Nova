@@ -27,8 +27,12 @@ const logUser = (l) => l.accessorName || l.userName || 'Inconnu';
 const logWhen = (l) => l.accessedAt || l.createdAt;
 // Libellés lisibles du journal : données consultées et rôle de la personne.
 const DATA_LABELS = {
-  patient_record: 'Dossier médical', patient_directory: 'Fiche patient (liste)', patient_photo: 'Photo de profil',
-  consultations: 'Consultations', prescriptions: 'Ordonnances', prescription: 'Ordonnance', lab_requests: 'Demandes d’analyses',
+  patient_record: 'Dossier médical', patient_directory: 'Liste de ses patients', patient_photo: 'Photo de profil',
+  appointments: 'Rendez-vous', dashboard: 'Tableau de bord (rendez-vous du jour)', chronic_followup: 'Suivi des maladies chroniques',
+  alerts: 'Alertes de suivi', dispense_status: 'Délivrance d’une ordonnance', attachment_list: 'Éléments du dossier à joindre',
+  attachment_prescription: 'Ordonnance (pièce jointe)', attachment_lab_result: 'Résultat d’analyse (pièce jointe)',
+  attachment_document: 'Document (pièce jointe)', attachment_medical_summary: 'Résumé médical (pièce jointe)',
+  consultations: 'Liste des consultations', prescriptions: 'Liste des ordonnances', prescription: 'Ordonnance', lab_requests: 'Demandes d’analyses',
   lab_result: 'Résultat d’analyse', messages: 'Messagerie', 'Fiche d’urgence (QR)': 'Fiche d’urgence (QR)',
 };
 const ROLE_LABELS = { doctor: 'Médecin', emergency: 'Secours (QR scanné)', pharmacist: 'Pharmacie', admin: 'Administrateur', patient: 'Vous' };

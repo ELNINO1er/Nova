@@ -87,6 +87,9 @@ async function attachedMessage(role,actorId,conversationId,messageId){
  return {conv,type:m.attachment_type,id:m.attachment_id};
 }
 
+/** Patient d'une conversation accessible à cet acteur (journal d'accès). */
+export async function conversationPatientId(role,actorId,conversationId){return (await conversationFor(role,actorId,conversationId)).patient_id;}
+
 // Contenu complet d'une pièce jointe, relu dans le dossier du patient de la conversation.
 export async function getAttachmentDetail(role,actorId,conversationId,messageId){
  const {conv,type,id}=await attachedMessage(role,actorId,conversationId,messageId);

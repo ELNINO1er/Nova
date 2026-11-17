@@ -170,9 +170,9 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
                     className={`relative rounded-3xl border flex flex-col transition-colors ${isSel
                       ? (darkMode ? 'bg-slate-900 border-red-700' : 'bg-white border-red-400')
                       : darkMode ? 'bg-slate-900 border-slate-800 hover:border-red-800' : 'bg-white border-slate-200/70 hover:border-red-200'}`}>
-                    <span className="absolute left-4 top-4 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-50 text-red-700" aria-label={`Note ${fmtRating(doc.rating)} sur 5`}>
+                    {doc.rating != null && <span className="absolute left-4 top-4 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-50 text-red-700" aria-label={`Note ${fmtRating(doc.rating)} sur 5`}>
                       <Star className="w-3 h-3 fill-current" aria-hidden="true" />{fmtRating(doc.rating)}
-                    </span>
+                    </span>}
                     {doc.acceptsCmu && <span className="absolute right-4 top-4"><Chip>CMU</Chip></span>}
                     <button type="button" onClick={() => openDoctor(doc)} aria-pressed={isSel}
                       aria-label={`Voir la fiche de ${doc.fullName}`}

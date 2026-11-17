@@ -19,6 +19,7 @@ import { doctorApi } from '../api/doctorApi.js';
 import ActivationNotice from '../components/ActivationNotice.jsx';
 import { patientApi } from '../api/patientApi.js';
 import { ageFrom, isValidBirthDate } from '../utils/age.js';
+import { useEscape } from '../utils/useEscape.js';
 
 /* ============== MODALS ============== */
 export function QRModal({ onClose }) {
@@ -193,7 +194,8 @@ export function ConsModal({ onClose, darkMode, sub, border }) {
 
 export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, border }) {
   const [step, setStep] = useState(1);
-  const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: 'M', bd: '', bt: 'O+', addr: '', city: 'Abidjan' });
+  const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: '', bd: '', bt: '', addr: '', city: 'Abidjan' });
+  useEscape(!saving, () => { if (!saving) onClose(); });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
@@ -212,7 +214,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
     lastName: d.ln.trim(),
     phone: d.p.trim(),
     cmuNumber: d.cmu.trim() || undefined,
-    sex: d.sex,
+    sex: d.sex || undefined,
     birthDate: d.bd || undefined,
     bloodType: d.bt || undefined,
     address: d.addr.trim() || undefined,
@@ -221,7 +223,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
   };
 
   const validateStep = () => {
-    if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate)) return 'Renseignez le prénom, le nom et la date de naissance.';
+    if (step === 1 && (!payload.firstName || !payload.lastName || !payload.birthDate || !payload.sex)) return 'Renseignez le prénom, le nom, la date de naissance et le sexe.';
     if (step === 1 && !isValidBirthDate(payload.birthDate)) return 'Date de naissance invalide : vérifiez l’année (entre 1900 et aujourd’hui).';
     if (step === 2 && payload.phone.replace(/\D/g, '').length !== 10) return 'Numéro à 10 chiffres requis : il servira d’identifiant de connexion.';
     return '';
@@ -278,7 +280,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
             <div className="space-y-3">
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
                 <p className="font-bold">Patient créé : {created.name}</p>
-                <p>CMU : {created.cmuNumber}</p>
+                {created.cmuNumber && <p>CMU : {created.cmuNumber}</p>}
                 {photo && !created.photoSaved && <p className="mt-1 font-semibold text-amber-800">La photo n’a pas pu être enregistrée : le patient pourra l’ajouter depuis son profil.</p>}
               </div>
               <ActivationNotice activation={created.activation} name={created.name} phone={created.phone} darkMode={darkMode} />
@@ -306,7 +308,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
                 <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
                 <div><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
+                <div><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Choisir…</option><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
               </div>
             </>
           )}
@@ -330,7 +332,7 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
               <h4 className="font-bold">Données médicales</h4>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={`text-xs ${sub}`}>N° CMU</label><input type="text" value={d.cmu} onChange={(e) => setD({...d, cmu: e.target.value})} placeholder="CI-2026-XXXX" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Groupe sanguin</label><NovaSelect darkMode={darkMode} value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g}>{g}</option>)}</NovaSelect></div>
+                <div><label className={`text-xs ${sub}`}>Groupe sanguin</label><NovaSelect darkMode={darkMode} value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Inconnu (à compléter plus tard)</option>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g} value={g}>{g}</option>)}</NovaSelect></div>
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
