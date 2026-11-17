@@ -8,6 +8,7 @@ import {
 import { promptDialog } from '../components/dialogs.jsx';
 import { pharmacyApi } from '../api/pharmacyApi.js';
 import PageError from '../components/PageError.jsx';
+import PhOrders from './PhOrders.jsx';
 import { PageHeader } from '../components/patient/ui.jsx';
 import {
   Empty, dayKey, fmtDay, fmtTime, initialsOf,
@@ -53,12 +54,13 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
         </div>
       )}
 
-      {page !== 'dashboard' && <PageHeader title={{ scan: 'Scanner une ordonnance', history: 'Historique des délivrances', settings: 'Mon officine' }[page]}
+      {page !== 'dashboard' && <PageHeader title={{ orders: 'Ordonnances reçues', scan: 'Scanner une ordonnance', history: 'Historique des délivrances', settings: 'Mon officine' }[page]}
         sub={sub} actions={page === 'history' && <PhLink onClick={() => setPage('scan')}>Scanner une ordonnance</PhLink>} />}
       {apiError[page] && !apiData[page] ? (
         <PageError message={apiError[page]} onRetry={() => loadPage(page, true)} card={card} sub={sub} />
       ) : (<>
       {page === 'dashboard' && <PhDashboard data={apiData.dashboard} setPage={setPage} {...p} />}
+      {page === 'orders'    && <PhOrders notify={notify} setPage={setPage} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
       {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} {...p} />}

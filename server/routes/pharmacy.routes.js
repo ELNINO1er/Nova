@@ -11,6 +11,7 @@ import {
   getDispenseHistory,
   getPharmacyDashboard,
 } from '../services/pharmacy.service.js';
+import { getOrdersForPharmacy, updateOrderStatus } from '../services/pharmacy-order.service.js';
 
 const router = Router();
 router.use(requirePharmacist);
@@ -58,6 +59,18 @@ router.post('/dispense', requirePermission('pharmacy.dispense'), validateBody(z.
     req.user.id,
     req.body
   ));
+}));
+
+/* ─── Commandes envoyées par les patients ─────────────────────── */
+router.get('/orders', requirePermission('pharmacy.verify'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await getOrdersForPharmacy(req.user.pharmacyId));
+}));
+router.patch('/orders/:id', requirePermission('pharmacy.verify'), validateBody(z.object({
+  status: z.enum(['ready', 'unavailable']),
+  message: z.string().max(500).optional(),
+})), auditLog('pharmacy.order.update', 'pharmacy_order'), wrap(async (req, res) => {
+  res.json(await updateOrderStatus(req.user.pharmacyId, req.params.id, req.body));
 }));
 
 /* ─── Historique délivrances ──────────────────────────────────── */

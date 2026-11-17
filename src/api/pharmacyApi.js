@@ -7,4 +7,6 @@ export const pharmacyApi = {
   prescription:        (id, qrToken) => request(`/pharmacy/me/prescription/${id}`, { headers: { 'X-Prescription-QR': qrToken } }),
   dispense:            (payload) => request('/pharmacy/me/dispense', { method: 'POST', body: JSON.stringify(payload) }),
   dispenses:           (params = {}) => request(`/pharmacy/me/dispenses${toQuery(params)}`),
+  orders:              () => request('/pharmacy/me/orders'),
+  updateOrder:         (id, body) => request(`/pharmacy/me/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };

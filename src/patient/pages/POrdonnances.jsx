@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, FileText, Printer, QrCode, ShieldCheck } from 'lucide-react';
+import { AlertCircle, FileText, Printer, QrCode, Send, ShieldCheck } from 'lucide-react';
+import SendPrescriptionDialog, { isSendable } from '../../components/pharmacy/SendPrescriptionDialog.jsx';
+import { useRealtime } from '../../realtime/socket.js';
 import { patientApi } from '../../api/patientApi.js';
 import {
   Button, EmptyState, Highlight, Label, NoResults, PageHeader, Panel, SearchInput, Segmented, StatusMark,
@@ -128,7 +130,14 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
   );
 }
 
-export default function POrdonnances({ data, sub, darkMode }) {
+export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
+  // Envois en pharmacie : l'état de la demande s'affiche sur l'ordonnance concernée.
+  const [orders, setOrders] = useState([]);
+  const [sendFor, setSendFor] = useState(null);
+  const loadOrders = () => patientApi.pharmacyOrders().then((r) => setOrders(Array.isArray(r) ? r : [])).catch(() => {});
+  useEffect(() => { loadOrders(); }, []);
+  useRealtime('pharmacy-order:changed', () => loadOrders());
+  const openOrderFor = (id) => orders.find((o) => o.prescriptionId === id && ['pending', 'ready', 'unavailable'].includes(o.status));
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
   const [printing, setPrinting] = useState(null);
@@ -245,12 +254,26 @@ export default function POrdonnances({ data, sub, darkMode }) {
               <PrescriptionDocument p={selected} query={query} darkMode={darkMode} />
               <div className="flex flex-wrap gap-2 justify-end">
                 <Button variant="secondary" darkMode={darkMode} Icon={Printer} onClick={() => handlePrint(selected)}>Imprimer</Button>
+                {isSendable(selected) && !openOrderFor(selected.id) && <Button variant="secondary" darkMode={darkMode} Icon={Send} onClick={() => setSendFor(selected.id)}>Envoyer à une pharmacie</Button>}
                 <Button Icon={QrCode} onClick={() => showQr(selected)} disabled={qrLoading === selected.id}>{qrLoading === selected.id ? 'Génération…' : 'QR pour la pharmacie'}</Button>
               </div>
+              {openOrderFor(selected.id) && (() => {
+                const o = openOrderFor(selected.id);
+                const label = { pending: 'envoyée, en attente de préparation', ready: 'prête à retirer', unavailable: 'indisponible' }[o.status];
+                return (
+                  <button type="button" onClick={() => setPage?.('pharmacy')} className={`w-full text-left rounded-xl border px-4 py-3 text-sm ${o.status === 'ready' ? 'border-red-300 bg-red-50 text-red-800' : darkMode ? 'border-slate-700' : 'border-slate-200 bg-white'}`}>
+                    <span className="font-semibold">{o.pharmacyName}</span> : ordonnance {label}.
+                    {o.pharmacistMessage && <span className="block text-xs mt-0.5">« {o.pharmacistMessage} »</span>}
+                    <span className="block text-xs mt-0.5 underline">Suivre la demande</span>
+                  </button>
+                );
+              })()}
             </div>
           )}
         </div>
       )}
+      {sendFor && <SendPrescriptionDialog prescriptionId={sendFor} darkMode={darkMode} onClose={() => setSendFor(null)}
+        onSent={(o) => { setSendFor(null); notify?.(`Ordonnance envoyée à ${o?.pharmacyName || 'la pharmacie'}.`); loadOrders(); }} />}
     </div>
   );
 }

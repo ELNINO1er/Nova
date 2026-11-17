@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
+import { closeOrdersOnDispense, signalOrders } from './pharmacy-order.service.js';
 
 // Une ordonnance partiellement délivrée doit pouvoir être complétée.
 const DISPENSABLE_STATUSES = ['active', 'partial'];
@@ -205,9 +206,14 @@ export async function dispensePrescription(pharmacyId, pharmacistUserId, payload
     if(!refused) await conn.execute('UPDATE nova_prescriptions SET status=? WHERE id=?',[status==='full'?'dispensed':'partial',rx.id]);
     const response={id,status,prescriptionId:rx.id};
     await conn.execute('INSERT INTO nova_dispense_requests(pharmacy_id,request_key,prescription_id,payload_hash,response_json) VALUES (?,?,?,?,?)',[pharmacyId,payload.requestKey,rx.id,hash,JSON.stringify(response)]);
-    await notifyPatientDispense(rx.patient_id,'Votre pharmacie',status,conn);
-    if(rx.doctor_id)await notifyDoctorDispense(rx.doctor_id,'Patient concerné','Officine',status,conn);
+    // Noms réels dans les notifications ; la commande éventuelle du patient est close.
+    const [[ph]]=await conn.execute('SELECT name FROM nova_pharmacies WHERE id=?',[pharmacyId]);
+    const [[pat]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[rx.patient_id]);
+    await notifyPatientDispense(rx.patient_id,ph?.name||'Votre pharmacie',status,conn);
+    if(rx.doctor_id)await notifyDoctorDispense(rx.doctor_id,displayName(pat?.first_name,pat?.last_name)||'votre patient',ph?.name||'une pharmacie',status,conn);
+    const closed=await closeOrdersOnDispense(conn,{pharmacyId,prescriptionId:rx.id,dispenseId:id,status});
     await conn.commit();
+    await signalOrders(closed).catch(()=>{});
     return response;
   } catch(err) { await conn.rollback(); if(err.code==='ER_DUP_ENTRY') throw Object.assign(new Error('Cle deja utilisee pour une autre operation.'),{status:409}); throw err; } finally {conn.release();}
 }

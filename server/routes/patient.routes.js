@@ -11,7 +11,7 @@ import {
   getInsurance,
   getPharmacies,
   getPharmacyOrders,
-  createPharmacyOrder,
+  createPharmacyOrder, cancelPharmacyOrder,
   createMedicationIntake,
   createAppointment,
   createDocument,
@@ -568,11 +568,15 @@ router.get('/pharmacy-orders', wrap(async (req, res) => {
 }));
 
 router.post('/pharmacy-orders', validateBody(z.object({
-  pharmacyId:     z.string().min(1),
-  prescriptionId: z.string().optional(),
+  pharmacyId:     z.string().min(1).max(36),
+  prescriptionId: z.string().min(1, { message: 'Choisissez l’ordonnance à envoyer.' }).max(36),
   notes:          z.string().max(500).optional(),
-})), wrap(async (req, res) => {
+})), auditLog('patient.pharmacy_order.create', 'pharmacy_order'), wrap(async (req, res) => {
   res.status(201).json(await createPharmacyOrder(req.user.patientId, req.body));
+}));
+
+router.post('/pharmacy-orders/:id/cancel', auditLog('patient.pharmacy_order.cancel', 'pharmacy_order'), wrap(async (req, res) => {
+  res.json(await cancelPharmacyOrder(req.user.patientId, req.params.id));
 }));
 
 /* ─── Paramètres ─────────────────────────────────────────────── */

@@ -1133,31 +1133,7 @@ export async function getPharmacies(query = {}) {
   }));
 }
 
-export async function getPharmacyOrders(patientId) {
-  const [rows] = await pool.execute(
-    `SELECT po.*, ph.name AS pharmacy_name, ph.address AS pharmacy_address, ph.phone AS pharmacy_phone
-     FROM nova_pharmacy_orders po
-     JOIN nova_pharmacies ph ON ph.id = po.pharmacy_id
-     WHERE po.patient_id = ?
-     ORDER BY po.created_at DESC`,
-    [patientId]
-  );
-  return rows.map(r => ({
-    id: r.id,
-    pharmacyId: r.pharmacy_id,
-    pharmacyName: r.pharmacy_name,
-    pharmacyAddress: r.pharmacy_address,
-    pharmacyPhone: r.pharmacy_phone,
-    prescriptionId: r.prescription_id,
-    status: r.status,
-    notes: r.notes,
-    createdAt: r.created_at,
-  }));
-}
-
-export async function createPharmacyOrder(patientId, payload) {
- throw Object.assign(new Error('Transmission des commandes aux pharmacies non intégrée.'),{status:503});
-}
+export { getPharmacyOrders, createPharmacyOrder, cancelPharmacyOrder } from './pharmacy-order.service.js';
 
 export async function getConsents(patientId) {
   const [rows] = await pool.execute(

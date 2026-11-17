@@ -1,13 +1,13 @@
 import {
   Award, BarChart3, Bell, Brain, Building2, CalendarClock, ClipboardList, FileDown, FileText, FolderHeart, Home,
   HeartPulse, Lock, MessageCircle, Microscope, Pill, ScanLine, ServerCog, Settings, ShieldCheck, Stethoscope,
-  Sun, Syringe, TrendingUp, User, Users, Activity, Droplet, StickyNote, Target, ShieldAlert, Edit3, History,
+  Sun, Syringe, TrendingUp, User, Users, Activity, Droplet, StickyNote, Target, ShieldAlert, Edit3, History, Inbox,
 } from 'lucide-react';
 
 export const ROLE_PAGES = {
   patient: ['dashboard','profile','vitals','pilulier','treatments','rdv','vaccinations','dna','labresults','history','notifications','messages','prescriptions','documents','notes','doctors','pharmacy','urgence','assistant','wellness','insurance','family','privacy','settings'],
   doctor: ['dashboard','patients','agenda','consultations','prescriptions','lab-requests','stats','chronic-patients','urgences','assistant-ia','finances','reputation','signature','messages','documents','profile','settings','notifications'],
-  pharmacist: ['dashboard','scan','history','settings'],
+  pharmacist: ['dashboard','orders','scan','history','settings'],
   admin: ['dashboard','audit','users','system','settings'],
   governor: ['dashboard'],
 };
@@ -83,6 +83,7 @@ export const ROLE_SPACES = {
   ],
   pharmacist: [
     { id: 'home', label: 'Accueil', Icon: Home, pages: [{ id: 'dashboard', label: 'Accueil', Icon: Home }] },
+    { id: 'orders', label: 'Ordonnances reçues', Icon: Inbox, pages: [{ id: 'orders', label: 'Ordonnances reçues', Icon: Inbox, b: 'orders' }] },
     { id: 'scan', label: 'Scanner une ordonnance', Icon: ScanLine, pages: [{ id: 'scan', label: 'Scanner', Icon: ScanLine }] },
     { id: 'history', label: 'Délivrances', Icon: History, pages: [{ id: 'history', label: 'Historique', Icon: History }] },
     { id: 'shop', label: 'Officine', Icon: Building2, pages: [{ id: 'settings', label: 'Paramètres', Icon: Settings }] },

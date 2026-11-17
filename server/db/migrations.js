@@ -113,6 +113,13 @@ export async function migrate(conn) {
           UNIQUE KEY uq_emergency_token (token)
         )`);
       }],
+      ['20261117_19_pharmacy_orders', async () => {
+        // Commandes d'ordonnance patient → pharmacie : réponse du pharmacien, suivi et lien avec la délivrance.
+        await column(conn, 'nova_pharmacy_orders', 'pharmacist_message', 'VARCHAR(500) NULL');
+        await column(conn, 'nova_pharmacy_orders', 'updated_at', 'DATETIME(3) NULL');
+        await column(conn, 'nova_pharmacy_orders', 'dispense_id', 'VARCHAR(36) NULL');
+        await conn.query('CREATE INDEX idx_npo_pharmacy_status ON nova_pharmacy_orders (pharmacy_id, status)').catch((e) => { if (e.code !== 'ER_DUP_KEYNAME') throw e; });
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

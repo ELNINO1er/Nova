@@ -11,6 +11,7 @@ import GlobalSearch from './layout/GlobalSearch.jsx';
 import { authApi } from './api/authApi.js';
 import { patientApi } from './api/patientApi.js';
 import { doctorApi } from './api/doctorApi.js';
+import { pharmacyApi } from './api/pharmacyApi.js';
 import { connectRealtime, disconnectRealtime, useRealtime } from './realtime/socket.js';
 import { CreatePatientModal, QRModal, VideoModal } from './modals/index.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -235,7 +236,14 @@ export default function App() {
   // Compteurs (notifications, messages non lus) : chargés à la connexion puis à chaque signal temps réel.
   const badgeRequest = useRef(0);
   const refreshBadges = () => {
-    if (auth !== 'ok' || !['patient', 'doctor'].includes(role)) return;
+    if (auth !== 'ok') return;
+    // Pharmacien : nombre d'ordonnances reçues à préparer.
+    if (role === 'pharmacist') {
+      const requestId = ++badgeRequest.current;
+      pharmacyApi.orders().then((rows) => { if (requestId === badgeRequest.current) setBadges({ orders: rows.filter((o) => o.status === 'pending').length }); }).catch(() => {});
+      return;
+    }
+    if (!['patient', 'doctor'].includes(role)) return;
     const api = role === 'doctor' ? doctorApi : patientApi;
     const requestId = ++badgeRequest.current;
     Promise.allSettled([api.notifications(), api.conversations()])
@@ -257,7 +265,7 @@ export default function App() {
 
   // Temps réel : une connexion par session ouverte, fermée à la déconnexion.
   useEffect(() => {
-    if (auth !== 'ok' || !user?.id || !['patient', 'doctor'].includes(role)) return undefined;
+    if (auth !== 'ok' || !user?.id || !['patient', 'doctor', 'pharmacist'].includes(role)) return undefined;
     connectRealtime(user.id);
     const resync = () => refreshBadges();
     window.addEventListener('nova:realtime-reconnected', resync);
@@ -267,6 +275,7 @@ export default function App() {
   useRealtime('notification:new', () => refreshBadges());
   useRealtime('message:new', () => refreshBadges());
   useRealtime('conversation:read', () => refreshBadges());
+  useRealtime('pharmacy-order:changed', () => refreshBadges());
 
   useEffect(()=>{
     if(auth==='ok' && (parts[0]!==pageRole || !ROLE_PAGES[pageRole]?.includes(parts[1])))navigate(`/${pageRole}/dashboard`,{replace:true});

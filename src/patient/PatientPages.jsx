@@ -154,7 +154,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     messages: <PMsg data={apiData.messages} onConversationsChange={replaceMessages} setShowVid={setShowVid} {...p} />,
     documents: <PDocs data={apiData.documents} onReload={(value) => replacePageDataAndRefreshDashboard('documents', value)} notify={notify} {...p} />,
     notes: <PNotes data={apiData.notes} onReload={(value) => replacePageData('notes', value)} notify={notify} {...p} />,
-    prescriptions: <POrdonnances data={apiData.prescriptions} {...p} />,
+    prescriptions: <POrdonnances data={apiData.prescriptions} notify={notify} setPage={setPage} {...p} />,
     labresults: <PLabResults data={apiData.labresults} {...p} />,
     vitals: <PVitals data={apiData.vitals} onAddVital={(v) => replacePageData('vitals', v)} notify={notify} {...p} />,
     doctors: <PDoctors data={apiData.doctors} onBooked={() => { loadPage('rdv', true); loadPage('notifications', true); }} notify={notify} setPage={setPage} {...p} />,
@@ -163,7 +163,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     assistant: <PAssistant patientData={apiData.dashboard} {...p} />,
     wellness: <PWell data={apiData.wellness} profile={apiData.dashboard?.profile} onReload={(v) => replacePageData('wellness', v)} notify={notify} {...p} />,
     insurance: <PInsurance data={apiData.insurance} {...p} />,
-    pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} {...p} />,
+    pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} setPage={setPage} {...p} />,
     family: <PFamily data={apiData.family} onReload={(v) => replacePageData('family', v)} notify={notify} {...p} />,
     privacy: <PPrivacy data={apiData.privacy} onReload={(v) => replacePageData('privacy', v)} notify={notify} {...p} />,
     settings: <SettingsPage data={apiData.settings} setPage={setPage} {...p} />

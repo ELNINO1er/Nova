@@ -95,6 +95,7 @@ export const patientApi = {
   exportPdfUrl: () => `${API_BASE_URL}/patient/me/export/pdf`,
   pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
   pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
+  cancelPharmacyOrder: (id) => request(`/patient/me/pharmacy-orders/${id}/cancel`, { method: 'POST' }),
   createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
     method: 'POST',
     body: JSON.stringify(payload),

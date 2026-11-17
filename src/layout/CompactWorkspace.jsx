@@ -5,7 +5,7 @@ import { ROLE_SPACES, spaceOf } from '../navigation.js';
 const mobileLinks = {
   patient: [['dashboard', 'Accueil'], ['prescriptions', 'Traitements'], ['rdv', 'Rendez-vous']],
   doctor: [['dashboard', 'Accueil'], ['patients', 'Patients'], ['agenda', 'Agenda']],
-  pharmacist: [['dashboard', 'Accueil'], ['scan', 'Scanner'], ['history', 'Délivrances']],
+  pharmacist: [['dashboard', 'Accueil'], ['orders', 'Reçues'], ['scan', 'Scanner'], ['history', 'Délivrances']],
   admin: [['dashboard', 'Accueil'], ['users', 'Comptes'], ['audit', 'Sécurité']],
   governor: [['dashboard', 'Indicateurs']],
 };
@@ -13,7 +13,7 @@ const mobileLinks = {
 const homeLinks = {
   patient: [['history', 'Dossier'], ['prescriptions', 'Traitements'], ['rdv', 'Rendez-vous'], ['wellness', 'Bien-être']],
   doctor: [['patients', 'Mes patients'], ['consultations', 'Consultations'], ['prescriptions', 'Ordonnances']],
-  pharmacist: [['scan', 'Scanner'], ['history', 'Délivrances'], ['settings', 'Officine']],
+  pharmacist: [['orders', 'Ordonnances reçues'], ['scan', 'Scanner'], ['history', 'Délivrances']],
   admin: [['users', 'Comptes'], ['audit', 'Sécurité'], ['system', 'Système']],
 };
 
