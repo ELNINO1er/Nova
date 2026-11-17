@@ -5,14 +5,36 @@ const EMERGENCY_TERMS = [
 ];
 
 const BLOCKED_CLINICAL_ACTIONS = [
-  'diagnostic', 'diagnostiquer', 'prescris', 'prescrire', 'ordonnance',
+  // Demandes de décision médicale (le mot « ordonnance » seul n'en est pas une : « où sont mes ordonnances ? »).
+  'diagnostic', 'diagnostiquer', 'prescris', 'prescrire', 'prescrivez',
   'posologie', 'dose', 'antibiotique', 'arreter mon traitement', 'arrêter mon traitement',
 ];
 
 const PATIENT_ADVICE = [
+  // Orientation dans NOVA : les entrées les plus précises d'abord.
+  { tags: ['annuler', 'deplacer', 'déplacer', 'reporter', 'modifier un rendez'],
+    answer: "Ouvrez Mes rendez-vous › Rendez-vous, choisissez le rendez-vous puis « Modifier » (le médecin devra reconfirmer la nouvelle heure) ou « Annuler ». Un rendez-vous passé ne peut plus être modifié." },
+  { tags: ['prendre un rendez', 'prendre rendez', 'reserver', 'réserver'],
+    answer: "Ouvrez Mes rendez-vous › Trouver un médecin, choisissez un médecin puis un créneau libre et réservez. Vous pouvez aussi envoyer une demande depuis Mes rendez-vous › Rendez-vous ; le médecin la confirme." },
+  { tags: ['ordonnance'],
+    answer: "Vos ordonnances sont dans Mes traitements › Ordonnances. Chacune a un QR à présenter en pharmacie, et le bouton « Envoyer à une pharmacie » pour la faire préparer avant de passer." },
+  { tags: ['pharmacie'],
+    answer: "Dans Mes traitements › Pharmacies, choisissez une officine et envoyez-lui une ordonnance active : elle vous prévient quand c'est prêt. Au comptoir, présentez le QR de l'ordonnance." },
+  { tags: ['acces', 'accès', 'retirer', 'revoquer', 'révoquer', 'partage'],
+    answer: "Ouvrez Partage et compte › Accès au dossier : vous voyez qui a accès à votre dossier et pouvez retirer un accès à tout moment, avec effet immédiat. Le journal d'accès montre chaque consultation." },
+  { tags: ['allergie', 'antecedent', 'antécédent'],
+    answer: "Ouvrez Mon dossier › Infos médicales : ajoutez ou retirez vos allergies, maladies chroniques et antécédents. Ce que vous déclarez est distingué de ce que votre médecin a saisi." },
+  { tags: ['vaccin'],
+    answer: "Votre carnet est dans Mon dossier › Vaccinations : dates d'injection, prochains rappels et rappels en retard. Le bouton « Imprimer mon carnet » produit une version papier." },
+  { tags: ['message', 'ecrire', 'écrire', 'contacter mon medecin', 'contacter mon médecin'],
+    answer: "Ouvrez Mes rendez-vous › Messages, puis « Nouvelle conversation » et choisissez un médecin qui a accès à votre dossier. Vous pouvez joindre une ordonnance, une analyse ou un document." },
+  { tags: ['urgence', 'qr'],
+    answer: "En cas d'urgence vitale, appelez le 185 (SAMU). Votre fiche d'urgence et son QR, lisible par un secouriste avec l'appareil photo d'un téléphone, sont dans SOS Urgence." },
+  { tags: ['marche', 'marcher', 'pas par jour'],
+    answer: "Repère général pour un adulte : environ 30 minutes de marche active par jour, au moins 5 jours par semaine, ou 150 minutes par semaine. Adaptez avec votre médecin en cas de maladie cardiaque ou de douleur." },
   {
     tags: ['medicament', 'médicament', 'pilulier', 'comprime', 'comprimé', 'matin', 'soir'],
-    answer: "Consultez votre pilulier NOVA pour les horaires de prise du jour. Ne modifiez jamais une dose et n'arrêtez pas un traitement sans avis médical. En cas d'oubli répété, contactez votre médecin ou votre pharmacien.",
+    answer: "Consultez Mes traitements › Prises prévues pour les horaires de prise du jour. Ne modifiez jamais une dose et n'arrêtez pas un traitement sans avis médical. En cas d'oubli répété, contactez votre médecin ou votre pharmacien.",
   },
   {
     tags: ['glycemie', 'glycémie', 'glucose', 'diabete', 'diabète'],

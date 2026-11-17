@@ -23,6 +23,7 @@ import publicRoutes from './routes/public.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { openApiSpec } from './openapi.js';
 import { initRealtime } from './realtime.js';
+import { startMedicationReminders } from './jobs/medication-reminders.js';
 
 const app = express();
 const port = Number(process.env.PORT || process.env.API_PORT || 4001);
@@ -168,6 +169,8 @@ process.on('SIGINT', shutdown);
 initDb()
   .then(() => {
     databaseReady = true;
+    // Rappels de prise (désactivés pendant les tests automatisés).
+    if (process.env.NODE_ENV !== 'test') startMedicationReminders();
     console.log(`Base de données : MySQL (${process.env.DB_NAME || 'nova'})`);
   })
   .catch((err) => {

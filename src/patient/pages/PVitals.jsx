@@ -8,16 +8,21 @@ import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import {
   Button, Card, CardTitle, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile, inputClass,
 } from '../../components/patient/ui.jsx';
+import { VITAL_NORMS, vitalNumber } from '../../utils/vitalNorms.js';
 
 const byDate = (a, b) => new Date(a.measuredAt) - new Date(b.measuredAt);
-const typeConfig = {
-  blood_pressure: { label: 'Tension artérielle', unit: 'mmHg', icon: HeartPulse,  normal: '12/8', ref: '< 14/9' },
-  blood_glucose:  { label: 'Glycémie',           unit: 'g/L',  icon: Droplet,     normal: '0.70–1.10', ref: '0,70–1,10' },
-  heart_rate:     { label: 'Fréquence cardiaque',unit: 'bpm',  icon: Heart,       normal: '60–100', ref: '60–100' },
-  temperature:    { label: 'Température',        unit: '°C',   icon: Thermometer, normal: '36.1–37.2', ref: '36,1–37,2' },
+// Normes partagées avec le serveur (src/utils/vitalNorms.js) : mêmes seuils sur toutes les pages.
+const ICONS = { blood_pressure: HeartPulse, blood_glucose: Droplet, heart_rate: Heart, temperature: Thermometer };
+const typeConfig = Object.fromEntries(Object.entries(VITAL_NORMS).map(([k, n]) => [k, { ...n, icon: ICONS[k], ref: n.normal }]));
+// Affichage : tension toujours en mmHg (« 12/8 » ancien format → « 120/80 »), virgule décimale française.
+const show = (v, type) => {
+  if (v == null || v === '') return '—';
+  if (type === 'blood_pressure' || String(v).includes('/')) {
+    const [s, d] = String(v).split('/').map((x) => Number(String(x).replace(',', '.')));
+    return Number.isFinite(s) && s < 30 ? `${Math.round(s * 10)}/${Math.round(d * 10)}` : String(v);
+  }
+  return String(v).replace('.', ',');
 };
-// Affichage : virgule décimale française (la tension reste « 12/8 »).
-const show = (v) => (v == null || v === '' ? '—' : String(v).replace('.', ','));
 
 // Champs cherchables de l'historique des mesures, du plus au moins important.
 const FIELDS = (v) => {
@@ -50,10 +55,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
   const found = useSearch(history, query, FIELDS);
   const historyRows = scope === 'current' ? found.filter(v => v.type === activeType) : found;
 
-  const toNum = (v) => {
-    if (activeType === 'blood_pressure') return Number(String(v).split('/')[0]);
-    return Number(v);
-  };
+  const toNum = (v) => vitalNumber(activeType, v);
 
   const nums = typeVitals.map(v => toNum(v.value)).filter(n => Number.isFinite(n));
   const minV = nums.length ? Math.min(...nums) : 0;
@@ -130,9 +132,9 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Valeur ({typeConfig[addForm.type].unit})</span>
               <input value={addForm.value} onChange={e => setAddForm(f => ({ ...f, value: e.target.value }))}
-                placeholder={typeConfig[addForm.type].normal} onKeyDown={e => e.key === 'Enter' && saveVital()}
+                placeholder={typeConfig[addForm.type].example} onKeyDown={e => e.key === 'Enter' && saveVital()}
                 className={`mt-1 ${inputClass(darkMode)}`} />
-              <span className={`block text-xs ${sub} mt-1.5`}>Format attendu : {typeConfig[addForm.type].normal} {typeConfig[addForm.type].unit}</span>
+              <span className={`block text-xs ${sub} mt-1.5`}>Exemple : {typeConfig[addForm.type].example} {typeConfig[addForm.type].unit}{addForm.type === 'blood_pressure' ? ' (12/8 est converti en 120/80)' : ''}</span>
             </label>
             <div className="flex gap-2 pt-1">
               <Button variant="secondary" darkMode={darkMode} className="flex-1" onClick={() => setShowAdd(false)}>Annuler</Button>
@@ -250,7 +252,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
                     </div>
                     <span className={`hidden sm:block text-sm ${sub}`}><Highlight text={formatDate(v.measuredAt)} query={query} /></span>
                     <span className={`text-sm font-semibold tabular-nums text-right whitespace-nowrap ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-                      <Highlight text={show(v.value)} query={query} /> <span className="font-normal text-slate-500">{c.unit}</span>
+                      <Highlight text={show(v.value, v.type)} query={query} /> <span className="font-normal text-slate-500">{c.unit}</span>
                     </span>
                   </li>
                 );

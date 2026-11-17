@@ -17,6 +17,8 @@ const fmtBirth = (value) => {
 const SEX_LABELS = { M: 'Homme', F: 'Femme', H: 'Homme' };
 const fmtSex = (value) => (value ? SEX_LABELS[String(value).toUpperCase()] || value : null);
 
+const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
 export default function PProfile({ data, onSaved, card, sub, border, darkMode }) {
   const [edit, setEdit] = useState(false);
   const [d, setD] = useState({
@@ -87,20 +89,20 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
     setSaveError('');
     try {
       const updated = await patientApi.updateProfile({
-        firstName:             d.firstName,
-        lastName:              d.lastName,
-        birthDate:             d.birthDate || undefined,
-        sex:                   d.sex       || undefined,
-        bloodType:             d.bloodType || undefined,
-        phone:                 d.phone     || undefined,
-        email:                 d.email     || undefined,
-        address:               d.address   || undefined,
-        city:                  d.city      || undefined,
-        weightKg:              Number(d.weight) || undefined,
-        heightCm:              Number(d.height) || undefined,
-        emergencyName:         d.eName     || undefined,
-        emergencyRelationship: d.eRel      || undefined,
-        emergencyPhone:        d.ePhone    || undefined,
+        // Champ vidé = effacé côté serveur (chaîne vide ou null).
+        firstName:             d.firstName.trim(),
+        lastName:              d.lastName.trim(),
+        birthDate:             d.birthDate || '',
+        sex:                   ['M', 'F'].includes(d.sex) ? d.sex : '',
+        bloodType:             BLOOD_TYPES.includes(d.bloodType) ? d.bloodType : '',
+        email:                 d.email.trim(),
+        address:               d.address.trim(),
+        city:                  d.city.trim(),
+        weightKg:              Number(d.weight) > 0 ? Number(d.weight) : null,
+        heightCm:              Number(d.height) > 0 ? Number(d.height) : null,
+        emergencyName:         d.eName.trim(),
+        emergencyRelationship: d.eRel.trim(),
+        emergencyPhone:        d.ePhone.trim(),
       });
       onSaved?.(updated);
       setEdit(false);
@@ -137,6 +139,11 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
               <option value="F">Femme</option>
               {d.sex && !['M', 'F'].includes(d.sex) && <option value={d.sex}>{d.sex}</option>}
             </NovaSelect>
+          ) : key === 'bloodType' ? (
+            <NovaSelect darkMode={darkMode} value={d.bloodType} onChange={(e) => setD({ ...d, bloodType: e.target.value })} className={inputCls}>
+              <option value="">Non renseigné</option>
+              {BLOOD_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}
+            </NovaSelect>
           ) : (
             <input type={type} value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} className={inputCls} />
           )}
@@ -149,10 +156,6 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
 
   const actionLabel = photoSrc ? 'Changer la photo' : 'Ajouter une photo';
 
-  /* Antécédents / conditions, seulement si le profil les fournit (listes ou texte). */
-  const toList = (v) => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : x?.name || x?.label || '')).filter(Boolean) : v ? [String(v)] : []);
-  const conditions = [...toList(data.chronicDiseases), ...toList(data.conditions), ...toList(data.allergies)];
-  const emergencyText = [d.eName, d.eRel && `(${d.eRel})`].filter(Boolean).join(' ');
   const keyStats = [
     ['Taille', d.height ? `${d.height}` : '—', d.height ? 'cm' : ''],
     ['Poids', d.weight ? `${d.weight}` : '—', d.weight ? 'kg' : ''],
@@ -224,31 +227,6 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
           </dl>
         </section>
 
-        <Card darkMode={darkMode} className="lg:col-span-3">
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-            <Field label="Téléphone" Icon={Smartphone}>{d.phone || null}</Field>
-            <Field label="Email" Icon={Mail}>{d.email || null}</Field>
-            <Field label="N° CMU" Icon={IdCard}>{d.cmu ? <span className="font-mono">{d.cmu}</span> : null}</Field>
-            <Field label="Date de naissance" Icon={Calendar}>{fmtBirth(d.birthDate)}</Field>
-            {conditions.length > 0 && (
-              <div className="sm:col-span-2">
-                <Field label="Antécédents et conditions" Icon={Heart}>
-                  <span className="flex flex-wrap gap-1.5 mt-0.5">{conditions.map((c, i) => <Chip key={`${c}-${i}`} tone="watch">{c}</Chip>)}</span>
-                </Field>
-              </div>
-            )}
-            <div className={`sm:col-span-2 pt-5 border-t ${line}`}>
-              <Field label="Contact d’urgence" Icon={Siren}>
-                {emergencyText || d.ePhone ? (
-                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {emergencyText && <span>{emergencyText}</span>}
-                    {d.ePhone && <a href={`tel:${d.ePhone}`} className="text-red-700 font-semibold hover:underline">{d.ePhone}</a>}
-                  </span>
-                ) : null}
-              </Field>
-            </div>
-          </dl>
-        </Card>
       </div>
 
       {edit && <p className={`text-sm ${sub}`}>Mode édition : modifiez les champs ci-dessous puis cliquez sur « Enregistrer ».</p>}
@@ -271,7 +249,10 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
         <Card darkMode={darkMode} className={edit ? (darkMode ? 'border-red-900' : 'border-red-200') : ''}>
           <CardTitle Icon={Smartphone}>Coordonnées</CardTitle>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-            {row('Téléphone', 'phone', { Icon: Smartphone, type: 'tel' })}
+            <div>
+              <Field label="Téléphone (identifiant de connexion)" Icon={Smartphone}>{d.phone || null}</Field>
+              {edit && <p className={`text-xs mt-1 ${sub}`}>Pour changer de numéro, demandez-le à votre médecin ou à l’administrateur NOVA.</p>}
+            </div>
             {row('Email', 'email', { Icon: Mail, type: 'email' })}
           </dl>
         </Card>

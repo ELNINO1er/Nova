@@ -57,7 +57,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   };
 
   const uploadDocument = async () => {
-    if (!pickedFile && !docForm.title) { notify?.('Sélectionnez un fichier ou saisissez un titre', 'error'); return; }
+    if (!pickedFile) { notify?.('Choisissez le fichier du document.', 'error'); return; }
     setUploading(true);
     try {
       const fd = new FormData();
@@ -108,7 +108,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   return (
     <div className="space-y-5">
       <PageHeader title="Mes documents" sub={sub}
-        subtitle={<span className="inline-flex items-center gap-1.5">{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} <span aria-hidden="true">·</span> <Lock className="w-3.5 h-3.5" /> Stockage chiffré</span>}
+        subtitle={<span className="inline-flex items-center gap-1.5">{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} <span aria-hidden="true">·</span> <Lock className="w-3.5 h-3.5" /> Visibles par vous et vos médecins autorisés</span>}
         actions={<Button Icon={Plus} onClick={() => setShowForm(true)}>Importer</Button>} />
 
       {showForm && (
@@ -162,7 +162,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
 
           <div className="flex gap-2">
             <Button variant="secondary" darkMode={darkMode} className="flex-1" onClick={closeForm}>Annuler</Button>
-            <Button className="flex-1" onClick={uploadDocument} disabled={uploading || (!pickedFile && !docForm.title)}>
+            <Button className="flex-1" onClick={uploadDocument} disabled={uploading || !pickedFile}>
               {uploading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FileDown className="w-4 h-4" />}
               {uploading ? 'Import en cours…' : 'Importer'}
             </Button>
@@ -192,7 +192,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
             hint={latestDoc ? `Dernier ajout : ${latestDoc.d}` : undefined} />
           <StatTile label="Avec fichier" value={withFile} Icon={Download} darkMode={darkMode}
             hint={`${apiDocs.length - withFile} sans pièce jointe`} />
-          <StatTile label="Espace utilisé" value={totalBytes ? formatBytes(totalBytes) : '—'} Icon={HardDrive} darkMode={darkMode} hint="Stockage chiffré" />
+          <StatTile label="Espace utilisé" value={totalBytes ? formatBytes(totalBytes) : '—'} Icon={HardDrive} darkMode={darkMode} hint="Accès réservé à vous et à vos médecins autorisés" />
         </div>
       )}
 

@@ -8,6 +8,7 @@ import { notifyDoctorConsent, notifyDoctorAppointment, notifyDoctorAppointmentCh
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 import { CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS } from './consent-terms.js';
+import { vitalLevel } from './vital-norms.js';
 
 /* ─── Dashboard ─────────────────────────────────────────────── */
 
@@ -58,21 +59,24 @@ export async function updateProfile(patientId, changes) {
   const current = await getProfile(patientId);
   if (!current) return null;
 
+  // Un champ envoyé vide (« » ou null) est effacé ; un champ absent garde sa valeur.
+  // Le téléphone n'est pas modifiable ici : c'est l'identifiant de connexion (changement par le médecin ou l'administrateur).
+  const pick = (key, fallback) => (Object.prototype.hasOwnProperty.call(changes, key) ? (changes[key] === '' ? null : changes[key]) : fallback);
   const next = {
-    first_name:               changes.firstName             ?? current.firstName,
-    last_name:                changes.lastName              ?? current.lastName,
-    birth_date:               changes.birthDate             ?? current.birthDate,
-    sex:                      changes.sex                   ?? current.sex,
-    blood_type:               changes.bloodType             ?? current.bloodType,
-    phone:                    changes.phone                 ?? current.phone,
-    email:                    changes.email                 ?? current.email,
-    address:                  changes.address               ?? current.address,
-    city:                     changes.city                  ?? current.city,
-    weight_kg:                changes.weightKg              ?? current.weightKg,
-    height_cm:                changes.heightCm              ?? current.heightCm,
-    emergency_name:           changes.emergencyName         ?? current.emergencyContact?.name,
-    emergency_relationship:   changes.emergencyRelationship ?? current.emergencyContact?.relationship,
-    emergency_phone:          changes.emergencyPhone        ?? current.emergencyContact?.phone,
+    first_name:               changes.firstName || current.firstName,
+    last_name:                changes.lastName || current.lastName,
+    birth_date:               pick('birthDate', current.birthDate),
+    sex:                      pick('sex', current.sex),
+    blood_type:               pick('bloodType', current.bloodType),
+    phone:                    current.phone,
+    email:                    pick('email', current.email),
+    address:                  pick('address', current.address),
+    city:                     pick('city', current.city),
+    weight_kg:                pick('weightKg', current.weightKg),
+    height_cm:                pick('heightCm', current.heightCm),
+    emergency_name:           pick('emergencyName', current.emergencyContact?.name),
+    emergency_relationship:   pick('emergencyRelationship', current.emergencyContact?.relationship),
+    emergency_phone:          pick('emergencyPhone', current.emergencyContact?.phone),
     updated_at:               new Date().toISOString(),
   };
 
@@ -1083,28 +1087,8 @@ function vitalToHistoryValue(vital) {
 }
 
 function getVitalStatus(vital) {
-  const value = vitalToHistoryValue(vital);
-  if (!Number.isFinite(value)) return 'normal';
-  if (vital.type === 'blood_pressure') {
-    // Seuils en mmHg ; la tension est souvent saisie en cmHg (« 12/8 » = 120/80).
-    const systolic = value < 30 ? value * 10 : value;
-    if (systolic >= 160 || systolic <= 90)  return 'critical';
-    if (systolic >= 140 || systolic <= 100) return 'watch';
-    return 'normal';
-  }
-  if (vital.type === 'blood_glucose') {
-    if (value >= 1.26 || value < 0.7)  return 'critical';
-    if (value >= 1.1  || value < 0.8)  return 'watch';
-  }
-  if (vital.type === 'heart_rate') {
-    if (value >= 120 || value <= 45)  return 'critical';
-    if (value >= 100 || value <= 55)  return 'watch';
-  }
-  if (vital.type === 'temperature') {
-    if (value >= 39   || value <= 35) return 'critical';
-    if (value >= 37.8 || value <= 36) return 'watch';
-  }
-  return 'normal';
+  // Seuils partagés avec l'écran (vital-norms.js).
+  return vitalLevel(vital.type, vital.value);
 }
 
 function deepMerge(target, source) {

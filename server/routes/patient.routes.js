@@ -1,6 +1,8 @@
+import fs from 'node:fs';
 import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import { emergencyUrl, getOrCreateEmergencyToken, renewEmergencyToken } from '../services/emergency.service.js';
 import { closeOwnPatientAccount } from '../services/account-closure.service.js';
+import { VITAL_NORMS, normalizeVital } from '../services/vital-norms.js';
 import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -135,21 +137,23 @@ router.delete('/photo', auditLog('patient.photo.remove', 'patient'), wrap(async 
   res.json(result);
 }));
 
+// Profil : chaînes vides acceptées pour effacer un champ ; le téléphone (identifiant de connexion) n'est pas modifiable ici.
+const CLEARABLE = (max) => z.string().max(max).nullable().optional();
+const CLEARABLE_BIRTH = z.preprocess((v) => (v === '' ? null : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').nullable().optional());
 router.patch('/profile', validateBody(z.object({
-  firstName:             z.string().min(1).optional(),
-  lastName:              z.string().min(1).optional(),
-  birthDate:             BIRTH_DATE,
-  sex:                   z.string().optional(),
-  bloodType:             z.string().optional(),
-  phone:                 z.string().min(8).optional(),
-  email:                 z.string().email().optional(),
-  address:               z.string().optional(),
-  city:                  z.string().optional(),
-  weightKg:              z.number().positive().optional(),
-  heightCm:              z.number().positive().optional(),
-  emergencyName:         z.string().optional(),
-  emergencyRelationship: z.string().optional(),
-  emergencyPhone:        z.string().optional(),
+  firstName:             z.string().trim().min(1).max(100).optional(),
+  lastName:              z.string().trim().min(1).max(100).optional(),
+  birthDate:             CLEARABLE_BIRTH,
+  sex:                   z.enum(['M', 'F', '']).nullable().optional(),
+  bloodType:             z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', '']).nullable().optional(),
+  email:                 z.union([z.string().email({ message: 'Adresse e-mail invalide.' }), z.literal('')]).nullable().optional(),
+  address:               CLEARABLE(255),
+  city:                  CLEARABLE(100),
+  weightKg:              z.number().positive().max(500).nullable().optional(),
+  heightCm:              z.number().positive().max(260).nullable().optional(),
+  emergencyName:         CLEARABLE(150),
+  emergencyRelationship: CLEARABLE(60),
+  emergencyPhone:        CLEARABLE(30),
 })), wrap(async (req, res) => {
   const { invalidateCache } = await import('../middleware/cache.js');
   invalidateCache(req.user.id);
@@ -164,18 +168,14 @@ router.get('/vitals', wrap(async (req, res) => {
 
 router.post('/vitals', validateBody(z.object({
   type:       z.enum(['blood_pressure','blood_glucose','heart_rate','temperature']),
-  value:      z.string().min(1),
-  label:      z.string().optional(),
-  unit:       z.string().optional(),
-  measuredAt: z.string().datetime().optional(),
+  value:      z.string().min(1).max(20),
+  measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), wrap(async (req, res) => {
-  const labels = { blood_pressure: 'Tension artérielle', blood_glucose: 'Glycémie', heart_rate: 'Fréquence cardiaque', temperature: 'Température' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C' };
-  const payload = {
-    ...req.body,
-    label: req.body.label || labels[req.body.type],
-    unit:  req.body.unit  || units[req.body.type],
-  };
+  // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.
+  const norm = VITAL_NORMS[req.body.type];
+  const value = normalizeVital(req.body.type, req.body.value);
+  if (!value) return res.status(422).json({ error: 'invalid_vital', message: `Valeur invalide pour ${norm.label.toLowerCase()} : exemple ${norm.example} ${norm.unit}.` });
+  const payload = { ...req.body, value, label: norm.label, unit: norm.unit };
   res.status(201).json(await addVital(req.user.patientId, payload));
 }));
 
@@ -260,16 +260,15 @@ router.get('/documents', requirePermission('patient.documents'), wrap(async (req
 }));
 
 router.post('/documents', requirePermission('patient.documents'), upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
-  const title    = req.body.title    || (req.file ? req.file.originalname : 'Document');
-  const category = req.body.category || 'other';
-  const doc = await createDocument(req.user.patientId, {
-    title,
-    category,
-    mimeType:  req.file ? req.file.mimetype    : (req.body.mimeType || 'application/pdf'),
-    sizeBytes: req.file ? req.file.size        : Number(req.body.sizeBytes || 0),
-    filePath:  req.file ? req.file.path        : null,
-  });
-  res.status(201).json(doc);
+  // Un document est toujours un fichier : pas de ligne « fantôme » sans contenu.
+  const discard = () => req.file && fs.promises.unlink(req.file.path).catch(() => {});
+  if (!req.file) return res.status(422).json({ error: 'file_required', message: 'Joignez le fichier du document.' });
+  const title = String(req.body.title || req.file.originalname || 'Document').trim().slice(0, 255);
+  const category = ['prescription', 'lab', 'consultation', 'vaccine', 'other'].includes(req.body.category) ? req.body.category : 'other';
+  try {
+    const doc = await createDocument(req.user.patientId, { title, category, mimeType: req.file.mimetype, sizeBytes: req.file.size, filePath: req.file.path });
+    res.status(201).json(doc);
+  } catch (e) { await discard(); throw e; }
 }));
 
 router.delete('/documents/:id', requirePermission('patient.documents'), wrap(async (req, res) => {
@@ -653,7 +652,6 @@ router.post('/family', requirePermission('patient.family'), validateBody(z.objec
   lastName:        z.string().min(1),
   relationship:    familyRelationshipSchema,
   birthDate:       BIRTH_DATE,
-  memberPatientId: z.string().optional(),
   notes:           z.string().max(500).optional(),
 })), wrap(async (req, res) => {
   res.status(201).json(await createFamilyMember(req.user.patientId, req.body));
@@ -663,8 +661,9 @@ router.patch('/family/:id', requirePermission('patient.family'), validateBody(z.
   firstName:    z.string().min(1).optional(),
   lastName:     z.string().min(1).optional(),
   relationship: familyRelationshipSchema.optional(),
-  birthDate:    BIRTH_DATE,
-  notes:        z.string().max(500).optional(),
+  // Modification : chaîne vide = champ effacé.
+  birthDate:    CLEARABLE_BIRTH,
+  notes:        z.string().max(500).nullable().optional(),
 })), wrap(async (req, res) => {
   res.json(await updateFamilyMember(req.user.patientId, req.params.id, req.body));
 }));

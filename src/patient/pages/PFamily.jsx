@@ -56,8 +56,9 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
       notify?.('Veuillez remplir le nom et le prénom', 'error');
       return;
     }
-    // Champs vides non envoyés : une date vide serait refusée par la colonne DATE.
-    const payload = { ...form, firstName: form.firstName.trim(), lastName: form.lastName.trim(), birthDate: form.birthDate || undefined, notes: form.notes?.trim() || undefined };
+    // Création : champs vides non envoyés. Modification : champ vidé = effacé (null).
+    const empty = editingId ? null : undefined;
+    const payload = { firstName: form.firstName.trim(), lastName: form.lastName.trim(), relationship: form.relationship, birthDate: form.birthDate || empty, notes: form.notes?.trim() || empty };
     try {
       if (editingId) {
         await patientApi.updateFamilyMember(editingId, payload);

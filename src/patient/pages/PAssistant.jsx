@@ -34,25 +34,6 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages.length]);
 
   // Réponses locales de secours (non utilisées quand le service répond) — sans émoji, toujours prudentes.
-  const simulateResponse = (userMsg) => {
-    const msg = userMsg.toLowerCase();
-    if (msg.includes('médic') || msg.includes('comprimé') || msg.includes('soir') || msg.includes('matin'))
-      return `D'après votre traitement actuel, veillez à prendre vos médicaments aux horaires prescrits. Consultez votre page **Pilulier** pour voir vos prises du jour. Si vous avez un doute, contactez votre médecin.\n\n*Je ne suis pas médecin — consultez toujours un professionnel de santé.*`;
-    if (msg.includes('rendez-vous') || msg.includes('rdv'))
-      return `Votre prochain rendez-vous est visible dans la section **Rendez-vous** de l'application. Vous pouvez aussi prendre un nouveau RDV via **Trouver un médecin**.\n\n*Pensez à activer les rappels dans vos paramètres.*`;
-    if (msg.includes('glycémie') || msg.includes('glucose') || msg.includes('1.10'))
-      return `Une glycémie de **1,10 g/L** à jeun est dans la zone haute de la normale (0,70–1,10 g/L). Ce n'est pas alarmant, mais il est conseillé de limiter les sucres rapides et de pratiquer une activité physique régulière.\n\n*Consultez votre diabétologue pour un suivi personnalisé.*`;
-    if (msg.includes('hypertension') || msg.includes('tension') || msg.includes('aliment'))
-      return `Avec de l'hypertension, il est conseillé de :\n• **Réduire le sel** (max 5g/jour)\n• Éviter les charcuteries et plats transformés\n• Limiter l'alcool et la caféine\n• Favoriser les fruits, légumes et poissons gras\n\n*Le régime DASH est particulièrement recommandé.*`;
-    if (msg.includes('score') || msg.includes('améliorer') || msg.includes('santé'))
-      return `Votre **score de santé** est calculé en tenant compte de vos constantes vitales, de la prise de vos médicaments, de vos vaccins et de vos RDV.\n\nPour l'améliorer :\n• Prenez vos médicaments régulièrement\n• Maintenez vos rendez-vous médicaux\n• Mettez à jour vos vaccins\n• Pratiquez 30 min d'activité physique par jour`;
-    if (msg.includes('résultat') || msg.includes('analyse') || msg.includes('labo'))
-      return `Vos résultats d'analyses sont disponibles dans la section **Résultats labo**. Les valeurs signalées en rouge méritent attention.\n\n*Seul votre médecin peut interpréter correctement vos résultats dans leur contexte clinique.*`;
-    if (msg.includes('merci') || msg.includes('super') || msg.includes('ok'))
-      return `Avec plaisir ! N'hésitez pas à revenir si vous avez d'autres questions. Prenez soin de vous.`;
-    return `Je comprends votre question. Pour des informations précises sur **${userMsg.slice(0, 40)}**, je vous recommande de :\n\n1. Consulter les sections dédiées de l'application\n2. Contacter votre médecin via la **Messagerie**\n3. Prendre un RDV via **Trouver un médecin**\n\n*NOVA Assistant fournit des informations générales uniquement — pas un avis médical.*`;
-  };
-
   // text facultatif : une question suggérée envoyée directement (sinon le champ de saisie).
   const sendMessage = async (text) => {
     const txt = (typeof text === 'string' ? text : input).trim();
@@ -62,10 +43,10 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
     setTyping(true);
     try {
       const reply = await patientApi.assistant(txt);
-      const prefix = reply.risk === 'emergency' ? 'Urgence potentielle : ' : reply.risk === 'warning' ? 'Attention : ' : '';
+      const prefix = reply.risk === 'warning' ? 'Attention : ' : '';
       setMessages(m => [...m, { role: 'assistant', text: `${prefix}${reply.answer}\n\n${reply.disclaimer}`, ts: new Date() }]);
     } catch (err) {
-      setMessages(m => [...m, { role: 'assistant', text: `Service assistant indisponible. Contactez votre medecin pour toute question medicale.\n\n${err.message || ''}`, ts: new Date() }]);
+      setMessages(m => [...m, { role: 'assistant', text: `Service assistant indisponible. Contactez votre médecin pour toute question médicale.\n\n${err.message || ''}`, ts: new Date() }]);
     } finally {
       setTyping(false);
     }
@@ -87,7 +68,7 @@ export default function PAssistant({ patientData, card, sub, border, darkMode })
         subtitle="Aide à la navigation et informations générales · ne consulte pas votre dossier · en cas d’urgence, appelez le 185 (SAMU)"
         actions={
           <Chip tone="neutral">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-600" aria-hidden="true" /> En ligne
+            <span className="w-1.5 h-1.5 rounded-full bg-red-600" aria-hidden="true" /> Aide à la navigation
           </Chip>
         } />
 
