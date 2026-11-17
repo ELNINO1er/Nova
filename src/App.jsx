@@ -30,7 +30,7 @@ const GovernorPages = lazy(() => import('./governor/GovernorPages.jsx'));
 
 const ROLE_META = {
   patient:    { label: 'Espace patient',    Icon: User,        color: 'text-red-700 bg-red-50 border-red-200' },
-  doctor:     { label: 'Espace docteur',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  doctor:     { label: 'Espace médecin',    Icon: Stethoscope, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   pharmacist: { label: 'Espace pharmacie',  Icon: Pill,        color: 'text-teal-700 bg-teal-50 border-teal-200' },
   admin:      { label: 'Espace admin',      Icon: Shield,      color: 'text-purple-700 bg-purple-50 border-purple-200' },
   governor:   { label: 'Santé publique', Icon: BarChart3,   color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },

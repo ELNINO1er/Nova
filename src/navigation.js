@@ -1,7 +1,7 @@
 import {
   Award, BarChart3, Bell, Brain, Building2, CalendarClock, ClipboardList, FileDown, FileText, FolderHeart, Home,
   HeartPulse, Lock, MessageCircle, Microscope, Pill, ScanLine, ServerCog, Settings, ShieldCheck, Stethoscope,
-  Sun, Syringe, TrendingUp, User, Users, Activity, Droplet, StickyNote, Target, ShieldAlert, Edit3, History, Inbox,
+  Sun, Syringe, TrendingUp, Wallet, User, Users, Activity, Droplet, StickyNote, Target, ShieldAlert, Edit3, History, Inbox,
 } from 'lucide-react';
 
 export const ROLE_PAGES = {
@@ -76,7 +76,7 @@ export const ROLE_SPACES = {
     { id: 'practice', label: 'Mon cabinet', Icon: Building2, pages: [
       { id: 'profile', label: 'Profil et disponibilités', Icon: User },
       { id: 'stats', label: 'Activité', Icon: TrendingUp },
-      { id: 'finances', label: 'Finances', Icon: TrendingUp },
+      { id: 'finances', label: 'Finances', Icon: Wallet },
       { id: 'reputation', label: 'Avis', Icon: Award },
       { id: 'signature', label: 'Signature', Icon: Edit3 },
       { id: 'settings', label: 'Paramètres', Icon: Settings },

@@ -65,7 +65,7 @@ export default function DStats({ data, loading, card, sub, border, darkMode }) {
                 <div key={i} className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     {[1,2,3,4,5].map(s => (
-                      <Star key={s} className={`w-3 h-3 ${s <= r.rating ? 'text-red-500 fill-red-500' : sub}`} />
+                      <Star key={s} className={`w-3 h-3 ${s <= Math.round(r.rating) ? 'text-red-500 fill-red-500' : sub}`} />
                     ))}
                     <span className={`text-xs ${sub} ml-auto`}>{new Date(r.createdAt).toLocaleDateString('fr-FR')}</span>
                   </div>

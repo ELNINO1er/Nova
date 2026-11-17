@@ -49,7 +49,8 @@ export function CompactNavigation({ role, page, setPage, onMenu, menuOpen, darkM
       {links.map(([id, label]) => {
         const space = spaceOf(role, id);
         const Icon = space.pages.find(item => item.id === id).Icon;
-        const active = current?.id === space.id && (id !== 'dashboard' || page === id);
+        // Page en raccourci : son onglet ; sinon le premier onglet de son espace (jamais deux à la fois).
+        const active = links.some(([other]) => other === page) ? page === id : current?.id === space.id && links.find(([other]) => spaceOf(role, other)?.id === space.id)?.[0] === id;
         return <button key={id} type="button" aria-current={active ? 'page' : undefined}
           onClick={() => setPage(id)} className={`${itemClass} ${active ? 'bg-red-50 text-red-700' : ''}`}>
           <span className="relative"><Icon size={19} aria-hidden="true" />{spaceCount(space) > 0 && <span className="absolute -top-1.5 -right-2 min-w-[1rem] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-4 text-center">{spaceCount(space)}</span>}</span><span>{label}</span>

@@ -87,7 +87,7 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
     <div className="space-y-5">
       {/* Toast */}
       {notice && (
-        <div className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all
+        <div role={notice.type === 'error' ? 'alert' : 'status'} aria-live="polite" className={`fixed right-5 top-20 z-[70] rounded-xl border px-4 py-3 text-xs font-bold shadow-xl transition-all
           ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
           {notice.message}
         </div>

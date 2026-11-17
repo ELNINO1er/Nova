@@ -2,7 +2,7 @@ import LabResultDetails from './LabResultDetails.jsx';
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials, patientMeta } from '../../utils/format.js';
+import { formatDate, initials, patientMeta, sexLabel } from '../../utils/format.js';
 import ActivationNotice from '../../components/ActivationNotice.jsx';
 import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
 import { consultationStatusLabel } from '../../utils/statusLabels.js';
@@ -55,9 +55,9 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
         <div className={`${card} border rounded-2xl p-4 space-y-3`}>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
             <Search className={`w-4 h-4 ${sub} flex-shrink-0`} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nom, téléphone, CMU..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nom, téléphone, CMU…" aria-label="Rechercher un patient"
               className="flex-1 bg-transparent outline-none text-sm" />
-            {search && <button onClick={() => setSearch('')}><X className={`w-3 h-3 ${sub}`} /></button>}
+            {search && <button type="button" onClick={() => setSearch('')} aria-label="Effacer la recherche"><X className={`w-3 h-3 ${sub}`} aria-hidden="true" /></button>}
           </div>
           {loading ? (
             <div className="space-y-2">{[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-12 rounded-xl`} />)}</div>
@@ -198,7 +198,7 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
           <h3 className="text-xl font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</h3>
           <p className={`text-xs ${sub}`}>{pat.cmuNumber}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-            <span><strong>{Number.isInteger(pat.age) ? `${pat.age} ans` : 'Âge non renseigné'}</strong>{pat.sex ? ` • ${pat.sex === 'M' ? 'Homme' : 'Femme'}` : ''}</span>
+            <span><strong>{Number.isInteger(pat.age) ? `${pat.age} ans` : 'Âge non renseigné'}</strong>{sexLabel(pat.sex) ? ` • ${sexLabel(pat.sex)}` : ''}</span>
             <span>Groupe : <strong className="text-red-600">{pat.bloodType || '—'}</strong></span>
             {pat.weightKg && <span>{pat.weightKg} kg • {pat.heightCm} cm</span>}
           </div>
@@ -218,11 +218,11 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
 function PatientTabProfil({ pat, card, sub, border, darkMode }) {
   const fields = [
     { l: 'Date de naissance', v: pat.birthDate ? new Date(pat.birthDate).toLocaleDateString('fr-FR') : '—' },
-    { l: 'Sexe',              v: pat.sex === 'M' ? 'Masculin' : 'Féminin' },
+    { l: 'Sexe',              v: sexLabel(pat.sex) || '—' },
     { l: 'Groupe sanguin',    v: pat.bloodType || '—' },
     { l: 'Téléphone',         v: pat.phone || '—' },
     { l: 'Email',             v: pat.email || '—' },
-    { l: 'Adresse',           v: pat.address ? `${pat.address}, ${pat.city}` : '—' },
+    { l: 'Adresse',           v: [pat.address, pat.city].filter(Boolean).join(', ') || '—' },
     { l: 'Poids',             v: pat.weightKg ? `${pat.weightKg} kg` : '—' },
     { l: 'Taille',            v: pat.heightCm ? `${pat.heightCm} cm` : '—' },
     { l: 'Contact urgence',   v: pat.emergencyName ? `${pat.emergencyName} — ${pat.emergencyPhone}` : '—' },

@@ -35,8 +35,9 @@ export async function releaseSlotFor(appointment, conn = pool) {
 export async function assertDoctorSlotFree(doctorId, startsAt, exceptId = null, conn = pool) {
   const [[clash]] = await conn.execute(
     `SELECT id FROM nova_appointments
-     WHERE doctor_id = ? AND starts_at = ? AND status <> 'cancelled' AND (? IS NULL OR id <> ?) LIMIT 1`,
-    [doctorId, startsAt, exceptId, exceptId]
+     WHERE doctor_id = ? AND status <> 'cancelled' AND (? IS NULL OR id <> ?)
+       AND ABS(TIMESTAMPDIFF(MINUTE, STR_TO_DATE(LEFT(starts_at, 19), '%Y-%m-%dT%H:%i:%s'), STR_TO_DATE(LEFT(?, 19), '%Y-%m-%dT%H:%i:%s'))) < 15 LIMIT 1`,
+    [doctorId, exceptId, exceptId, new Date(startsAt).toISOString()]
   );
   if (clash) throw Object.assign(new Error('Ce créneau est déjà pris. Choisissez un autre horaire.'), { status: 409, code: 'slot_taken' });
 }

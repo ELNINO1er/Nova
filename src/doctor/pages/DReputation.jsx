@@ -89,7 +89,7 @@ export default function DReputation({ data, loading, card, sub, border, darkMode
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-0.5">
                       {[1,2,3,4,5].map(s => (
-                        <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'fill-red-400 text-red-400' : sub}`} />
+                        <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.round(r.rating) ? 'fill-red-400 text-red-400' : sub}`} />
                       ))}
                     </div>
                     <p className={`text-xs ${sub}`}>{new Date(r.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>

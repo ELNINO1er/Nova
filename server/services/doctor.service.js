@@ -32,7 +32,7 @@ export async function getDoctorDashboard(doctorId) {
     `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ monthCons }]] = await pool.execute(
-    `SELECT COUNT(*) AS monthCons FROM nova_consultations WHERE doctor_id = ? AND started_at LIKE ?`,
+    `SELECT COUNT(*) AS monthCons FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL AND started_at LIKE ?`,
     [doctorId, `${monthStr}%`]
   );
   const [[{ avgRating }]] = await pool.execute(
@@ -42,7 +42,7 @@ export async function getDoctorDashboard(doctorId) {
   const [recentCons] = await pool.execute(
     `SELECT c.*, p.first_name, p.last_name FROM nova_consultations c
      JOIN nova_patients p ON p.id = c.patient_id
-     WHERE c.doctor_id = ? AND ${currentAccess.sql} ORDER BY c.started_at DESC LIMIT 5`,
+     WHERE c.doctor_id = ? AND c.deleted_at IS NULL AND ${currentAccess.sql} ORDER BY c.started_at DESC LIMIT 5`,
     [doctorId, ...currentAccess.params]
   );
 
@@ -93,7 +93,7 @@ export async function getDoctorPatient(doctorId, patientId) {
     `SELECT * FROM nova_vitals WHERE patient_id = ? ORDER BY measured_at DESC LIMIT 40`, [patientId]
   );
   const [consultations] = await pool.execute(
-    `SELECT * FROM nova_consultations WHERE patient_id = ? AND doctor_id = ? ORDER BY started_at DESC LIMIT 10`,
+    `SELECT * FROM nova_consultations WHERE patient_id = ? AND doctor_id = ? AND deleted_at IS NULL ORDER BY started_at DESC LIMIT 10`,
     [patientId, doctorId]
   );
   const [prescriptions] = await pool.execute(
@@ -176,7 +176,7 @@ export async function getDoctorConsultations(doctorId) {
   const [rows] = await pool.execute(
     `SELECT c.*, p.first_name, p.last_name, p.cmu_number
      FROM nova_consultations c JOIN nova_patients p ON p.id = c.patient_id
-     WHERE c.doctor_id = ? AND ${access.sql} ORDER BY c.started_at DESC`,
+     WHERE c.doctor_id = ? AND c.deleted_at IS NULL AND ${access.sql} ORDER BY c.started_at DESC`,
     [doctorId, ...access.params]
   );
   const amendments=await Promise.all(rows.map(async r=>{const [list]=await pool.execute('SELECT reason,content,created_at FROM nova_consultation_amendments WHERE consultation_id=? ORDER BY created_at',[r.id]);return list;}));
@@ -377,12 +377,12 @@ export async function updateConsultation(doctorId, id, changes) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const [[current]] = await conn.execute('SELECT * FROM nova_consultations WHERE id=? AND doctor_id=? FOR UPDATE', [id, doctorId]);
+    const [[current]] = await conn.execute('SELECT * FROM nova_consultations WHERE id=? AND doctor_id=? AND deleted_at IS NULL FOR UPDATE', [id, doctorId]);
     if (!current) { await conn.rollback(); return null; }
     await assertDoctorPatientAccess(doctorId, current.patient_id);
     if (current.status === 'completed') {
-      if (!String(changes.amendmentReason || '').trim()) throw Object.assign(new Error('Acte valide : un motif de correction est obligatoire.'), {status:409});
-      if (changes.status && changes.status !== 'completed') throw Object.assign(new Error('Un acte valide ne peut pas redevenir un brouillon.'),{status:409});
+      if (!String(changes.amendmentReason || '').trim()) throw Object.assign(new Error('Compte rendu validé : un motif de correction est obligatoire.'), {status:409});
+      if (changes.status && changes.status !== 'completed') throw Object.assign(new Error('Un compte rendu validé ne peut pas redevenir un brouillon.'),{status:409});
       await conn.execute('INSERT INTO nova_consultation_amendments(id,consultation_id,doctor_id,reason,content) VALUES (?,?,?,?,?)', [randomUUID(),id,doctorId,changes.amendmentReason,JSON.stringify(changes)]);
     } else {
       const next = {...current};
@@ -406,20 +406,20 @@ export async function getDoctorStats(doctorId) {
     `SELECT COUNT(*) AS totalPatients FROM nova_patients p WHERE p.deleted_at IS NULL AND ${dashAccess.sql}`, dashAccess.params
   );
   const [[{ totalConsultations }]] = await pool.execute(
-    `SELECT COUNT(*) AS totalConsultations FROM nova_consultations WHERE doctor_id = ?`, [doctorId]
+    `SELECT COUNT(*) AS totalConsultations FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL`, [doctorId]
   );
   const [[{ avgRating, ratingCount }]] = await pool.execute(
     `SELECT AVG(rating) AS avgRating, COUNT(*) AS ratingCount FROM nova_doctor_reputation WHERE doctor_id = ?`, [doctorId]
   );
   const [diagnoses] = await pool.execute(
     `SELECT diagnosis_main AS name, COUNT(*) AS count
-     FROM nova_consultations WHERE doctor_id = ? AND diagnosis_main IS NOT NULL
+     FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL AND diagnosis_main IS NOT NULL
      GROUP BY diagnosis_main ORDER BY count DESC LIMIT 6`,
     [doctorId]
   );
   const [monthlyData] = await pool.execute(
     `SELECT SUBSTR(started_at,1,7) AS month, COUNT(*) AS count
-     FROM nova_consultations WHERE doctor_id = ? GROUP BY month ORDER BY month DESC LIMIT 6`,
+     FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL GROUP BY month ORDER BY month DESC LIMIT 6`,
     [doctorId]
   );
   const [ratings] = await pool.execute(
@@ -592,13 +592,13 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
 
 export async function createDoctorPrescription(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
-  if (!payload.items?.length || payload.items.some(i=>!Number.isInteger(i.quantityPrescribed)||i.quantityPrescribed<=0)) throw Object.assign(new Error('Quantite prescrite obligatoire pour chaque ligne.'),{status:422});
+  if (!payload.items?.length || payload.items.some(i=>!Number.isInteger(i.quantityPrescribed)||i.quantityPrescribed<=0)) throw Object.assign(new Error('Quantité prescrite obligatoire pour chaque ligne.'),{status:422});
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     if(payload.consultationId) {
-      const [[c]]=await conn.execute("SELECT id FROM nova_consultations WHERE id=? AND patient_id=? AND doctor_id=? AND status='completed'",[payload.consultationId,payload.patientId,doctorId]);
-      if(!c) throw Object.assign(new Error('Consultation non validee ou non autorisee.'),{status:422});
+      const [[c]]=await conn.execute("SELECT id FROM nova_consultations WHERE id=? AND patient_id=? AND doctor_id=? AND status='completed' AND deleted_at IS NULL",[payload.consultationId,payload.patientId,doctorId]);
+      if(!c) throw Object.assign(new Error('Consultation non validée ou non autorisée.'),{status:422});
     }
     const [[doc]] = await conn.execute(`SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?`, [doctorId]);
     const doctorName = doc ? `Dr. ${doc.first_name} ${doc.last_name}` : 'Dr. —';
@@ -682,8 +682,8 @@ export async function getChronicPatients(doctorId) {
   const chronicAccess = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
     `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies,
-            (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
-            (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
+            (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? AND c.deleted_at IS NULL ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
+            (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? AND c.deleted_at IS NULL ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
      FROM nova_patients p
      LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
      WHERE p.deleted_at IS NULL AND ${chronicAccess.sql}
@@ -782,20 +782,20 @@ export async function getDoctorFinances(doctorId) {
 
   const [monthly] = await pool.execute(
     `SELECT SUBSTR(started_at,1,7) AS month, COUNT(*) AS count
-     FROM nova_consultations WHERE doctor_id = ? AND status = 'completed'
+     FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL AND status = 'completed'
      GROUP BY month ORDER BY month DESC LIMIT 12`,
     [doctorId]
   );
 
   const [[{ total }]] = await pool.execute(
-    `SELECT COUNT(*) AS total FROM nova_consultations WHERE doctor_id = ? AND status = 'completed'`,
+    `SELECT COUNT(*) AS total FROM nova_consultations WHERE doctor_id = ? AND deleted_at IS NULL AND status = 'completed'`,
     [doctorId]
   );
 
   const month = new Date().toISOString().slice(0, 7);
   const [[{ monthCount }]] = await pool.execute(
     `SELECT COUNT(*) AS monthCount FROM nova_consultations
-     WHERE doctor_id = ? AND started_at LIKE ? AND status = 'completed'`,
+     WHERE doctor_id = ? AND deleted_at IS NULL AND started_at LIKE ? AND status = 'completed'`,
     [doctorId, `${month}%`]
   );
 
@@ -955,7 +955,7 @@ export async function getPrescriptionTemplates(doctorId) {
 export async function createPrescriptionTemplate(doctorId, payload) {
   const id = randomUUID();
   await pool.execute(
-    `INSERT INTO nova_prescription_templates (id, doctor_id, name, items, notes) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO nova_prescription_templates (id, doctor_id, name, items, notes) VALUES (?, ?, ?, ?, ?)`, // items : nom, posologie, quantité…
     [id, doctorId, payload.name, JSON.stringify(payload.items), payload.notes || null]
   );
   return { id, ...payload };
@@ -1100,7 +1100,7 @@ export async function getDoctorConversation(doctorId, convId) {
   const [[conv]] = await pool.execute(
     'SELECT * FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
   );
-  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  if (!conv) throw Object.assign(new Error('Conversation introuvable.'), { status: 404 });
   await assertDoctorPatientAccess(doctorId, conv.patient_id);
   return {
     id: conv.id, patientId: conv.patient_id,
@@ -1113,9 +1113,11 @@ export async function createDoctorMessage(doctorId,conversationId,payload){retur
 
 export async function markDoctorConversationRead(doctorId, convId) {
   const [[conv]] = await pool.execute(
-    'SELECT id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
+    'SELECT id, patient_id FROM nova_conversations WHERE id = ? AND doctor_id = ?', [convId, doctorId]
   );
-  if (!conv) throw Object.assign(new Error('Conversation introuvable'), { status: 404 });
+  if (!conv) throw Object.assign(new Error('Conversation introuvable.'), { status: 404 });
+  // Après un retrait d'accès, le médecin ne peut plus marquer les messages comme lus.
+  await assertDoctorPatientAccess(doctorId, conv.patient_id);
   await pool.execute('UPDATE nova_messages SET is_read = 1 WHERE conversation_id = ? AND sender_role = ?', [convId, 'patient']);
   await pool.execute('UPDATE nova_conversations SET unread_count = 0 WHERE id = ?', [convId]);
   await emitConversationRead(convId, 'doctor');
@@ -1147,7 +1149,7 @@ export async function createDoctorDocument(doctorId, body, file) {
 
 export async function deleteDoctorDocument(doctorId, docId) {
   const [[doc]] = await pool.execute('SELECT file_path FROM nova_doctor_documents WHERE id = ? AND doctor_id = ?', [docId, doctorId]);
-  if (!doc) throw Object.assign(new Error('Document introuvable'), { status: 404 });
+  if (!doc) throw Object.assign(new Error('Document introuvable.'), { status: 404 });
   await pool.execute('DELETE FROM nova_doctor_documents WHERE id = ?', [docId]);
   if (doc.file_path) {
     const fs = await import('node:fs/promises');

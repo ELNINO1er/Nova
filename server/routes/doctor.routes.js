@@ -59,7 +59,7 @@ const router = Router();
 router.use(requireDoctor);
 
 /* ─── Dashboard ────────────────────────────────────────────── */
-router.get('/dashboard', accessLog('dashboard', (b) => [...(b?.todayAppointments || []).filter((a) => a.recordShared !== false).map((a) => a.patientId)]), wrap(async (req, res) => {
+router.get('/dashboard', requirePermission('doctor.dashboard'), accessLog('dashboard', (b) => [...(b?.todayAppointments || []).filter((a) => a.recordShared !== false).map((a) => a.patientId)]), wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
 }));
 
@@ -143,11 +143,11 @@ router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('pat
 }));
 
 /* ─── Rendez-vous ──────────────────────────────────────────── */
-router.get('/appointments', accessLog('appointments'), wrap(async (req, res) => {
+router.get('/appointments', requirePermission('doctor.dashboard'), accessLog('appointments'), wrap(async (req, res) => {
   res.json(await getDoctorAppointments(req.user.doctorId, req.query));
 }));
 
-router.patch('/appointments/:id', validateBody(z.object({
+router.patch('/appointments/:id', requirePermission('doctor.dashboard'), validateBody(z.object({
   status:   z.enum(['confirmed','cancelled']).optional(),
   startsAt: z.string().datetime().optional(),
   location: z.string().max(200).optional(),
@@ -158,7 +158,7 @@ router.patch('/appointments/:id', validateBody(z.object({
 }));
 
 /* ─── Consultations ────────────────────────────────────────── */
-router.get('/consultations', accessLog('consultations'), wrap(async (req, res) => {
+router.get('/consultations', requirePermission('doctor.consultations'), accessLog('consultations'), wrap(async (req, res) => {
   res.json(await getDoctorConsultations(req.user.doctorId));
 }));
 
@@ -206,11 +206,11 @@ router.post('/slots',validateBody(z.object({date:z.iso.date(),time:z.string().re
 router.delete('/slots/:id',auditLog('professional.slot.delete','doctor_slot'),wrap(async(req,res)=>res.json(await removeProfessionalSlot(req.user.doctorId,req.params.id))));
 
 /* ─── Ordonnances (médecin) ─────────────────────────────────── */
-router.get('/prescriptions', accessLog('prescriptions'), wrap(async (req, res) => {
+router.get('/prescriptions', requirePermission('doctor.prescriptions'), accessLog('prescriptions'), wrap(async (req, res) => {
   res.json(await getDoctorPrescriptions(req.user.doctorId));
 }));
 
-router.get('/prescriptions/:id', accessLog('prescription'), wrap(async (req, res) => {
+router.get('/prescriptions/:id', requirePermission('doctor.prescriptions'), accessLog('prescription'), wrap(async (req, res) => {
   const data = await getDoctorPrescription(req.user.doctorId, req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found' });
   res.json(data);
@@ -237,16 +237,16 @@ router.post('/prescriptions', requirePermission('doctor.prescriptions'), validat
 }));
 
 /* ─── Suivi chroniques ──────────────────────────────────────── */
-router.get('/chronic-patients', accessLog('chronic_followup', (b) => (b || []).map((p) => p.id)), wrap(async (req, res) => {
+router.get('/chronic-patients', requirePermission('doctor.patients'), accessLog('chronic_followup', (b) => (b || []).map((p) => p.id)), wrap(async (req, res) => {
   res.json(await getChronicPatients(req.user.doctorId));
 }));
 
 /* ─── Alertes médecin ───────────────────────────────────────── */
-router.get('/alerts', accessLog('alerts'), wrap(async (req, res) => {
+router.get('/alerts', requirePermission('doctor.alerts'), accessLog('alerts'), wrap(async (req, res) => {
   res.json(await getDoctorAlerts(req.user.doctorId));
 }));
 
-router.post('/alerts', validateBody(z.object({
+router.post('/alerts', requirePermission('doctor.alerts'), validateBody(z.object({
   patientId: z.string().min(1),
   type:      z.enum(['chronic', 'urgent', 'followup', 'lab', 'other']),
   level:     z.enum(['info', 'warning', 'critical']).optional(),
@@ -256,7 +256,7 @@ router.post('/alerts', validateBody(z.object({
   res.status(201).json(await createDoctorAlert(req.user.doctorId, req.body));
 }));
 
-router.patch('/alerts/:id/resolve', wrap(async (req, res) => {
+router.patch('/alerts/:id/resolve', requirePermission('doctor.alerts'), auditLog('alert.resolve', 'alert'), wrap(async (req, res) => {
   const result = await resolveDoctorAlert(req.user.doctorId, req.params.id);
   if (!result) return res.status(404).json({ error: 'not_found' });
   res.json(result);
@@ -301,9 +301,9 @@ router.post('/lab-requests/:id/result',requirePermission('doctor.lab_requests'),
  items:z.array(z.object({name:z.string().min(1).max(150),value:z.string().min(1).max(50),unit:z.string().max(30).optional(),refMin:z.string().max(30).optional(),refMax:z.string().max(30).optional(),status:z.enum(['normal','high','low','critical']).default('normal')})).min(1).max(100)
 })),auditLog('lab_result.record','lab_result'),wrap(async(req,res)=>res.status(201).json(await recordLabResult(req.user.doctorId,req.params.id,req.body))));
 
-router.get('/lab-results/:id',accessLog('lab_result'),wrap(async(req,res)=>{const {getDoctorLabResult}=await import('../services/doctor.service.js');const data=await getDoctorLabResult(req.user.doctorId,req.params.id);if(!data)return res.status(404).json({error:'not_found'});res.json(data);}));
+router.get('/lab-results/:id',requirePermission('doctor.lab_requests'),accessLog('lab_result'),wrap(async(req,res)=>{const {getDoctorLabResult}=await import('../services/doctor.service.js');const data=await getDoctorLabResult(req.user.doctorId,req.params.id);if(!data)return res.status(404).json({error:'not_found'});res.json(data);}));
 
-router.get('/lab-requests', accessLog('lab_requests'), wrap(async (req, res) => {
+router.get('/lab-requests', requirePermission('doctor.lab_requests'), accessLog('lab_requests'), wrap(async (req, res) => {
   res.json(await getDoctorLabRequests(req.user.doctorId));
 }));
 
@@ -313,7 +313,7 @@ router.post('/lab-requests', requirePermission('doctor.lab_requests'), validateB
   title:          z.string().min(1),
   notes:          z.string().optional(),
   consultationId: z.string().optional(),
-})), wrap(async (req, res) => {
+})), auditLog('lab_request.create', 'lab_request'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorLabRequest(req.user.doctorId, req.body));
 }));
 
@@ -359,7 +359,7 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
 }));
 
 /* ─── Voir statut délivrance d'une ordonnance ────────────────── */
-router.get('/prescriptions/:id/dispense-status', accessLog('dispense_status'), wrap(async (req, res) => {
+router.get('/prescriptions/:id/dispense-status', requirePermission('doctor.prescriptions'), accessLog('dispense_status'), wrap(async (req, res) => {
   const { pool } = await import('../db/database.js');
   const [[rx]] = await pool.execute(
     'SELECT id, status, doctor_id, patient_id FROM nova_prescriptions WHERE id = ? AND doctor_id = ?',
@@ -421,6 +421,8 @@ router.post('/prescription-templates', validateBody(z.object({
     frequency:    z.string().optional(),
     duration:     z.string().optional(),
     instructions: z.string().optional(),
+    quantityPrescribed: z.number().int().positive().max(100000).optional(),
+    quantityUnit: z.string().min(1).max(40).optional(),
   })).min(1),
   notes: z.string().optional(),
 })), wrap(async (req, res) => {
@@ -437,7 +439,7 @@ router.get('/referrals', wrap(async (req, res) => {
   res.json(await getReferrals(req.user.doctorId));
 }));
 
-router.post('/referrals', validateBody(z.object({
+router.post('/referrals', requirePermission('doctor.patients'), validateBody(z.object({
   patientId:  z.string().min(1),
   toDoctorId: z.string().min(1),
   reason:     z.string().min(1),
