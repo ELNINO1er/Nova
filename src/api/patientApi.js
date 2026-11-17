@@ -96,6 +96,9 @@ export const patientApi = {
   pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
   pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
   closeAccount: (password) => request('/patient/me/account/close', { method: 'POST', body: JSON.stringify({ password }) }),
+  createInsurance: (body) => request('/patient/me/insurance', { method: 'POST', body: JSON.stringify(body) }),
+  updateInsurance: (id, body) => request(`/patient/me/insurance/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteInsurance: (id) => request(`/patient/me/insurance/${id}`, { method: 'DELETE' }),
   cancelPharmacyOrder: (id) => request(`/patient/me/pharmacy-orders/${id}/cancel`, { method: 'POST' }),
   createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
     method: 'POST',

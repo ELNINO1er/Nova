@@ -17,8 +17,8 @@ const convFields = (viewerRole) => (c) => [convName(c, viewerRole), viewerRole =
 export default function PMsg({ data, onConversationsChange, card, sub, border, darkMode, setShowVid, api: apiOverride, viewerRole = 'patient' }) {
   const api = apiOverride || patientApi;
   const [recipients,setRecipients]=useState(null),[recipient,setRecipient]=useState('');
-  const newConversation=async()=>{try{const rows=apiOverride?await api.patients():(await patientApi.careTeam()).filter(r=>r.hasAccess).map(r=>({id:r.doctorId,firstName:r.doctorName,lastName:''}));setRecipients(Array.isArray(rows)?rows:rows.data||[]);}catch(e){setConvError(e.message);}};
-  const start=async()=>{if(sending||!recipient)return;setSending(true);try{const result=await api.startConversation({[apiOverride?'patientId':'doctorId']:recipient});const list=await api.conversations();setConvList(list);onConversationsChange?.(list);setRecipients(null);openConversation(result.id);}catch(e){setConvError(e.message);}finally{setSending(false);}};
+  const newConversation=async()=>{try{const rows=apiOverride?await api.patients():(await patientApi.careTeam()).filter(r=>r.hasAccess).map(r=>({id:r.doctorId,firstName:r.doctorName,lastName:''}));setRecipients(Array.isArray(rows)?rows:rows.data||[]);}catch(e){setActionError(e.message);}};
+  const start=async()=>{if(sending||!recipient)return;setSending(true);try{const result=await api.startConversation({[apiOverride?'patientId':'doctorId']:recipient});const list=await api.conversations();setConvList(list);onConversationsChange?.(list);setRecipients(null);openConversation(result.id);}catch(e){setActionError(e.message);}finally{setSending(false);}};
 
   const [convList, setConvList]     = useState(data || []);
   const [selId, setSelId]           = useState(null);
@@ -27,7 +27,8 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
   const [msgText, setMsgText]       = useState('');
   const [sending, setSending]       = useState(false);
   const [showList, setShowList]     = useState(true); // mobile toggle
-  const [convError, setConvError]   = useState('');
+  const [convError, setConvError]   = useState('');   // chargement du fil
+  const [actionError, setActionError] = useState(''); // envoi, nouvelle conversation
   const [query, setQuery]           = useUrlQuery();
   const [matchIdx, setMatchIdx]     = useState(-1);    // message correspondant actuellement ciblé
   const msgRefs  = useRef(new Map());
@@ -100,7 +101,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
   // Ouvre la meilleure correspondance de recherche, ou la conversation la plus récente.
   useEffect(() => {
-    if (convList.length > 0 && !selId) openConversation((query && results[0]?.id) || convList[0].id);
+    if (convList.length > 0 && !selId) openConversation((query && results[0]?.id) || convList[0].id, { keepList: true });
   }, [convList]);
 
   // Requête modifiée : si la conversation ouverte ne correspond plus, ouvrir la meilleure (la liste reste visible sur mobile).
@@ -132,6 +133,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
   };
 
   const sendMessage = async () => {
+    setActionError('');
     const body = msgText.trim();
     const attachment = pending ? { type: pending.type, id: pending.id } : undefined;
     if ((!body && !attachment) || !selId || sending) return;
@@ -147,7 +149,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
       updateConvList(list => list.map(c =>
         c.id === selId ? { ...c, lastMessage: body || `Pièce jointe : ${msg.attachment?.title || ''}`, updatedAt: msg.createdAt } : c
       ));
-    } catch(e) {setMsgText(body);setConvError(e.message);}
+    } catch(e) {setMsgText(body);setActionError(e.message || 'Message non envoyé. Réessayez.');}
     finally { setSending(false); }
   };
 
@@ -246,10 +248,10 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
             </label>
             <Button darkMode={darkMode} disabled={sending || !recipient} onClick={start}>Ouvrir la conversation</Button>
           </div>
-          <p className={`text-xs mt-3 ${sub}`}>Un accès au dossier en cours de validité est requis.</p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className={`text-xs ${sub}`}>{recipients.length === 0 ? (apiOverride ? 'Aucun patient ne vous a donné accès à son dossier.' : 'Aucun médecin n’a accès à votre dossier : autorisez-en un dans Accès au dossier pour lui écrire.') : 'Un accès au dossier en cours de validité est requis.'}</p><button type="button" onClick={() => setRecipients(null)} className={`text-xs font-semibold underline ${sub}`}>Fermer</button></div>
         </Card>
       )}
-      {convError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-2.5">{convError}</p>}
+      {actionError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-2.5 flex items-start gap-3"><span className="flex-1">{actionError}</span><button type="button" onClick={() => setActionError('')} aria-label="Fermer le message" className="font-semibold">×</button></p>}
 
       {convList.length === 0 ? (
         <EmptyState Icon={MessageCircle} title="Aucune conversation" darkMode={darkMode}>

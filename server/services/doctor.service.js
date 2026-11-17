@@ -980,13 +980,12 @@ export async function createReferral(doctorId, payload) {
   const [[fromDoc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
   const [[toDocUser]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [payload.toDoctorId]);
   if (toDocUser) {
-    await pool.execute(
-      `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, created_at)
-       VALUES (?, '', ?, 'doctor', 'referral', ?, ?, 'patients', NOW())`,
-      [randomUUID(), toDocUser.id,
-       'Transfert de patient',
-       `Dr. ${fromDoc?.first_name || ''} ${fromDoc?.last_name || ''} vous transfère un patient. Motif : ${payload.reason}`]
-    );
+    const { createNotification } = await import('./notification.service.js');
+    await createNotification({
+      userId: toDocUser.id, targetRole: 'doctor', type: 'referral', title: 'Transfert de patient',
+      body: `Dr. ${fromDoc?.first_name || ''} ${fromDoc?.last_name || ''} vous transfère un patient. Motif : ${payload.reason}`,
+      linkPage: 'patients', sourceRole: 'doctor',
+    });
   }
 
   return { id, status: 'pending' };

@@ -9,7 +9,7 @@ export async function buildPatientSummaryPdf(patientId) {
     [patientId]
   );
   const [prescriptions] = await pool.execute(
-    'SELECT doctor_name, issued_at, valid_until, status FROM nova_prescriptions WHERE patient_id = ? ORDER BY issued_at DESC LIMIT 5',
+    'SELECT doctor_name, issued_at, valid_until, status FROM nova_prescriptions WHERE patient_id = ? AND deleted_at IS NULL ORDER BY issued_at DESC LIMIT 5',
     [patientId]
   );
 

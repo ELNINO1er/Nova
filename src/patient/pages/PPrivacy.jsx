@@ -25,7 +25,16 @@ const TEAM_FIELDS = (m) => [m.doctorName, m.specialty, m.city, (REASONS[m.reason
 const CONSENT_FIELDS = (c) => [c.doctorName || 'Médecin', (STATUS_MAP[c.status] || STATUS_MAP.pending).label, searchableDate(c.respondedAt || c.requestedAt)];
 const logUser = (l) => l.accessorName || l.userName || 'Inconnu';
 const logWhen = (l) => l.accessedAt || l.createdAt;
-const LOG_FIELDS = (l) => [logUser(l), l.action || 'Consultation', l.dataAccessed || l.resource, searchableDate(logWhen(l))];
+// Libellés lisibles du journal : données consultées et rôle de la personne.
+const DATA_LABELS = {
+  patient_record: 'Dossier médical', patient_directory: 'Fiche patient (liste)', patient_photo: 'Photo de profil',
+  consultations: 'Consultations', prescriptions: 'Ordonnances', prescription: 'Ordonnance', lab_requests: 'Demandes d’analyses',
+  lab_result: 'Résultat d’analyse', messages: 'Messagerie', 'Fiche d’urgence (QR)': 'Fiche d’urgence (QR)',
+};
+const ROLE_LABELS = { doctor: 'Médecin', emergency: 'Secours (QR scanné)', pharmacist: 'Pharmacie', admin: 'Administrateur', patient: 'Vous' };
+const logData = (l) => DATA_LABELS[l.dataAccessed] || l.dataAccessed || l.resource || '—';
+const logRole = (l) => ROLE_LABELS[l.accessorRole] || l.accessorRole || '—';
+const LOG_FIELDS = (l) => [logUser(l), logRole(l), logData(l), searchableDate(logWhen(l))];
 const TAB_LABELS = { team: 'Qui a accès', consents: 'Demandes', logs: 'Journal d’accès' };
 
 export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }) {
@@ -67,10 +76,11 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   };
 
   const revoke = async (id) => {
+    const wasPending = consents.find((c) => c.id === id)?.status === 'pending';
     try {
       await patientApi.revokeConsent(id);
       onReload?.({ consents: await patientApi.consents(), accessLogs: await patientApi.accessLogs(), careTeam: await patientApi.careTeam() });
-      notify?.('Consentement révoqué');
+      notify?.(wasPending ? 'Demande refusée.' : 'Accès retiré.');
     } catch (error) {
       notify?.(error.message || 'Erreur', 'error');
     }
@@ -243,11 +253,11 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
             <div className="hidden md:block">
               <DataTable
                 darkMode={darkMode}
-                columns={['Utilisateur', 'Action', 'Données', 'Date']}
+                columns={['Qui', 'Rôle', 'Données consultées', 'Date']}
                 rows={logResults.map((l) => [
                   hl(logUser(l)),
-                  hl(l.action || 'Consultation'),
-                  hl(l.dataAccessed || l.resource || '—'),
+                  hl(logRole(l)),
+                  hl(logData(l)),
                   hl(fmtWhen(l)),
                 ])}
               />
@@ -257,9 +267,9 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
                 <li key={l.id || i} className={`px-5 py-4 border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
                   <div className="flex items-start justify-between gap-3">
                     <p className="font-medium text-sm min-w-0 break-words">{hl(logUser(l))}</p>
-                    <Chip>{hl(l.action || 'Consultation')}</Chip>
+                    <Chip>{hl(logRole(l))}</Chip>
                   </div>
-                  <p className={`text-xs mt-1 break-words ${sub}`}>{hl(l.dataAccessed || l.resource || '—')}</p>
+                  <p className={`text-xs mt-1 break-words ${sub}`}>{hl(logData(l))}</p>
                   <p className={`text-xs mt-0.5 ${sub}`}>{hl(fmtWhen(l))}</p>
                 </li>
               ))}

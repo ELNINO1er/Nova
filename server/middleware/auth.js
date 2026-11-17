@@ -55,7 +55,8 @@ export function signAccessToken(payload) {
 
 // Inactivité maximale côté serveur : un jeton de renouvellement non utilisé pendant ce délai expire.
 // (Une session active le renouvelle toutes les 30 minutes.)
-export const REFRESH_IDLE_HOURS = Math.min(168, Math.max(1, Number(process.env.SESSION_IDLE_HOURS) || 12));
+// 1 h par défaut : cohérent avec la déconnexion après 10 min d'inactivité côté écran (un jeton volé expire vite).
+export const REFRESH_IDLE_HOURS = Math.min(168, Math.max(1, Number(process.env.SESSION_IDLE_HOURS) || 1));
 
 export function signRefreshToken(payload) {
   return jwt.sign({ ...payload, type: 'refresh' }, REFRESH_SECRET, { expiresIn: `${REFRESH_IDLE_HOURS}h`, jwtid: randomUUID() });

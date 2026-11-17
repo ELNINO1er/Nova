@@ -140,7 +140,11 @@ export async function persistMessage(role,actorId,conversationId,payload){
  try{
   await conn.beginTransaction();const [[conv]]=await conn.execute('SELECT * FROM nova_conversations WHERE id=? FOR UPDATE',[conversationId]);
   if(!conv || (role==='doctor'?conv.doctor_id:conv.patient_id)!==actorId)throw notFound('Conversation non autorisée.');
-  await assertDoctorPatientAccess(conv.doctor_id,conv.patient_id);
+  // Sans accès au dossier, pas d'échange : message compréhensible pour chacun des deux.
+  await assertDoctorPatientAccess(conv.doctor_id,conv.patient_id).catch((e)=>{
+    if(e.status!==403)throw e;
+    throw Object.assign(new Error(role==='patient'?'Ce médecin n’a plus accès à votre dossier : autorisez-le de nouveau dans « Accès au dossier » pour lui écrire.':'Ce patient ne vous a pas (ou plus) donné accès à son dossier.'),{status:403,code:'no_record_access'});
+  });
   const attachment=att?await describeAttachment(conv.patient_id,att.type,att.id,conn):null;
   if(att&&!attachment)throw Object.assign(new Error('Cet élément ne fait pas partie du dossier du patient.'),{status:422,code:'invalid_attachment'});
   const key=payload.requestKey||randomUUID();

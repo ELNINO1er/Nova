@@ -1275,7 +1275,7 @@ async function seedInsurance(conn) {
 
   const insurances = [
     ['ins-001', 'patient-demo', 'MUGEFCI',  'MUG-2024-0098723',    'BAMBA Kouamé', 'Hospitalisation + Consultations',      '2024-01-01', '2026-12-31', 'active', 80, 'blue'],
-    ['ins-002', 'patient-demo', 'CNAMGS',   'CMU-CI-2024-0847-3692','BAMBA Kouamé', 'CMU – Couverture Maladie Universelle',  '2024-03-15', '2027-03-15', 'active', 70, 'emerald'],
+    ['ins-002', 'patient-demo', 'CNAM (CMU)',   'CMU-CI-2024-0847-3692','BAMBA Kouamé', 'CMU – Couverture Maladie Universelle',  '2024-03-15', '2027-03-15', 'active', 70, 'emerald'],
   ];
   for (const [id, pid, provider, policy, holder, coverage, from, to, status, rate, color] of insurances) {
     await conn.query(

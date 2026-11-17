@@ -128,7 +128,8 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   }, []);
   const rs = useMemo(() => (data?.length ? data.map((r) => {
     const date = new Date(r.startsAt);
-    const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86400000));
+    // Jours calendaires (aujourd'hui, demain…), pas des tranches de 24 h.
+    const daysLeft = Math.max(0, Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000));
     return {
       t: date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
       day: date.toLocaleDateString('fr-FR', { weekday: 'long' }),
@@ -232,7 +233,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   return (
     <div className="space-y-5">
       <PageHeader title="Mes rendez-vous" sub={sub}
-        subtitle={nextRdv ? `Prochain : ${nextRdv.dr} — ${nextRdv.dl === 0 ? "aujourd'hui" : `dans ${nextRdv.dl} jour${nextRdv.dl > 1 ? 's' : ''}`}` : 'Aucun rendez-vous à venir'}
+        subtitle={nextRdv ? `Prochain : ${nextRdv.dr} — ${nextRdv.dl === 0 ? "aujourd'hui" : nextRdv.dl === 1 ? 'demain' : `dans ${nextRdv.dl} jours`}` : 'Aucun rendez-vous à venir'}
         actions={<Button Icon={Plus} onClick={openNew}>Nouveau rendez-vous</Button>} />
 
       {showForm && (
@@ -313,7 +314,8 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
           {visible.map((r) => {
             const isNext = nextRdv && r === nextRdv;
             const cancelled = r.status === 'cancelled';
-            const [statusLabel, tone, StatusIcon] = STATUS_STYLE[r.status] || [r.status, 'neutral', null];
+            const past = !cancelled && new Date(r.startsAt).getTime() < Date.now();
+            const [statusLabel, tone, StatusIcon] = past ? ['Passé', 'neutral', null] : (STATUS_STYLE[r.status] || [r.status, 'neutral', null]);
             return (
               <div key={r.id || r.startsAt} ref={r.id === targetId ? target : null}><Card darkMode={darkMode} className={`${isNext || r.id === targetId ? '!border-red-300' : ''} ${cancelled ? 'opacity-70' : ''}`}>
                 <div className="flex items-start gap-3 sm:gap-4">
@@ -333,17 +335,19 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
                       <span className="flex items-center gap-1 capitalize"><Clock className="w-3 h-3" /> {r.day} · {r.t}</span>
                       {(r.l || r.v) && <span className="flex items-center gap-1 min-w-0">{r.v ? <Video className="w-3 h-3 shrink-0" /> : <MapPin className="w-3 h-3 shrink-0" />} <span className="truncate"><Highlight text={r.l} query={query} /></span></span>}
                     </div>
-                    {!cancelled && (
+                    {!cancelled && !past && (
                       <div className="flex gap-2 mt-4 flex-wrap">
                         {r.v ? (
                           <p className={`text-xs px-3 py-2 rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-red-100'} ${sub}`}>
                             Téléconsultation : le médecin vous indiquera comment le joindre
                           </p>
                         ) : (
-                          <Button variant="secondary" darkMode={darkMode} Icon={MapPin} className={smallBtn}
-                            onClick={() => { if (r.l) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.l)}`, '_blank'); }}>
-                            Itinéraire
-                          </Button>
+                          r.l ? (
+                            <Button variant="secondary" darkMode={darkMode} Icon={MapPin} className={smallBtn}
+                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.l)}`, '_blank', 'noopener')}>
+                              Itinéraire
+                            </Button>
+                          ) : null
                         )}
                         {r.id && (
                           <>

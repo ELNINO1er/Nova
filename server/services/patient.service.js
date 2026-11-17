@@ -228,22 +228,33 @@ export async function createAppointment(patientId, payload) {
 const frDate = (iso) => new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 export async function updateAppointment(patientId,id,changes) {
+  if(changes.mode==='video')throw Object.assign(new Error('Téléconsultation indisponible : aucun service vidéo intégré.'),{status:503});
   const [[initial]]=await pool.execute('SELECT doctor_id FROM nova_appointments WHERE id=? AND patient_id=?',[id,patientId]);
   if(!initial) return null;
-  await withDoctorSchedule(initial.doctor_id,async(conn)=>{
+  let event=null;
+  const apply=async(conn)=>{
     const [[row]]=await conn.execute('SELECT * FROM nova_appointments WHERE id=? AND patient_id=? FOR UPDATE',[id,patientId]);
-    if(row.status==='cancelled') { if(changes.status==='cancelled') return; throw Object.assign(new Error('Rendez-vous annule.'),{status:409}); }
+    if(row.status==='cancelled') { if(changes.status==='cancelled') return; throw Object.assign(new Error('Ce rendez-vous est annulé.'),{status:409}); }
+    // Un rendez-vous passé appartient à l'historique : il ne se modifie ni ne s'annule.
+    if(new Date(row.starts_at).getTime()<Date.now()) throw Object.assign(new Error('Ce rendez-vous est passé : il ne peut plus être modifié ni annulé.'),{status:409,code:'appointment_past'});
     if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'patient');
     let startsAt=row.starts_at,status=row.status;
-    if(changes.status==='cancelled') {status='cancelled';await releaseSlotFor(row,conn);}
+    if(changes.status==='cancelled') {status='cancelled';await releaseSlotFor(row,conn);event={kind:'cancelled',startsAt};}
     else if(changes.startsAt && new Date(changes.startsAt).toISOString()!==row.starts_at){
       startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);
-      await assertDoctorSlotFree(row.doctor_id,startsAt,id,conn);
-      await releaseSlotFor(row,conn);await reserveMatchingSlot(conn,row.doctor_id,startsAt,patientId);status='requested';
+      if(row.doctor_id)await assertDoctorSlotFree(row.doctor_id,startsAt,id,conn);
+      await releaseSlotFor(row,conn);if(row.doctor_id)await reserveMatchingSlot(conn,row.doctor_id,startsAt,patientId);status='requested';
+      event={kind:'moved',startsAt};
     }
     await conn.execute('UPDATE nova_appointments SET starts_at=?,status=?,mode=?,updated_at=? WHERE id=?',[startsAt,status,changes.mode||row.mode,new Date().toISOString(),id]);
-  });
-  notifyDoctorAppointmentChange(initial.doctor_id,'Votre patient',changes.status==='cancelled'?'cancelled':'moved',changes.startsAt?frDate(changes.startsAt):'').catch(()=>{});
+  };
+  // Rendez-vous sans médecin rattaché (anciennes données) : pas de verrou d'agenda.
+  if(initial.doctor_id) await withDoctorSchedule(initial.doctor_id,apply);
+  else { const conn=await pool.getConnection(); try{await conn.beginTransaction();await apply(conn);await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();} }
+  if(event&&initial.doctor_id){
+    const [[who]]=await pool.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[patientId]);
+    notifyDoctorAppointmentChange(initial.doctor_id,`${who?.first_name||''} ${who?.last_name||''}`.trim()||'Un patient',event.kind,frDate(event.startsAt)).catch(()=>{});
+  }
   return getAppointment(patientId,id);
 }
 export async function cancelAppointment(patientId,id) {return updateAppointment(patientId,id,{status:'cancelled'});}
@@ -1116,10 +1127,38 @@ export async function getInsurance(patientId) {
     coverageType: r.coverage_type,
     validFrom: r.valid_from,
     validTo: r.valid_to,
-    status: r.status,
+    // Statut d'après la date de fin (un contrat échu n'est plus « actif »).
+    status: r.valid_to && String(r.valid_to).slice(0, 10) < new Date().toISOString().slice(0, 10) ? 'expired' : 'active',
     reimbursementRate: r.reimbursement_rate,
     logoColor: r.logo_color,
   }));
+}
+
+const INSURANCE_COLUMNS = { provider: 'provider', policyNumber: 'policy_number', holderName: 'holder_name', coverageType: 'coverage_type', validFrom: 'valid_from', validTo: 'valid_to', reimbursementRate: 'reimbursement_rate' };
+
+export async function createInsurance(patientId, payload) {
+  const id = randomUUID();
+  await pool.execute(
+    'INSERT INTO nova_insurance (id, patient_id, provider, policy_number, holder_name, coverage_type, valid_from, valid_to, status, reimbursement_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, patientId, payload.provider, payload.policyNumber || null, payload.holderName || null, payload.coverageType || null, payload.validFrom || null, payload.validTo || null, 'active', payload.reimbursementRate ?? 70]);
+  return (await getInsurance(patientId)).find((i) => i.id === id);
+}
+
+export async function updateInsurance(patientId, id, changes) {
+  const sets = [], vals = [];
+  for (const [key, col] of Object.entries(INSURANCE_COLUMNS)) {
+    if (Object.prototype.hasOwnProperty.call(changes, key)) { sets.push(`${col} = ?`); vals.push(changes[key] === '' ? null : changes[key]); }
+  }
+  if (sets.length) {
+    const [r] = await pool.execute(`UPDATE nova_insurance SET ${sets.join(', ')} WHERE id = ? AND patient_id = ?`, [...vals, id, patientId]);
+    if (!r.affectedRows) return null;
+  }
+  return (await getInsurance(patientId)).find((i) => i.id === id) || null;
+}
+
+export async function deleteInsurance(patientId, id) {
+  const [r] = await pool.execute('DELETE FROM nova_insurance WHERE id = ? AND patient_id = ?', [id, patientId]);
+  return r.affectedRows > 0;
 }
 
 /* ─── Pharmacies ─────────────────────────────────────────────── */

@@ -160,7 +160,7 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
     urgence: <PUrgence data={apiData.urgence} {...p} />,
     assistant: <PAssistant patientData={apiData.dashboard} {...p} />,
     wellness: <PWell data={apiData.wellness} profile={apiData.dashboard?.profile} onReload={(v) => replacePageData('wellness', v)} notify={notify} {...p} />,
-    insurance: <PInsurance data={apiData.insurance} {...p} />,
+    insurance: <PInsurance data={apiData.insurance} onReload={(value) => replacePageData('insurance', value)} notify={notify} {...p} />,
     pharmacy: <PPharmacy data={apiData.pharmacy} notify={notify} setPage={setPage} {...p} />,
     family: <PFamily data={apiData.family} onReload={(v) => replacePageData('family', v)} notify={notify} {...p} />,
     privacy: <PPrivacy data={apiData.privacy} onReload={(v) => replacePageData('privacy', v)} notify={notify} {...p} />,

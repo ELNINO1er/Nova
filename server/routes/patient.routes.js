@@ -11,7 +11,7 @@ import QRCode from 'qrcode';
 import { requirePatient, requirePermission } from '../middleware/auth.js';
 import { upload, uploadDir, verifyUploadedFile } from '../middleware/upload.js';
 import {
-  getInsurance,
+  getInsurance, createInsurance, updateInsurance, deleteInsurance,
   getPharmacies,
   getPharmacyOrders,
   createPharmacyOrder, cancelPharmacyOrder,
@@ -212,8 +212,6 @@ router.get('/appointments', wrap(async (req, res) => {
 router.post('/appointments', validateBody(z.object({
   startsAt:   z.string().datetime(),
   doctorId:   z.string().min(1),
-  specialty:  z.string().default('Médecine générale'),
-  location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
   shareRecord: SHARE_RECORD,
   ack: SHARE_ACK,
@@ -522,16 +520,35 @@ router.get('/insurance', wrap(async (req, res) => {
   res.json(await getInsurance(req.user.patientId));
 }));
 
+// Assurances : le patient gère ses propres couvertures.
+const INSURANCE_DATE = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date invalide.'), z.literal('')]).optional();
+const INSURANCE_BODY = {
+  policyNumber: z.string().max(100).optional(), holderName: z.string().max(200).optional(), coverageType: z.string().max(100).optional(),
+  validFrom: INSURANCE_DATE, validTo: INSURANCE_DATE, reimbursementRate: z.number().int().min(0).max(100).optional(),
+};
+router.post('/insurance', validateBody(z.object({ provider: z.string().trim().min(2, { message: 'Indiquez l’assureur.' }).max(150), ...INSURANCE_BODY })), wrap(async (req, res) => {
+  res.status(201).json(await createInsurance(req.user.patientId, req.body));
+}));
+router.patch('/insurance/:id', validateBody(z.object({ provider: z.string().trim().min(2).max(150).optional(), ...INSURANCE_BODY })), wrap(async (req, res) => {
+  const ins = await updateInsurance(req.user.patientId, req.params.id, req.body);
+  if (!ins) return res.status(404).json({ error: 'not_found', message: 'Assurance introuvable.' });
+  res.json(ins);
+}));
+router.delete('/insurance/:id', wrap(async (req, res) => {
+  if (!(await deleteInsurance(req.user.patientId, req.params.id))) return res.status(404).json({ error: 'not_found', message: 'Assurance introuvable.' });
+  res.status(204).send();
+}));
+
 router.get('/payments', wrap(async (req, res) => {
   res.json(await listPatientPayments(req.user.patientId));
 }));
 
+// Paiement déclaré pour un rendez-vous du patient (aucun paiement en ligne intégré).
 router.post('/payments', validateBody(z.object({
-  appointmentId: z.string().optional(),
-  doctorId: z.string().optional(),
+  appointmentId: z.string().min(1, { message: 'Indiquez le rendez-vous concerné.' }),
   amount: z.number().int().positive().optional(),
-  currency: z.string().default('XOF'),
-  method: z.enum(['cash', 'mobile_money', 'insurance', 'offline']).default('offline'),
+  currency: z.literal('XOF').default('XOF'),
+  method: z.enum(['cash', 'offline']).default('offline'),
   reference: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
 })), wrap(async (req, res) => {
@@ -548,6 +565,15 @@ router.get('/export/json',auditLog('patient.export','patient'),wrap(async(req,re
  }
  const [family]=await pool.execute('SELECT * FROM nova_family_members WHERE owner_patient_id=?',[req.user.patientId]);data.nova_family_members=family;
  for(const row of data.nova_documents) delete row.file_path;
+ // Ordonnances supprimées exclues (comme dans l'application) ; chemins internes retirés.
+ const removed=new Set(data.nova_prescriptions.filter(r=>r.deleted_at).map(r=>r.id));
+ data.nova_prescriptions=data.nova_prescriptions.filter(r=>!r.deleted_at);
+ data.nova_prescription_items=data.nova_prescription_items.filter(r=>!removed.has(r.prescription_id));
+ for(const row of data.nova_patients) delete row.photo_path;
+ // Délivrances en pharmacie et compte de connexion (sans secret).
+ const [dispenses]=await pool.execute('SELECT d.id,d.prescription_id,d.status,d.notes,d.dispensed_at,ph.name pharmacy_name FROM nova_dispenses d JOIN nova_pharmacies ph ON ph.id=d.pharmacy_id WHERE d.patient_id=?',[req.user.patientId]);data.nova_dispenses=dispenses;
+ const [dispenseItems]=await pool.execute('SELECT i.dispense_id,i.prescription_item_id,i.quantity_dispensed,i.substituted,i.substitution_name FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.patient_id=?',[req.user.patientId]);data.nova_dispense_items=dispenseItems;
+ const [account]=await pool.execute('SELECT id,role,phone,name,created_at,password_changed_at FROM nova_users WHERE patient_id=? AND deleted_at IS NULL',[req.user.patientId]);data.account=account;
  res.set('Cache-Control','no-store').set('Content-Disposition','attachment; filename="nova-dossier.json"').json({exportedAt:new Date().toISOString(),data});
 }));
 

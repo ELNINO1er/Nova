@@ -7,10 +7,14 @@ import { pool } from '../db/database.js';
 export function auditLog(action, resourceType) {
   return (req, res, next) => {
     const originalJson = res.json.bind(res);
+    const originalSend = res.send.bind(res);
+    let logged = false;
 
-    res.json = function (body) {
-      // Log only successful responses
-      if (res.statusCode < 400 && req.user) {
+    // Journalise une seule fois, que la réponse parte en JSON ou en binaire (export PDF, fichiers).
+    const record = (body) => {
+      if (logged || res.statusCode >= 400 || !req.user) return;
+      logged = true;
+      {
         const resourceId = req.params?.id || body?.id || null;
         pool.execute(
           `INSERT INTO nova_audit_logs (user_id, user_role, action, resource_type, resource_id, details, ip_address, user_agent)
@@ -27,8 +31,9 @@ export function auditLog(action, resourceType) {
           ]
         ).catch(() => {}); // Never block the response
       }
-      return originalJson(body);
     };
+    res.json = function (body) { record(body); return originalJson(body); };
+    res.send = function (body) { record(Buffer.isBuffer(body) || typeof body !== 'object' ? null : body); return originalSend(body); };
 
     next();
   };

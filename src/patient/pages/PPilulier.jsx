@@ -42,13 +42,16 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
   const [editing, setEditing] = useState(null);
   const markMedicationStatus = async (id, status) => {
     setEditing(null);
+    const previous = pills;
     setPills({ ...pills, [id]: status });
     try {
       await patientApi.markMedication(id, { status });
       onReload?.(await patientApi.todayMedications());
-      notify?.('Pilulier mis à jour');
+      notify?.(status === 'taken' ? 'Prise enregistrée.' : status === 'missed' ? 'Prise notée comme oubliée.' : 'Prise notée comme ignorée.');
     } catch (error) {
-      notify?.(error.message || 'Erreur pilulier', 'error');
+      // Échec : l'affichage revient à l'état réel (rien n'a été enregistré).
+      setPills(previous);
+      notify?.(error.message || 'Prise non enregistrée. Réessayez.', 'error');
     }
   };
 

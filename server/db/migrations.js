@@ -125,6 +125,10 @@ export async function migrate(conn) {
         await column(conn, 'nova_appointments', 'share_terms_version', 'VARCHAR(20) NULL');
         await column(conn, 'nova_appointments', 'share_acknowledged_at', 'DATETIME(3) NULL');
       }],
+      ['20261117_21_insurance_cnam', async () => {
+        // Donnée de démonstration : la CMU ivoirienne est gérée par la CNAM (la CNAMGS est gabonaise).
+        await conn.query("UPDATE nova_insurance SET provider = 'CNAM (CMU)' WHERE provider = 'CNAMGS'");
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

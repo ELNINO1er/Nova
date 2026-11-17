@@ -291,7 +291,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
                     <p className="text-sm font-semibold tabular-nums">{fmtTime(a.startsAt)}</p>
                     <p className={`text-[11px] ${sub}`}>{new Date(a.startsAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</p>
                   </div>
-                  {a.mode === 'video' && <button type="button" onClick={() => setShowVid(true)} aria-label="Rejoindre la téléconsultation" className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center"><Video className="w-4 h-4" /></button>}
+                  {a.mode === 'video' && <span title="Téléconsultation : le médecin vous indiquera comment le joindre" className="text-[11px] font-semibold text-red-700 shrink-0">Vidéo</span>}
                 </div>
               ))}
               {!dayAppointments.length && shownAppointments.length > 0 && <p className={`text-[11px] ${sub}`}>Rien ce jour-là : voici vos prochains rendez-vous.</p>}

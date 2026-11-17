@@ -49,16 +49,25 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
   }, [query]);
 
   const add = async () => {
-    const created = await patientApi.createNote({ title: 'Nouvelle note', content: '', color: 'amber', pinned: false });
-    const n = { id: created.id, t: created.title, c: created.content, col: created.color, u: 'À l\'instant', p: created.pinned };
-    setNs([n, ...ns]); setSel(n); setEdit(true);
-    onReload?.(await patientApi.notes());
+    try {
+      const created = await patientApi.createNote({ title: 'Nouvelle note', content: '', color: 'amber', pinned: false });
+      const n = { id: created.id, t: created.title, c: created.content, col: created.color, u: 'À l\'instant', p: created.pinned };
+      setNs([n, ...ns]); setSel(n); setEdit(true);
+      onReload?.(await patientApi.notes());
+    } catch (e) { notify?.(e.message || 'Note non créée. Réessayez.', 'error'); }
   };
   const upd = async (ch) => {
+    const before = { sel, ns };
     const u = { ...sel, ...ch, u: 'À l\'instant' };
     setSel(u); setNs(ns.map(n => n.id === u.id ? u : n));
-    await patientApi.updateNote(u.id, { title: u.t, content: u.c, color: u.col, pinned: u.p });
-    onReload?.(await patientApi.notes());
+    try {
+      await patientApi.updateNote(u.id, { title: u.t, content: u.c, color: u.col, pinned: u.p });
+      onReload?.(await patientApi.notes());
+    } catch (e) {
+      // Échec : retour à l'état enregistré.
+      setSel(before.sel); setNs(before.ns);
+      notify?.(e.message || 'Modification non enregistrée. Réessayez.', 'error');
+    }
   };
   const del = async (id) => {
     try {

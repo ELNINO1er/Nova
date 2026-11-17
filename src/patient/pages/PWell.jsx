@@ -3,6 +3,7 @@ import { Target, Plus, Minus, Activity, Droplet, Moon as MoonIcon, Heart, HeartP
 import { patientApi } from '../../api/patientApi.js';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
 import { PageHeader, Card, CardTitle, Chip, Button, IconBadge, EmptyState, StatTile, SearchInput, Highlight, NoResults, inputClass } from '../../components/patient/ui.jsx';
+import { confirmDialog } from '../../components/dialogs.jsx';
 
 /* Échelle d'IMC linéaire 15–40 : bandes, repères et curseur partagent la même fonction de position. */
 const BMI_MIN = 15;
@@ -115,15 +116,17 @@ export default function PWell({ data, profile: profileProp, onReload, notify, ca
     try {
       await patientApi.updateWellnessGoal(goal.id, { currentValue: next, completed });
       onReload?.(await patientApi.wellnessGoals());
-    } catch {}
+    } catch (e) { notify?.(e.message || 'Progression non enregistrée. Réessayez.', 'error'); }
   };
 
   const deleteGoal = async (id) => {
+    const goal = goals.find((g) => g.id === id);
+    if (!(await confirmDialog({ title: `Supprimer l’objectif « ${goal?.title || ''} » ?`, message: 'Sa progression sera perdue.', confirmLabel: 'Supprimer', danger: true }))) return;
     try {
       await patientApi.deleteWellnessGoal(id);
       onReload?.(await patientApi.wellnessGoals());
-      notify?.('Objectif supprimé');
-    } catch {}
+      notify?.('Objectif supprimé.');
+    } catch (e) { notify?.(e.message || 'Suppression impossible.', 'error'); }
   };
 
   const completed = goals.filter(g => g.completed).length;
@@ -185,7 +188,7 @@ export default function PWell({ data, profile: profileProp, onReload, notify, ca
             <p className="text-xl font-bold tracking-tight mt-1">
               {goals.length === 0 ? 'Fixez-vous un premier objectif'
                 : active === 0 ? 'Tous vos objectifs sont atteints'
-                : `${active} objectif${active > 1 ? 's' : ''} en cours aujourd’hui`}
+                : `${active} objectif${active > 1 ? 's' : ''} en cours`}
             </p>
           </div>
           <div>
@@ -227,7 +230,7 @@ export default function PWell({ data, profile: profileProp, onReload, notify, ca
               {/* Objectifs */}
               {showGoals && (
                 <Card darkMode={darkMode} className={bmiVisible ? 'lg:col-span-3' : 'lg:col-span-5'}>
-                  <CardTitle Icon={Target} action={query ? <span className={`text-xs ${sub}`}>{goalResults.length} / {goals.length}</span> : null}>Mes objectifs du jour</CardTitle>
+                  <CardTitle Icon={Target} action={query ? <span className={`text-xs ${sub}`}>{goalResults.length} / {goals.length}</span> : null}>Mes objectifs</CardTitle>
                   {goals.length === 0 ? (
                     <EmptyState Icon={Target} title="Aucun objectif" darkMode={darkMode}>
                       Cliquez sur « Objectif » pour en créer un.
