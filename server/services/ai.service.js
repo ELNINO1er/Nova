@@ -13,9 +13,9 @@ const BLOCKED_CLINICAL_ACTIONS = [
 const PATIENT_ADVICE = [
   // Orientation dans NOVA : les entrées les plus précises d'abord.
   { tags: ['annuler', 'deplacer', 'déplacer', 'reporter', 'modifier un rendez'],
-    answer: "Ouvrez Mes rendez-vous › Rendez-vous, choisissez le rendez-vous puis « Modifier » (le médecin devra reconfirmer la nouvelle heure) ou « Annuler ». Un rendez-vous passé ne peut plus être modifié." },
+    answer: "Ouvrez Rendez-vous et messages › Rendez-vous, choisissez le rendez-vous puis « Modifier » (le médecin devra reconfirmer la nouvelle heure) ou « Annuler ». Un rendez-vous passé ne peut plus être modifié." },
   { tags: ['prendre un rendez', 'prendre rendez', 'reserver', 'réserver'],
-    answer: "Ouvrez Mes rendez-vous › Trouver un médecin, choisissez un médecin puis un créneau libre et réservez. Vous pouvez aussi envoyer une demande depuis Mes rendez-vous › Rendez-vous ; le médecin la confirme." },
+    answer: "Ouvrez Rendez-vous et messages › Trouver un médecin, choisissez un médecin puis un créneau libre et réservez. Vous pouvez aussi envoyer une demande depuis Rendez-vous et messages › Rendez-vous ; le médecin la confirme." },
   { tags: ['ordonnance'],
     answer: "Vos ordonnances sont dans Mes traitements › Ordonnances. Chacune a un QR à présenter en pharmacie, et le bouton « Envoyer à une pharmacie » pour la faire préparer avant de passer." },
   { tags: ['pharmacie'],
@@ -27,7 +27,7 @@ const PATIENT_ADVICE = [
   { tags: ['vaccin'],
     answer: "Votre carnet est dans Mon dossier › Vaccinations : dates d'injection, prochains rappels et rappels en retard. Le bouton « Imprimer mon carnet » produit une version papier." },
   { tags: ['message', 'ecrire', 'écrire', 'contacter mon medecin', 'contacter mon médecin'],
-    answer: "Ouvrez Messages, puis « Nouvelle conversation » et choisissez un médecin qui a accès à votre dossier. Vous pouvez joindre une ordonnance, une analyse ou un document." },
+    answer: "Ouvrez Rendez-vous et messages › Messages, puis « Nouvelle conversation » et choisissez un médecin qui a accès à votre dossier. Vous pouvez joindre une ordonnance, une analyse ou un document." },
   { tags: ['urgence', 'qr'],
     answer: "En cas d'urgence vitale, appelez le 185 (SAMU). Votre fiche d'urgence et son QR, lisible par un secouriste avec l'appareil photo d'un téléphone, sont dans SOS Urgence." },
   { tags: ['marche', 'marcher', 'pas par jour'],

@@ -37,11 +37,12 @@ export const ROLE_SPACES = {
       { id: 'treatments', label: 'Suivi', Icon: HeartPulse },
       { id: 'pharmacy', label: 'Pharmacies', Icon: Building2 },
     ]},
-    { id: 'care', label: 'Mes rendez-vous', Icon: CalendarClock, pages: [
+    // 6 espaces au plus par rôle : les messages restent avec les rendez-vous, et le nom de l'espace le dit.
+    { id: 'care', label: 'Rendez-vous et messages', Icon: CalendarClock, pages: [
       { id: 'rdv', label: 'Rendez-vous', Icon: CalendarClock },
       { id: 'doctors', label: 'Trouver un médecin', Icon: Stethoscope },
+      { id: 'messages', label: 'Messages', Icon: MessageCircle, b: 'messages' },
     ]},
-    { id: 'inbox', label: 'Messages', Icon: MessageCircle, pages: [{ id: 'messages', label: 'Messages', Icon: MessageCircle, b: 'messages' }] },
     { id: 'wellness', label: 'Bien-être', Icon: Target, pages: [{ id: 'wellness', label: 'Bien-être', Icon: Target }] },
     { id: 'account', label: 'Partage et compte', Icon: Lock, pages: [
       { id: 'privacy', label: 'Accès au dossier', Icon: Lock },
