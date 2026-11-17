@@ -9,6 +9,8 @@ import './isolated-db.js';
  */
 import 'dotenv/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { CONSENT_TERMS_VERSION as SHARE_TERMS } from '../services/consent-terms.js';
+const SHARE_ACK = { acknowledged: true, termsVersion: SHARE_TERMS };
 
 const db = await import('../db/database.js');
 await db.initDb();
@@ -66,7 +68,7 @@ describe('Accès au dossier et activation (régressions)', () => {
 
   it('un report ne prolonge pas l’accès : la fenêtre de 90 jours part de la date du partage', async () => {
     const { patientId } = await newPatient();
-    const appt = await patientSvc.createAppointment(patientId, { startsAt: futureHour(10), doctorId: DOCTOR, shareRecord: true });
+    const appt = await patientSvc.createAppointment(patientId, { startsAt: futureHour(10), doctorId: DOCTOR, shareRecord: true, ack: SHARE_ACK });
     await doctorSvc.updateDoctorAppointment(DOCTOR, appt.id, { status: 'confirmed' });
     expect(await access.hasDoctorPatientAccess(DOCTOR, patientId)).toBe(true);
 
@@ -95,7 +97,7 @@ describe('Accès au dossier et activation (régressions)', () => {
 
   it('un partage révoqué reste révoqué après report, changement de lieu ou nouvelle réservation sans partage', async () => {
     const { patientId } = await newPatient();
-    const appt = await patientSvc.createAppointment(patientId, { startsAt: futureHour(12), doctorId: DOCTOR, shareRecord: true });
+    const appt = await patientSvc.createAppointment(patientId, { startsAt: futureHour(12), doctorId: DOCTOR, shareRecord: true, ack: SHARE_ACK });
     await doctorSvc.updateDoctorAppointment(DOCTOR, appt.id, { status: 'confirmed' });
     expect(await access.hasDoctorPatientAccess(DOCTOR, patientId)).toBe(true);
 
@@ -112,7 +114,7 @@ describe('Accès au dossier et activation (régressions)', () => {
 
     // L'annulation ferme aussi un accès encore valide.
     const { patientId: other } = await newPatient();
-    const shared = await patientSvc.createAppointment(other, { startsAt: futureHour(15, 15), doctorId: DOCTOR, shareRecord: true });
+    const shared = await patientSvc.createAppointment(other, { startsAt: futureHour(15, 15), doctorId: DOCTOR, shareRecord: true, ack: SHARE_ACK });
     await doctorSvc.updateDoctorAppointment(DOCTOR, shared.id, { status: 'confirmed' });
     expect(await access.hasDoctorPatientAccess(DOCTOR, other)).toBe(true);
     await patientSvc.updateAppointment(other, shared.id, { status: 'cancelled' });
@@ -131,7 +133,7 @@ describe('Accès au dossier et activation (régressions)', () => {
     expect(await access.hasDoctorPatientAccess(DOCTOR, patientId)).toBe(false);
 
     const slotB = await professional.addProfessionalSlot(DOCTOR, { date, time: '08:30' });
-    await patientSvc.bookSlot(patientId, slotB.id, DOCTOR, true);
+    await patientSvc.bookSlot(patientId, slotB.id, DOCTOR, true, SHARE_ACK);
     expect(await access.hasDoctorPatientAccess(DOCTOR, patientId)).toBe(true);
   });
 

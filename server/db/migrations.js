@@ -120,6 +120,11 @@ export async function migrate(conn) {
         await column(conn, 'nova_pharmacy_orders', 'dispense_id', 'VARCHAR(36) NULL');
         await conn.query('CREATE INDEX idx_npo_pharmacy_status ON nova_pharmacy_orders (pharmacy_id, status)').catch((e) => { if (e.code !== 'ER_DUP_KEYNAME') throw e; });
       }],
+      ['20261117_20_share_terms', async () => {
+        // Partage du dossier lors d'une réservation : version des conditions acceptées (consentement éclairé).
+        await column(conn, 'nova_appointments', 'share_terms_version', 'VARCHAR(20) NULL');
+        await column(conn, 'nova_appointments', 'share_acknowledged_at', 'DATETIME(3) NULL');
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

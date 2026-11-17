@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bell, ChevronRight, FileDown, KeyRound, Lock, QrCode, Shield, UserX } from 'lucide-react';
 import PasswordInput from '../../components/PasswordInput.jsx';
 import { patientApi } from '../../api/patientApi.js';
+import { confirmDialog, promptDialog } from '../../components/dialogs.jsx';
 import { request } from '../../api/client.js';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
 import { Button, Card, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, inputClass } from '../../components/patient/ui.jsx';
@@ -30,7 +31,7 @@ const SETTINGS = [
   { id: 'password', section: 'security', label: 'Changer mon mot de passe', description: 'Mot de passe actuel, nouveau mot de passe et confirmation', keywords: 'sécurité connexion compte identifiant' },
   { id: 'exportJson', section: 'data', label: 'Exporter mes données (JSON)', description: 'Dossier et lignes détaillées, sans limite de pagination', keywords: 'export télécharger sauvegarde portabilité rgpd' },
   { id: 'exportPdf', section: 'data', label: 'Télécharger un résumé (PDF)', description: 'Identité, rendez-vous et ordonnances récents', keywords: 'export télécharger imprimer pdf' },
-  { id: 'close', section: 'data', label: 'Fermer mon compte', description: 'Demande à votre médecin ou à l’administrateur NOVA', keywords: 'supprimer compte fermeture désinscription' },
+  { id: 'close', section: 'data', label: 'Fermer mon compte', description: 'Désactiver votre compte NOVA et retirer tous les accès', keywords: 'supprimer compte fermeture désinscription' },
 ];
 const sectionLabel = (id) => SECTIONS.find((s) => s.id === id)?.label || '';
 const SETTINGS_FIELDS = (r) => [r.label, r.description, sectionLabel(r.section), r.keywords];
@@ -41,6 +42,18 @@ export default function SettingsPage({ data, card, sub, darkMode, setPage, api: 
   const [saving, setSaving] = useState('');
   const [status, setStatus] = useState({ error: '', ok: '' });
   const [exporting, setExporting] = useState(false);
+  // Fermeture du compte : explication des conséquences, puis mot de passe, puis déconnexion.
+  const closeAccount = async () => {
+    const ok = await confirmDialog({ title: 'Fermer votre compte NOVA ?', message: 'Vous serez déconnecté. Les médecins perdront l’accès à votre dossier, votre QR d’urgence sera désactivé et vos rendez-vous à venir seront annulés. Votre dossier médical reste conservé.', confirmLabel: 'Continuer', danger: true });
+    if (!ok) return;
+    const password = await promptDialog({ title: 'Confirmez avec votre mot de passe', label: 'Mot de passe', inputType: 'password', required: true, requiredMessage: 'Saisissez votre mot de passe.', confirmLabel: 'Fermer mon compte' });
+    if (password == null) return;
+    try {
+      await patientApi.closeAccount(password);
+      localStorage.removeItem('nova_user');
+      window.dispatchEvent(new Event('nova:logout'));
+    } catch (e) { setStatus({ error: e.message || 'Fermeture impossible.', ok: '' }); }
+  };
   const [query, setQuery] = useUrlQuery();
 
   const sections = SECTIONS.filter((s) => isPatient || !s.patientOnly);
@@ -164,10 +177,12 @@ export default function SettingsPage({ data, card, sub, darkMode, setPage, api: 
       case 'close':
         return (
           <div className="py-4">
-            <div className={`flex items-start gap-4 p-4 rounded-2xl border ${darkMode ? 'border-slate-800' : 'border-red-100 bg-white'}`}>
+            <div className={`flex flex-col sm:flex-row sm:items-start gap-4 p-4 rounded-2xl border ${darkMode ? 'border-slate-800' : 'border-red-100 bg-white'}`}>
               <IconBadge Icon={UserX} size="sm" />
-              <div className="min-w-0"><p className="font-medium text-sm">{hl(r.label)}</p>
-                <p className={`text-xs mt-0.5 ${sub}`}>La fermeture n’est pas encore disponible en libre-service : demandez-la à votre médecin ou à l’administrateur NOVA. Vos actes médicaux restent conservés conformément à la réglementation.</p></div>
+              <div className="min-w-0 flex-1"><p className="font-medium text-sm">{hl(r.label)}</p>
+                <p className={`text-xs mt-0.5 ${sub}`}>Vous serez déconnecté et ne pourrez plus vous connecter. Les accès des médecins sont retirés, votre QR d’urgence est désactivé, vos rendez-vous à venir et vos ordonnances envoyées en pharmacie sont annulés. Votre dossier médical est conservé comme la loi l’exige, sans être accessible ; un administrateur NOVA peut rouvrir le compte à votre demande. Pensez à exporter vos données avant.</p>
+                <button type="button" onClick={closeAccount} className="mt-3 h-10 px-4 rounded-xl border border-red-300 text-red-700 text-sm font-semibold hover:bg-red-50">Fermer mon compte</button>
+              </div>
             </div>
           </div>
         );

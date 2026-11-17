@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, Clock, MapPin, Video, Plus, X, Check, Trash2, Edit3, ClipboardCheck, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
 import { ConfirmDialog } from '../../components/PatientModal.jsx';
+import ConsentDialog from '../../components/ConsentDialog.jsx';
 import { PageHeader, Card, CardTitle, Chip, Button, IconButton, EmptyState, DateBlock, Avatar, Pills, SearchInput, Highlight, NoResults, inputClass } from '../../components/patient/ui.jsx';
 import { useSearch, useUrlQuery, searchableDate } from '../../utils/search.js';
 
@@ -89,6 +90,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   const [editingId, setEditingId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [doctors, setDoctors] = useState([]);
+  const [shareAsk, setShareAsk] = useState(false);
   const [form, setForm] = useState({
     startsAt: defaultAppointmentDate(),
     doctorId: '',
@@ -168,12 +170,14 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
     });
     setShowForm(true);
   };
-  const saveRdv = async () => {
+  const saveRdv = async (ack) => {
     if (!editingId && !form.doctorId) {
       notify?.('Veuillez sélectionner un médecin', 'error');
       return;
     }
     if (saving) return;
+    // Partage du dossier demandé : conditions à accepter avant l'envoi.
+    if (!editingId && form.shareRecord && !ack?.termsVersion) { setShareAsk(true); return; }
     const startsAt = new Date(form.startsAt).toISOString();
     const original = editingId ? (data || []).find((r) => r.id === editingId)?.startsAt : null;
     // Heure inchangée : ne pas l'envoyer (sinon le rendez-vous confirmé repasserait « en attente »).
@@ -182,7 +186,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       ...(unchanged ? {} : { startsAt }),
       doctorId: form.doctorId,
       mode: form.mode,
-      ...(editingId ? {} : { shareRecord: form.shareRecord }),
+      ...(editingId ? {} : { shareRecord: form.shareRecord, ...(form.shareRecord && { ack }) }),
     };
     setSaving(true);
     try {
@@ -191,6 +195,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
       onReload?.(await patientApi.appointments());
       notify?.(editingId ? 'Rendez-vous déplacé : il est à reconfirmer par le médecin.' : 'Demande envoyée : le médecin doit la confirmer.');
       setShowForm(false);
+      setShareAsk(false);
       resetRdvForm();
     } catch (error) {
       notify?.(error.message || 'Erreur rendez-vous', 'error');
@@ -269,7 +274,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
             </div>
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
               <Button variant="secondary" darkMode={darkMode} onClick={closeForm}>Annuler</Button>
-              <Button onClick={saveRdv} disabled={saving}>{saving ? 'Envoi…' : editingId ? 'Modifier' : 'Envoyer la demande'}</Button>
+              <Button onClick={() => saveRdv()} disabled={saving}>{saving ? 'Envoi…' : editingId ? 'Modifier' : 'Envoyer la demande'}</Button>
             </div>
           </div>
         </>
@@ -383,6 +388,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
           darkMode={darkMode}
         />
       )}
+      {shareAsk && <ConsentDialog sharing doctorName={(doctors || []).find((d) => d.id === form.doctorId)?.fullName || 'ce médecin'} darkMode={darkMode} onCancel={() => setShareAsk(false)} onAccept={(ack) => saveRdv(ack)} />}
     </div>
   );
 }

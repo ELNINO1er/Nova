@@ -8,6 +8,8 @@ import './isolated-db.js';
 import 'dotenv/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { CONSENT_TERMS_VERSION as SHARE_TERMS } from '../services/consent-terms.js';
+const SHARE_ACK = { acknowledged: true, termsVersion: SHARE_TERMS };
 
 const db = await import('../db/database.js');
 await db.initDb();
@@ -50,7 +52,7 @@ describe('Règles d’accès', () => {
 
   it('une demande de rendez-vous n’ouvre pas le dossier ; la confirmation du médecin l’ouvre', async () => {
     const startsAt = new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 13) + ':00:00.000Z';
-    const appt = await patient.createAppointment(PATIENT, { startsAt, doctorId: DOCTOR, shareRecord: true });
+    const appt = await patient.createAppointment(PATIENT, { startsAt, doctorId: DOCTOR, shareRecord: true, ack: SHARE_ACK });
     createdAppointments.push(appt.id);
     expect(await access.hasDoctorPatientAccess(DOCTOR, PATIENT)).toBe(false);
 
@@ -144,5 +146,13 @@ describe('Règles d’accès', () => {
     const done = await admin.decideResetRequest(pending.requestId, ADMIN_B, true);
     expect(done.provisionalPassword).toMatch(/.{12,}/);
     expect(await admin.decideResetRequest(pending.requestId, ADMIN_B, true)).toBeNull();
+  });
+
+  it('refuse le partage du dossier à la réservation sans acceptation des conditions', async () => {
+    const startsAt = new Date(Date.now() + 9 * 86400000).toISOString();
+    await expect(patient.createAppointment(PATIENT, { startsAt, doctorId: DOCTOR, shareRecord: true }))
+      .rejects.toMatchObject({ status: 422, code: 'consent_terms_required' });
+    await expect(patient.bookSlot(PATIENT, 'creneau-inexistant', DOCTOR, true))
+      .rejects.toMatchObject({ status: 422, code: 'consent_terms_required' });
   });
 });

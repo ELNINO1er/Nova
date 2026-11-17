@@ -64,16 +64,20 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     }
   };
 
-  const handleBook = async (slot) => {
+  // Partage du dossier : d'abord les conditions (consentement éclairé), puis la réservation.
+  const [shareAsk, setShareAsk] = useState(null);
+  const handleBook = async (slot, ack) => {
     if (!slot) {
       notify?.('Choisissez un créneau.', 'error');
       return;
     }
     if (booking) return;
+    if (shareRecord && !ack) { setShareAsk(slot); return; }
     setBooking(slot.id);
     try {
-      await patientApi.bookSlot(selected.id, slot.id, shareRecord);
-      notify?.(`RDV confirmé le ${slot.date} à ${slot.time} avec ${selected.fullName}`);
+      await patientApi.bookSlot(selected.id, slot.id, shareRecord, ack);
+      setShareAsk(null);
+      notify?.(`Rendez-vous confirmé le ${new Date(`${slot.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à ${String(slot.time).slice(0, 5)} avec ${selected.fullName}`);
       setSelected(null);
       setChosenSlot(null);
       onBooked?.();
@@ -300,6 +304,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
         )}
       </div>
       {consentFor && <ConsentDialog doctorName={consentFor.fullName} darkMode={darkMode} onCancel={() => setConsentFor(null)} onAccept={grantAccessNow} />}
+      {shareAsk && selected && <ConsentDialog sharing doctorName={selected.fullName} darkMode={darkMode} onCancel={() => setShareAsk(null)} onAccept={(ack) => handleBook(shareAsk, ack)} />}
     </div>
   );
 }

@@ -70,7 +70,7 @@ export const patientApi = {
   doctors: (params = {}) => request(`/patient/me/doctors${toQuery(params)}`),
   doctor: (id) => request(`/patient/me/doctors/${id}`),
   doctorSlots: (id, params = {}) => request(`/patient/me/doctors/${id}/slots${toQuery(params)}`),
-  bookSlot: (doctorId, slotId, shareRecord) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST', body: JSON.stringify({ shareRecord }) }),
+  bookSlot: (doctorId, slotId, shareRecord, ack) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST', body: JSON.stringify({ shareRecord, ...(ack && { ack }) }) }),
   notifications: () => request('/patient/me/notifications'),
   markNotificationRead: (id) => request(`/patient/me/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: () => request('/patient/me/notifications/read-all', { method: 'PATCH' }),
@@ -95,6 +95,7 @@ export const patientApi = {
   exportPdfUrl: () => `${API_BASE_URL}/patient/me/export/pdf`,
   pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
   pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
+  closeAccount: (password) => request('/patient/me/account/close', { method: 'POST', body: JSON.stringify({ password }) }),
   cancelPharmacyOrder: (id) => request(`/patient/me/pharmacy-orders/${id}/cancel`, { method: 'POST' }),
   createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
     method: 'POST',

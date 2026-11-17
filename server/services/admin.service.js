@@ -83,7 +83,8 @@ export async function getAdminUsers({ type = 'doctors', search = '', limit, offs
     const dataSql = `SELECT p.id, p.first_name AS firstName, p.last_name AS lastName, p.cmu_number AS cmuNumber,
         p.phone, p.email, p.city, p.birth_date AS birthDate, p.created_at AS createdAt,
         (SELECT u.id FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS userId,
-        (SELECT u.phone FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone
+        (SELECT u.phone FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS loginPhone,
+        (SELECT u.disabled_at FROM nova_users u WHERE u.patient_id = p.id AND u.deleted_at IS NULL ORDER BY u.created_at LIMIT 1) AS accountClosedAt
       FROM nova_patients p
       WHERE (? = 1 OR first_name LIKE ? OR last_name LIKE ? OR cmu_number LIKE ? OR phone LIKE ?)
       ORDER BY COALESCE(created_at, updated_at) DESC

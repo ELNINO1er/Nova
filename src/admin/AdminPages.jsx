@@ -489,6 +489,16 @@ function AUsers({ card, sub, darkMode }) {
     } catch (err) { setError(err.message || 'Création impossible.'); }
   };
 
+  const setPatientAccount = async (pt, active) => {
+    const name = `${pt.firstName} ${pt.lastName}`;
+    const ok = await confirmDialog(active
+      ? { title: `Rouvrir le compte de ${name} ?`, message: 'Le patient pourra de nouveau se connecter. Aucun accès médecin n’est rétabli : il devra les accorder à nouveau.', confirmLabel: 'Rouvrir le compte' }
+      : { title: `Fermer le compte de ${name} ?`, message: 'Le patient est déconnecté et ne peut plus se connecter. Les accès des médecins sont retirés, son QR d’urgence est désactivé et ses rendez-vous à venir sont annulés. Le dossier médical est conservé.', confirmLabel: 'Fermer le compte', danger: true });
+    if (!ok) return;
+    try { await adminApi.setPatientAccount(pt.id, active); flash(active ? 'Compte rouvert.' : 'Compte fermé.'); await load(); }
+    catch (err) { setError(err.message || 'Mise à jour impossible.'); }
+  };
+
   const toggleDoctor = async (d) => {
     const next = !Number(d.isAvailable);
     if (!next && !(await confirmDialog({ title: `Suspendre Dr ${d.firstName} ${d.lastName} ?`, message: 'Ce médecin n’apparaîtra plus dans la recherche des patients et ne pourra plus recevoir de rendez-vous. Vous pourrez le réactiver à tout moment.', confirmLabel: 'Suspendre', danger: true }))) return;
@@ -596,11 +606,14 @@ function AUsers({ card, sub, darkMode }) {
                       <td className="p-3"><div className="flex items-center gap-3">{avatar(initialsOf(pt.firstName, pt.lastName))}<div className="min-w-0"><p className="font-semibold truncate">{pt.firstName} {pt.lastName}</p><p className={`text-xs truncate ${sub}`}>{pt.city || '—'}</p></div></div></td>
                       <td className={`p-3 font-mono text-xs ${sub}`}>{pt.cmuNumber || '—'}</td>
                       <td className="p-3 font-mono text-xs">{fmtPhone(pt.loginPhone || pt.phone)}</td>
-                      <td className="p-3"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700">{age === '-' ? 'Non renseigné' : `${age} ans`}</span></td>
+                      <td className="p-3"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700">{age === '-' ? 'Non renseigné' : `${age} ans`}</span>{pt.accountClosedAt && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-700">Compte fermé</span>}</td>
                       <td className="p-3 text-right"><RowMenu darkMode={darkMode} items={[
                         { label: 'Réinitialiser le mot de passe', Icon: KeyRound, onClick: () => resetPassword(pt.userId, `${pt.firstName} ${pt.lastName}`), disabled: !pt.userId },
                         (pt.loginPhone || pt.phone) && { label: 'Copier le numéro de connexion', Icon: Copy, onClick: () => copy(pt.loginPhone || pt.phone, 'Numéro') },
                         pt.cmuNumber && { label: 'Copier le n° CMU', Icon: Copy, onClick: () => copy(pt.cmuNumber, 'N° CMU') },
+                        pt.userId && (pt.accountClosedAt
+                          ? { label: 'Rouvrir le compte', Icon: KeyRound, onClick: () => setPatientAccount(pt, true) }
+                          : { label: 'Fermer le compte', Icon: X, danger: true, onClick: () => setPatientAccount(pt, false) }),
                       ]} /></td>
                     </tr>
                   );

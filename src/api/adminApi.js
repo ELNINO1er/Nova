@@ -6,6 +6,7 @@ export const adminApi = {
   auditLogs: (params = {}) => request(`/admin/me/audit-logs${toQuery(params)}`),
   accessLogs: (params = {}) => request(`/admin/me/access-logs${toQuery(params)}`),
   system: () => request('/admin/me/system'),
+  setPatientAccount: (id, active) => request(`/admin/me/patients/${id}/account`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   setDoctorStatus: (id, isAvailable) =>
     request(`/admin/me/doctors/${id}/status`, {
       method: 'PATCH',

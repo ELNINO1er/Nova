@@ -103,6 +103,7 @@ function Dialog({ d, close, dark }) {
           <label className="block mt-4 text-sm font-medium">
             {d.label}
             <InputTag ref={field} value={value} onChange={(e) => { setValue(e.target.value); setError(''); }} placeholder={d.placeholder}
+              type={d.inputType || undefined} autoComplete={d.inputType === 'password' ? 'current-password' : undefined}
               inputMode={d.inputMode} maxLength={d.maxLength} rows={d.multiline ? 3 : undefined} aria-invalid={Boolean(error)}
               onKeyDown={(e) => { if (d.multiline && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e); }}
               className={input} />

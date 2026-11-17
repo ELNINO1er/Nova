@@ -198,7 +198,15 @@ export async function getAppointments(patientId) {
   return rows.map(mapAppointment);
 }
 
+// Partager son dossier en réservant ouvre l'accès au médecin : les conditions doivent avoir été acceptées.
+function assertShareAck(shareRecord, ack) {
+  if (shareRecord && ack?.termsVersion !== CONSENT_TERMS_VERSION) {
+    throw Object.assign(new Error('Lisez et acceptez les conditions de partage avant de partager votre dossier.'), { status: 422, code: 'consent_terms_required' });
+  }
+}
+
 export async function createAppointment(patientId, payload) {
+  assertShareAck(payload.shareRecord, payload.ack);
   if(payload.mode==='video')throw Object.assign(new Error('Téléconsultation indisponible : aucun service vidéo intégré.'),{status:503});
   const startsAt=new Date(payload.startsAt).toISOString(); assertFuture(startsAt);
   const id=randomUUID();
@@ -206,9 +214,10 @@ export async function createAppointment(patientId, payload) {
     if(!doctor.is_available) throw Object.assign(new Error('Medecin indisponible.'),{status:409});
     await assertDoctorSlotFree(doctor.id,startsAt,null,conn);
     await reserveMatchingSlot(conn,doctor.id,startsAt,patientId);
-    await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at,record_shared_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString(),payload.shareRecord?new Date():null]);
+    await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at,record_shared_at,share_terms_version,share_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?,?,?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString(),payload.shareRecord?new Date():null,payload.shareRecord?CONSENT_TERMS_VERSION:null,payload.shareRecord?new Date():null]);
   });
-  notifyDoctorAppointment(payload.doctorId,'Votre patient',frDate(startsAt)).catch(()=>{});
+  const [[who]]=await pool.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[patientId]);
+  notifyDoctorAppointment(payload.doctorId,`${who?.first_name||''} ${who?.last_name||''}`.trim()||'Un patient',frDate(startsAt)).catch(()=>{});
   return getAppointment(patientId,id);
 }
 
@@ -533,7 +542,8 @@ export async function getDoctorSlots(doctorId, query = {}) {
   }));
 }
 
-export async function bookSlot(patientId, slotId, doctorId, shareRecord = false) {
+export async function bookSlot(patientId, slotId, doctorId, shareRecord = false, ack = null) {
+  assertShareAck(shareRecord, ack);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -558,11 +568,13 @@ export async function bookSlot(patientId, slotId, doctorId, shareRecord = false)
     const startsAt = startsCheck;
 
     await conn.execute(
-      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, record_shared_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?)`,
+      `INSERT INTO nova_appointments (id, patient_id, starts_at, doctor_name, specialty, location, mode, status, doctor_id, record_shared_at, share_terms_version, share_acknowledged_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'onsite', 'confirmed', ?, ?, ?, ?, ?, ?)`,
       [apptId, patientId, startsAt,
        `Dr. ${doctor.first_name} ${doctor.last_name}`,
-       doctor.specialty, doctor.city, doctorId, shareRecord ? new Date() : null]
+       doctor.specialty, doctor.city, doctorId, shareRecord ? new Date() : null,
+       shareRecord ? CONSENT_TERMS_VERSION : null, shareRecord ? new Date() : null,
+       new Date().toISOString(), new Date().toISOString()]
     );
 
     await conn.commit();

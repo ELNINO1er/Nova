@@ -4,6 +4,7 @@ import { requireAdmin, requirePermission } from '../middleware/auth.js';
 import { parsePagination } from '../middleware/paginate.js';
 import { auditLog } from '../middleware/audit.js';
 import { validateBody } from '../middleware/helpers.js';
+import { setPatientAccountActive } from '../services/account-closure.service.js';
 import { phoneSchema } from '../services/phone.js';
 import {
   getAdminAccessLogs,
@@ -67,6 +68,21 @@ router.get('/system', requirePermission('admin.stats'), async (_req, res, next) 
     next(err);
   }
 });
+
+// Fermeture ou réouverture d'un compte patient (le dossier médical est conservé).
+router.patch(
+  '/patients/:id/account',
+  requirePermission('admin.doctors.validate'),
+  validateBody(z.object({ active: z.boolean() })),
+  auditLog('admin.patient.account_update', 'patient'),
+  async (req, res, next) => {
+    try {
+      const result = await setPatientAccountActive(req.params.id, req.body.active);
+      if (!result) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
+      res.json(result);
+    } catch (err) { next(err); }
+  }
+);
 
 router.patch(
   '/doctors/:id/status',

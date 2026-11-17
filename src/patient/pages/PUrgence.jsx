@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { AlertTriangle, Shield, Siren, Download, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, Shield, Siren, Printer, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
 import { alertDialog, confirmDialog } from '../../components/dialogs.jsx';
 import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
@@ -37,7 +38,16 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
     }
   };
 
-  const handlePrint = () => window.print();
+  // Impression : une carte d'urgence dédiée (avec le QR) est rendue hors de la page, puis retirée après l'impression.
+  const [printing, setPrinting] = useState(false);
+  const handlePrint = () => setPrinting(true);
+  useEffect(() => {
+    if (!printing) return undefined;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    const t = setTimeout(() => window.print(), 250);
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
+  }, [printing]);
 
   if (!data) return (
     <div className="space-y-5">
@@ -68,7 +78,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
             </div>
             <p className={`text-xs mt-3 ${sub}`}>{data.firstName} {data.lastName} · {data.bloodType || '?'} · {data.phone}</p>
             <div className="flex gap-2 mt-5">
-              <Button Icon={Download} onClick={handlePrint} darkMode={darkMode} className="flex-1">Imprimer</Button>
+              <Button Icon={Printer} onClick={handlePrint} darkMode={darkMode} className="flex-1">Imprimer</Button>
               <Button variant="secondary" onClick={() => setShowQR(false)} darkMode={darkMode} className="flex-1">Fermer</Button>
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs font-semibold">
@@ -198,6 +208,30 @@ function MedSection({ Icon, label, count, children, darkMode, className = '' }) 
         {count > 0 && <span className="text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5">{count}</span>}
       </dt>
       <dd>{children}</dd>
+      {printing && qrData && createPortal(
+        <div className="print-root bg-white text-slate-900 p-6">
+          <div className="max-w-xl mx-auto border-2 border-red-600 rounded-2xl p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-red-700">Fiche d’urgence · NOVA</p>
+                <p className="text-2xl font-bold mt-1">{data.firstName} {data.lastName}</p>
+                <p className="text-sm">{[age != null ? `${age} ans` : null, sexLabel].filter(Boolean).join(' · ')}</p>
+                <p className="mt-3 text-sm">Groupe sanguin : <strong className="text-xl text-red-700">{data.bloodType || 'non renseigné'}</strong></p>
+              </div>
+              <div className="text-center shrink-0">
+                <img src={qrData.qr} alt="QR d’urgence" className="w-36 h-36" />
+                <p className="text-[10px] mt-1">Scanner avec un téléphone</p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+              <div><p className="font-bold">Allergies</p><p>{data.allergies?.length ? data.allergies.join(', ') : 'Aucune connue'}</p></div>
+              <div><p className="font-bold">Maladies chroniques</p><p>{data.chronicDiseases?.length ? data.chronicDiseases.join(', ') : 'Aucune connue'}</p></div>
+              <div><p className="font-bold">Traitements en cours</p><p>{data.currentMedications?.length ? data.currentMedications.map((m) => [m.name, m.dosage].filter(Boolean).join(' ')).join(', ') : 'Aucun'}</p></div>
+              <div><p className="font-bold">Personne à prévenir</p><p>{data.emergencyContact?.phone ? `${data.emergencyContact.name || ''} ${data.emergencyContact.phone}`.trim() : 'Non renseignée'}</p></div>
+            </div>
+            <p className="mt-4 text-xs">{EMERGENCY_NUMBERS.map((n) => `${n.label} ${n.number}`).join(' · ')} — Informations déclarées, à confirmer cliniquement.</p>
+          </div>
+        </div>, document.body)}
     </div>
   );
 }

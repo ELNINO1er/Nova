@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, X } from 'lucide-react';
-import { CONSENT_TERMS, CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS } from '../utils/consentTerms.js';
+import { CONSENT_TERMS, CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS, SHARE_DURATION_DAYS } from '../utils/consentTerms.js';
 
 // Consentement éclairé : affiché avant tout accès accordé à un médecin. Le bouton n'est actif
 // qu'après acceptation explicite ; la réponse envoyée au serveur porte la version des conditions.
-export default function ConsentDialog({ doctorName, confirming = false, onCancel, onAccept, darkMode }) {
+// sharing : partage au moment d'un rendez-vous (accès de 90 jours) plutôt qu'une autorisation de 12 mois.
+export default function ConsentDialog({ doctorName, confirming = false, sharing = false, onCancel, onAccept, darkMode }) {
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const panel = useRef(null);
-  const until = new Date(Date.now() + CONSENT_DURATION_DAYS * 86400000).toLocaleDateString('fr-FR');
+  const until = new Date(Date.now() + (sharing ? SHARE_DURATION_DAYS : CONSENT_DURATION_DAYS) * 86400000).toLocaleDateString('fr-FR');
 
   useEffect(() => {
     panel.current?.focus();
@@ -31,7 +32,7 @@ export default function ConsentDialog({ doctorName, confirming = false, onCancel
         <div className="flex items-start gap-3">
           <span className="w-11 h-11 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0"><ShieldCheck className="w-6 h-6" /></span>
           <div className="flex-1">
-            <h2 id="consent-title" className="text-lg font-bold">{confirming ? 'Confirmer l’accès de ' : 'Autoriser '}{doctorName}</h2>
+            <h2 id="consent-title" className="text-lg font-bold">{sharing ? 'Partager votre dossier avec ' : confirming ? 'Confirmer l’accès de ' : 'Autoriser '}{doctorName}</h2>
             <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Lisez ce que cet accès permet avant de décider.</p>
           </div>
           <button type="button" onClick={onCancel} disabled={busy} aria-label="Fermer" className="p-1 rounded-lg"><X className="w-5 h-5" /></button>
@@ -47,7 +48,7 @@ export default function ConsentDialog({ doctorName, confirming = false, onCancel
         <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
           <button type="button" onClick={onCancel} disabled={busy} className={`h-11 px-5 rounded-xl font-semibold text-sm border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>Annuler</button>
           <button type="button" onClick={accept} disabled={!accepted || busy} className="h-11 px-5 rounded-xl font-semibold text-sm bg-red-600 text-white disabled:opacity-40">
-            {busy ? 'Enregistrement…' : confirming ? 'Confirmer l’accès' : 'Autoriser l’accès'}
+            {busy ? 'Enregistrement…' : sharing ? 'Partager et réserver' : confirming ? 'Confirmer l’accès' : 'Autoriser l’accès'}
           </button>
         </div>
       </div>

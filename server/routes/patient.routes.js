@@ -1,5 +1,6 @@
 import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import { emergencyUrl, getOrCreateEmergencyToken, renewEmergencyToken } from '../services/emergency.service.js';
+import { closeOwnPatientAccount } from '../services/account-closure.service.js';
 import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -201,6 +202,8 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 
 // Un partage facultatif ne prend effet qu'une fois le rendez-vous confirmé.
 const SHARE_RECORD = z.boolean().optional().default(false);
+// Accusé d'acceptation des conditions, obligatoire dès que le dossier est partagé (contrôlé par le service).
+const SHARE_ACK = z.object({ acknowledged: z.literal(true), termsVersion: z.string().max(20) }).optional();
 
 router.get('/appointments', wrap(async (req, res) => {
   res.json(await getAppointments(req.user.patientId));
@@ -213,6 +216,7 @@ router.post('/appointments', validateBody(z.object({
   location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
   shareRecord: SHARE_RECORD,
+  ack: SHARE_ACK,
 })), auditLog('appointment.request', 'appointment'), wrap(async (req, res) => {
   res.status(201).json(await createAppointment(req.user.patientId, req.body));
 }));
@@ -354,8 +358,8 @@ router.get('/doctors/:id/slots', wrap(async (req, res) => {
   res.json(await getDoctorSlots(req.params.id, req.query));
 }));
 
-router.post('/doctors/:id/slots/:slotId/book', validateBody(z.object({ shareRecord: SHARE_RECORD })), wrap(async (req, res) => {
-  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id, req.body.shareRecord);
+router.post('/doctors/:id/slots/:slotId/book', validateBody(z.object({ shareRecord: SHARE_RECORD, ack: SHARE_ACK })), wrap(async (req, res) => {
+  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id, req.body.shareRecord, req.body.ack);
   if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
   res.status(201).json(result);
 }));
@@ -577,6 +581,13 @@ router.post('/pharmacy-orders', validateBody(z.object({
 
 router.post('/pharmacy-orders/:id/cancel', auditLog('patient.pharmacy_order.cancel', 'pharmacy_order'), wrap(async (req, res) => {
   res.json(await cancelPharmacyOrder(req.user.patientId, req.params.id));
+}));
+
+/* ─── Fermeture du compte ────────────────────────────────────── */
+router.post('/account/close', validateBody(z.object({
+  password: z.string().min(1, { message: 'Saisissez votre mot de passe pour confirmer.' }).max(200),
+})), auditLog('patient.account.close', 'patient'), wrap(async (req, res) => {
+  res.json(await closeOwnPatientAccount(req.user.id, req.user.patientId, req.body.password));
 }));
 
 /* ─── Paramètres ─────────────────────────────────────────────── */

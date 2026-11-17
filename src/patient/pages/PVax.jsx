@@ -1,48 +1,59 @@
-import React, { useMemo, useState } from 'react';
-import { Syringe, Clock, QrCode, ShieldCheck, Percent } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Syringe, Clock, Printer, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
 import { patientApi } from '../../api/patientApi.js';
-import { PatientModal } from '../../components/PatientModal.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import {
   Button, Card, CardTitle, Chip, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile,
 } from '../../components/patient/ui.jsx';
 
 // Champs cherchables, du plus au moins important.
-const FIELDS = (v) => [v.n, v.s, searchableDate(v.at), searchableDate(v.nextAt), v.due ? 'rappel a venir' : 'a jour'];
+const FIELDS = (v) => [v.n, v.s, searchableDate(v.at), searchableDate(v.nextAt), v.due ? 'rappel a venir en retard' : 'a jour'];
+
+// Statut calculé d'après la date du prochain rappel (la base ne le met pas à jour avec le temps).
+const SOON_DAYS = 60;
+function vaccineStatus(nextDueAt) {
+  if (!nextDueAt) return { key: 'ok', label: 'À jour' };
+  const days = (new Date(nextDueAt).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000;
+  if (days < 0) return { key: 'late', label: 'Rappel en retard' };
+  if (days <= SOON_DAYS) return { key: 'soon', label: 'Rappel à prévoir' };
+  return { key: 'ok', label: 'À jour' };
+}
 
 export default function PVax({ data, card, sub, border, darkMode }) {
-  const [showQR, setShowQR]   = useState(false);
-  const [qrData, setQrData]   = useState(null);
-  const [qrLoading, setQrLoading] = useState(false);
+  // Impression du carnet : rendu hors de la page, retiré après l'impression.
+  const [printing, setPrinting] = useState(null);
+  useEffect(() => {
+    if (!printing) return undefined;
+    const done = () => setPrinting(null);
+    window.addEventListener('afterprint', done);
+    const t = setTimeout(() => window.print(), 250);
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
+  }, [printing]);
+  const printBook = async () => {
+    let name = '';
+    try { const p = await patientApi.profile(); name = `${p.firstName || ''} ${p.lastName || ''}`.trim(); } catch { /* impression sans nom */ }
+    setPrinting({ name });
+  };
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useUrlQuery();
 
-  const vaccines = useMemo(() => (data || []).map((v, i) => ({
+  const vaccines = useMemo(() => (data || []).map((v, i) => {
+    const st = vaccineStatus(v.nextDueAt);
+    return {
     key: v.id ?? i,
     n: v.name,
     d: v.injectedAt ? formatDate(v.injectedAt) : 'Non renseigné',
-    s: v.status === 'due_soon' ? 'Rappel prévu' : 'À jour',
-    due: v.status === 'due_soon',
+    s: st.label,
+    due: st.key !== 'ok',
+    late: st.key === 'late',
     x: v.nextDueAt ? formatDate(v.nextDueAt) : 'Aucun rappel',
     at: v.injectedAt,
     nextAt: v.nextDueAt,
-  })), [data]);
-  const found = useSearch(vaccines, query, FIELDS);
-
-  const openQR = async () => {
-    setShowQR(true);
-    if (qrData) return;
-    setQrLoading(true);
-    try {
-      const res = await patientApi.emergencyCardQr();
-      setQrData(res);
-    } catch {
-      setQrData(null);
-    } finally {
-      setQrLoading(false);
-    }
   };
+  }), [data]);
+  const found = useSearch(vaccines, query, FIELDS);
 
   if (!data) {
     return (
@@ -58,28 +69,29 @@ export default function PVax({ data, card, sub, border, darkMode }) {
   const vs = vaccines;
   const upToDateCount = vs.filter((v) => !v.due).length;
   const dueSoonCount = vs.filter((v) => v.due).length;
-  const coverage = vs.length ? Math.round((upToDateCount / vs.length) * 100) : 0;
-  const nextDue = vs.filter((v) => v.nextAt).sort((a, b) => new Date(a.nextAt) - new Date(b.nextAt))[0];
+  const lateCount = vs.filter((v) => v.late).length;
+  const nextDue = vs.filter((v) => v.nextAt && !v.late).sort((a, b) => new Date(a.nextAt) - new Date(b.nextAt))[0];
 
   // Filtre après recherche : les compteurs des pastilles reflètent la requête.
   const shown = filter === 'all' ? found : found.filter((v) => (filter === 'due' ? v.due : !v.due));
   const pillOptions = [
     ['all', 'Tous', found.length],
     ['ok', 'À jour', found.filter((v) => !v.due).length],
-    ['due', 'Rappel prévu', found.filter((v) => v.due).length],
+    ['due', 'Rappels', found.filter((v) => v.due).length],
   ];
 
   return (
     <div className="space-y-5">
       <PageHeader title="Carnet vaccinal" sub={sub} subtitle="Historique de vos vaccinations et rappels à prévoir"
-        actions={<Button Icon={QrCode} onClick={openQR}>Passeport vaccinal QR</Button>} />
+        actions={vs.length > 0 && <Button Icon={Printer} onClick={printBook}>Imprimer mon carnet</Button>} />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5">
         <StatTile label="Vaccins à jour" value={upToDateCount} Icon={ShieldCheck} darkMode={darkMode} hint={`sur ${vs.length} enregistré${vs.length > 1 ? 's' : ''}`} />
         <StatTile label="Rappels à venir" value={dueSoonCount} Icon={Clock} darkMode={darkMode} highlight={dueSoonCount > 0}
           hint={nextDue ? `Prochain : ${nextDue.n}, ${formatDate(nextDue.nextAt)}` : dueSoonCount > 0 ? 'À planifier avec votre médecin' : 'Aucun rappel en attente'}
           onClick={dueSoonCount > 0 ? () => setFilter('due') : undefined} />
-        <StatTile label="Couverture" value={coverage} unit="%" Icon={Percent} darkMode={darkMode} hint="Part des vaccins à jour" />
+        <StatTile label="Rappels en retard" value={lateCount} Icon={AlertTriangle} darkMode={darkMode} highlight={lateCount > 0}
+          hint={lateCount > 0 ? 'À faire avec votre médecin' : 'Aucun rappel dépassé'} onClick={lateCount > 0 ? () => setFilter('due') : undefined} />
       </div>
 
       {vs.length > 0 && (
@@ -119,7 +131,7 @@ export default function PVax({ data, card, sub, border, darkMode }) {
                       <p className="font-semibold break-words"><Highlight text={v.n} query={query} /></p>
                       <p className={`text-xs ${sub} md:hidden`}><Highlight text={v.s} query={query} /></p>
                     </div>
-                    <span className="md:hidden"><Chip tone={v.due ? 'watch' : 'neutral'}>{v.s}</Chip></span>
+                    <span className="md:hidden"><Chip tone={v.late ? 'alert' : v.due ? 'watch' : 'neutral'}>{v.s}</Chip></span>
                   </div>
                   <dl className="col-span-2 md:contents grid grid-cols-2 gap-3 text-sm pl-[3.25rem] md:pl-0">
                     <div className="min-w-0">
@@ -128,10 +140,10 @@ export default function PVax({ data, card, sub, border, darkMode }) {
                     </div>
                     <div className="min-w-0">
                       <dt className="text-xs text-slate-500 md:hidden">Prochain rappel</dt>
-                      <dd className={`font-medium ${v.due ? 'text-red-700' : ''}`}><Highlight text={v.x} query={query} /></dd>
+                      <dd className={`font-medium ${v.late ? 'text-red-700' : ''}`}><Highlight text={v.x} query={query} /></dd>
                     </div>
                   </dl>
-                  <div className="hidden md:flex justify-end"><Chip tone={v.due ? 'watch' : 'neutral'}><Highlight text={v.s} query={query} /></Chip></div>
+                  <div className="hidden md:flex justify-end"><Chip tone={v.late ? 'alert' : v.due ? 'watch' : 'neutral'}><Highlight text={v.s} query={query} /></Chip></div>
                 </li>
               ))}
             </ul>
@@ -139,36 +151,18 @@ export default function PVax({ data, card, sub, border, darkMode }) {
         )}
       </Card>
 
-      {showQR && (
-        <PatientModal title="Passeport vaccinal" onClose={() => setShowQR(false)} card={card} darkMode={darkMode} maxWidth="max-w-sm">
-          <div className="flex flex-col items-center gap-4">
-            <p className={`text-xs ${sub} self-start`}>Scannez pour vérifier les vaccinations.</p>
-            {qrLoading ? (
-              <div className={`w-52 h-52 rounded-2xl border border-dashed ${darkMode ? 'border-slate-700' : 'border-red-200'} flex items-center justify-center animate-pulse`}>
-                <QrCode className="w-10 h-10 text-red-300" />
-              </div>
-            ) : qrData?.qr ? (
-              <img src={qrData.qr} alt="QR code du passeport vaccinal" className="w-52 h-52 rounded-2xl border-4 border-red-600 bg-white" />
-            ) : (
-              <div className={`w-52 h-52 rounded-2xl border border-dashed ${darkMode ? 'border-slate-700' : 'border-red-200'} flex flex-col items-center justify-center gap-2`}>
-                <QrCode className="w-10 h-10 text-red-300" />
-                <p className={`text-xs ${sub}`}>Génération impossible</p>
-              </div>
-            )}
-            <div className="w-full">
-              <p className={`text-xs font-semibold ${sub} mb-2`}>Vaccinations ({vs.length})</p>
-              <ul className={`divide-y rounded-2xl border ${darkMode ? 'divide-slate-800 border-slate-800' : 'divide-slate-100 border-slate-200/70'}`}>
-                {vs.map((v, i) => (
-                  <li key={i} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
-                    <span className="font-medium truncate">{v.n}</span>
-                    <Chip tone={v.due ? 'watch' : 'neutral'}>{v.s}</Chip>
-                  </li>
-                ))}
-              </ul>
-            </div>
+      {printing && createPortal(
+        <div className="print-root bg-white text-slate-900 p-8">
+          <div className="max-w-2xl mx-auto">
+            <p className="text-xs font-bold uppercase tracking-widest text-red-700">NOVA · Carnet de vaccination</p>
+            <h1 className="text-2xl font-bold mt-1">{printing.name || 'Carnet de vaccination'}</h1>
+            <p className="text-xs mt-1">Édité le {new Date().toLocaleDateString('fr-FR')} · informations saisies par les professionnels de santé dans NOVA</p>
+            <table className="w-full mt-5 text-sm border-collapse">
+              <thead><tr className="text-left border-b-2 border-slate-800"><th className="py-2">Vaccin</th><th>Injection</th><th>Prochain rappel</th><th>Statut</th></tr></thead>
+              <tbody>{vs.map((v) => <tr key={v.key} className="border-b border-slate-300"><td className="py-2 font-semibold">{v.n}</td><td>{v.d}</td><td>{v.x}</td><td>{v.s}</td></tr>)}</tbody>
+            </table>
           </div>
-        </PatientModal>
-      )}
+        </div>, document.body)}
     </div>
   );
 }
