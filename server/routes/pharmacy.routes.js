@@ -10,7 +10,9 @@ import {
   dispensePrescription,
   getDispenseHistory,
   getPharmacyDashboard,
+  updatePharmacyOffice,
 } from '../services/pharmacy.service.js';
+import { phoneSchema } from '../services/phone.js';
 import { getOrdersForPharmacy, updateOrderStatus } from '../services/pharmacy-order.service.js';
 
 const router = Router();
@@ -19,6 +21,19 @@ router.use(requirePharmacist);
 /* ─── Dashboard ───────────────────────────────────────────────── */
 router.get('/dashboard', requirePermission('pharmacy.history'), wrap(async (req, res) => {
   res.json(await getPharmacyDashboard(req.user.pharmacyId));
+}));
+
+/* ─── Informations de l'officine (vues par les patients) ──────── */
+const HOUR = z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Heure au format HH:MM.')]);
+router.patch('/office', requirePermission('pharmacy.history'), validateBody(z.object({
+  phone:    phoneSchema.optional(),
+  address:  z.string().trim().min(3, 'Adresse trop courte.').max(255).optional(),
+  city:     z.string().trim().min(2, 'Ville trop courte.').max(100).optional(),
+  opensAt:  HOUR.optional(),
+  closesAt: HOUR.optional(),
+  isDuty:   z.boolean().optional(),
+}).strict()), auditLog('pharmacy.office.update', 'pharmacy'), wrap(async (req, res) => {
+  res.json(await updatePharmacyOffice(req.user.pharmacyId, req.body));
 }));
 
 /* ─── Vérifier ordonnance (scan QR) ───────────────────────────── */

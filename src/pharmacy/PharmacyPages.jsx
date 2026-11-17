@@ -10,6 +10,7 @@ import { pharmacyApi } from '../api/pharmacyApi.js';
 import PageError from '../components/PageError.jsx';
 import PhOrders from './PhOrders.jsx';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
+import { useUnsaved } from '../unsaved.js';
 import { PageHeader } from '../components/patient/ui.jsx';
 import {
   Empty, dayKey, fmtDay, fmtTime, initialsOf,
@@ -64,7 +65,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
       {page === 'orders'    && <PhOrders notify={notify} setPage={setPage} />}
       {page === 'scan'      && <PhScan notify={notify} setPage={setPage} {...p} />}
       {page === 'history'   && <PhHistory data={apiData.history} loading={apiLoading.history} {...p} />}
-      {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} setPage={setPage} {...p} />}
+      {page === 'settings'  && <PhSettings data={apiData.settings} loading={apiLoading.settings} notify={notify} onSaved={(pharmacy) => setApiData((c) => ({ ...c, settings: { ...c.settings, pharmacy }, dashboard: c.dashboard && { ...c.dashboard, pharmacy } }))} {...p} />}
       </>)}
     </div>
   );
@@ -73,7 +74,7 @@ export default function PharmacyPages({ page, setPage, card, sub, border, darkMo
 /* ═══════════════════════════════════════════════════════════════
    PARAMÈTRES PHARMACIE
    ═══════════════════════════════════════════════════════════════ */
-function PhSettings({ data, loading, card, sub, border, darkMode, setPage }) {
+function PhSettings({ data, loading, card, sub, border, darkMode, notify, onSaved }) {
   if (loading && !data) return <PhSkeleton darkMode={darkMode} card={card} />;
   const ph = data?.pharmacy || {};
 
@@ -83,18 +84,53 @@ function PhSettings({ data, loading, card, sub, border, darkMode, setPage }) {
         <h3 className="font-bold mb-4 flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-red-600" /> Informations de l'officine
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <InfoCell label="Nom" value={ph.name} sub={sub} />
-          <InfoCell label="Ville" value={ph.city} sub={sub} />
-          <InfoCell label="Téléphone" value={ph.phone} sub={sub} />
-          <InfoCell label="Adresse" value={ph.address} sub={sub} />
-        </div>
+        <InfoCell label="Nom" value={ph.name} sub={sub} />
+        <p className={`text-xs ${sub} mt-1`}>Le nom de l’officine est géré par l’administrateur NOVA.</p>
+        {ph.id && <OfficeForm key={JSON.stringify(ph)} ph={ph} sub={sub} darkMode={darkMode} notify={notify} onSaved={onSaved} />}
       </div>
-
-      <p className={`text-xs ${sub}`}>Pour modifier le nom, l’adresse, le téléphone ou les horaires de l’officine, contactez l’administrateur NOVA.</p>
       {/* Sécurité du compte : mêmes réglages que les autres professionnels. */}
       <SettingsPage api={pharmacyApi} card={card} sub={sub} darkMode={darkMode} />
     </div>
+  );
+}
+
+/* Coordonnées, horaires et garde : affichés aux patients dans « Pharmacies ». */
+function OfficeForm({ ph, sub, darkMode, notify, onSaved }) {
+  const initial = { phone: ph.phone || '', address: ph.address || '', city: ph.city || '', opensAt: ph.opensAt || '', closesAt: ph.closesAt || '', isDuty: Boolean(ph.isDuty) };
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useUnsaved(true, JSON.stringify(form));
+  const input = `mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-transparent ${darkMode ? 'border-slate-700' : 'border-slate-300'}`;
+  const submit = async (e) => {
+    e.preventDefault();
+    if (Boolean(form.opensAt) !== Boolean(form.closesAt)) return setError('Indiquez l’heure d’ouverture et l’heure de fermeture, ou aucune des deux.');
+    setSaving(true); setError('');
+    try {
+      const saved = await pharmacyApi.updateOffice({ ...form, phone: form.phone.trim() || undefined });
+      notify('Informations de l’officine enregistrées : les patients voient la mise à jour.');
+      onSaved(saved);
+    } catch (err) { setError(err.message || 'Enregistrement impossible.'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <form onSubmit={submit} className="mt-4 space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="text-sm font-semibold">Téléphone<input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="07 00 00 00 00" className={input} /></label>
+        <label className="text-sm font-semibold">Ville<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className={input} /></label>
+        <label className="text-sm font-semibold md:col-span-2">Adresse<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={input} /></label>
+        <label className="text-sm font-semibold">Ouverture<input type="time" value={form.opensAt} onChange={(e) => setForm({ ...form, opensAt: e.target.value })} className={input} /></label>
+        <label className="text-sm font-semibold">Fermeture<input type="time" value={form.closesAt} onChange={(e) => setForm({ ...form, closesAt: e.target.value })} className={input} /></label>
+      </div>
+      <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.isDuty} onChange={(e) => setForm({ ...form, isDuty: e.target.checked })} />Pharmacie de garde (affichée ouverte en permanence)</label>
+      <p className={`text-xs ${sub}`}>Visibles par les patients quand ils choisissent une pharmacie. Heures d’Abidjan ; une fermeture après minuit est acceptée (ex. 08:00 → 02:00). Sans horaires, l’officine est affichée selon son statut ouvert / fermé.</p>
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={!dirty || saving} className="min-h-10 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+        {dirty && <button type="button" onClick={() => { setForm(initial); setError(''); }} disabled={saving} className={`min-h-10 rounded-lg border px-4 text-sm font-semibold ${darkMode ? 'border-slate-700' : 'border-slate-300'}`}>Annuler</button>}
+      </div>
+    </form>
   );
 }
 

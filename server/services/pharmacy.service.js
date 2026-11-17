@@ -37,9 +37,7 @@ export async function getPharmacyDashboard(pharmacyId) {
   );
 
   return {
-    pharmacy: pharmacy ? {
-      id: pharmacy.id, name: pharmacy.name, city: pharmacy.city, phone: pharmacy.phone, address: pharmacy.address,
-    } : null,
+    pharmacy: pharmacy ? mapOffice(pharmacy) : null,
     todayDispenses: Number(counts.today),
     totalDispenses: Number(counts.delivered),
     dispenseCounts: { full: Number(counts.complete), partial: Number(counts.partial), refused: Number(counts.refused) },
@@ -50,6 +48,33 @@ export async function getPharmacyDashboard(pharmacyId) {
       dispensedAt: r.dispensed_at,
     })),
   };
+}
+
+const mapOffice = (r) => ({
+  id: r.id, name: r.name, city: r.city, phone: r.phone, address: r.address,
+  opensAt: r.opens_at || null, closesAt: r.closes_at || null, isDuty: Boolean(r.is_duty), isOpen: Boolean(r.is_open),
+});
+
+/**
+ * Le pharmacien tient à jour les informations vues par les patients : coordonnées, horaires, garde.
+ * Le nom de l'officine et son activation restent gérés par l'administrateur.
+ */
+export async function updatePharmacyOffice(pharmacyId, changes) {
+  const fields = { phone: 'phone', address: 'address', city: 'city', opensAt: 'opens_at', closesAt: 'closes_at', isDuty: 'is_duty' };
+  const sets = [], args = [];
+  for (const [key, col] of Object.entries(fields)) {
+    if (changes[key] === undefined) continue;
+    sets.push(`${col} = ?`);
+    args.push(key === 'isDuty' ? (changes[key] ? 1 : 0) : (changes[key] === '' ? null : changes[key]));
+  }
+  if ((changes.opensAt && !changes.closesAt) || (!changes.opensAt && changes.closesAt))
+    throw Object.assign(new Error('Indiquez l’heure d’ouverture et l’heure de fermeture, ou aucune des deux.'), { status: 422 });
+  if (changes.opensAt && changes.opensAt === changes.closesAt)
+    throw Object.assign(new Error('L’heure de fermeture doit être différente de l’heure d’ouverture.'), { status: 422 });
+  if (sets.length) await pool.execute(`UPDATE nova_pharmacies SET ${sets.join(', ')} WHERE id = ?`, [...args, pharmacyId]);
+  const [[row]] = await pool.execute('SELECT * FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
+  if (!row) throw Object.assign(new Error('Officine introuvable.'), { status: 404 });
+  return mapOffice(row);
 }
 
 /* ─── Vérifier ordonnance via QR / ID ─────────────────────────── */

@@ -194,4 +194,16 @@ describe('Commandes d’ordonnance en pharmacie', () => {
     const list = (await call('PH2', 'GET', '/api/pharmacy/me/orders')).json.find((x) => x.id === o.json.id);
     expect(list.prescription.status).toBe('expired');
   });
+  it('le pharmacien met à jour ses horaires et coordonnées, pas le nom ni une autre officine', async () => {
+    const r = await call('PH1', 'PATCH', '/api/pharmacy/me/office', { opensAt: '08:00', closesAt: '22:00', isDuty: true, phone: '0701020304', address: 'Rue fictive 12' });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ opensAt: '08:00', closesAt: '22:00', isDuty: true, address: 'Rue fictive 12', name: 'Pharmacie fictive Une' });
+    expect((await call('PH1', 'PATCH', '/api/pharmacy/me/office', { name: 'Autre nom' })).status).toBe(422);
+    expect((await call('PH1', 'PATCH', '/api/pharmacy/me/office', { opensAt: '25:00' })).status).toBe(422);
+    expect((await call('PH1', 'PATCH', '/api/pharmacy/me/office', { opensAt: '08:00', closesAt: '' })).status).toBe(422);
+    const [[other]] = await pool.execute('SELECT opens_at FROM nova_pharmacies WHERE id = ?', [PH2]);
+    expect(other.opens_at).toBeNull();
+    const [[audit]] = await pool.execute("SELECT COUNT(*) n FROM nova_audit_logs WHERE action = 'pharmacy.office.update' AND created_at >= NOW() - INTERVAL 1 MINUTE");
+    expect(Number(audit.n)).toBeGreaterThan(0);
+  });
 });

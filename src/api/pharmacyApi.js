@@ -8,5 +8,6 @@ export const pharmacyApi = {
   dispense:            (payload) => request('/pharmacy/me/dispense', { method: 'POST', body: JSON.stringify(payload) }),
   dispenses:           (params = {}) => request(`/pharmacy/me/dispenses${toQuery(params)}`),
   orders:              () => request('/pharmacy/me/orders'),
+  updateOffice:        (body) => request('/pharmacy/me/office', { method: 'PATCH', body: JSON.stringify(body) }),
   updateOrder:         (id, body) => request(`/pharmacy/me/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
