@@ -145,4 +145,15 @@ describe('Commandes d’ordonnance en pharmacie', () => {
     expect((await call('B', 'POST', `/api/patient/me/pharmacy-orders/${o.json.id}/cancel`)).status).toBe(200);
     expect((await call('PH2', 'PATCH', `/api/pharmacy/me/orders/${o.json.id}`, { status: 'ready' })).status).toBe(409);
   });
+
+  it('une demande « indisponible » est close quand le patient envoie ailleurs : l’ancienne pharmacie ne lit plus l’ordonnance', async () => {
+    const rx = (await doctorSvc.createDoctorPrescription(D1, { patientId: A, items: [{ name: 'Ibuprofène 400 mg', quantityPrescribed: 1 }], validDays: 30 })).id;
+    const first = await call('A', 'POST', '/api/patient/me/pharmacy-orders', { pharmacyId: PH1, prescriptionId: rx });
+    expect((await call('PH1', 'PATCH', `/api/pharmacy/me/orders/${first.json.id}`, { status: 'unavailable', message: 'Rupture' })).status).toBe(200);
+    expect((await call('A', 'POST', '/api/patient/me/pharmacy-orders', { pharmacyId: PH2, prescriptionId: rx })).status).toBe(201);
+    const ph1 = await call('PH1', 'GET', '/api/pharmacy/me/orders');
+    const old = ph1.json.find((o) => o.id === first.json.id);
+    expect(old.status).toBe('cancelled');
+    expect(old.prescription).toBeNull();
+  });
 });

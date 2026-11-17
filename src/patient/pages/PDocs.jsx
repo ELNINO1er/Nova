@@ -65,7 +65,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
       fd.append('title', docForm.title || pickedFile?.name || 'Document');
       fd.append('category', docForm.category);
       await api.uploadDocument(fd);
-      onReload?.(await api.documents());
+      onReload?.(await api.documents({ limit: 100 }));
       notify?.('Document ajouté');
       setShowForm(false);
       setDocForm({ title: '', category: 'prescription' });
@@ -81,7 +81,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
     if (!id) return;
     try {
       await api.deleteDocument(id);
-      onReload?.(await api.documents());
+      onReload?.(await api.documents({ limit: 100 }));
       notify?.('Document supprimé');
       setPendingDelete(null);
     } catch (error) {

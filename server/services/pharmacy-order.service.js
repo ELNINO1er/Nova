@@ -34,7 +34,7 @@ async function signal(order) {
 export async function createPharmacyOrder(patientId, { pharmacyId, prescriptionId, notes }) {
   if (!prescriptionId) throw err(422, 'Choisissez l’ordonnance à envoyer.', 'prescription_required');
   const conn = await pool.getConnection();
-  let order;
+  let order, closedStale = [];
   try {
     await conn.beginTransaction();
     await conn.execute('SELECT id FROM nova_patients WHERE id = ? FOR UPDATE', [patientId]);
@@ -49,6 +49,10 @@ export async function createPharmacyOrder(patientId, { pharmacyId, prescriptionI
        WHERE o.patient_id = ? AND o.prescription_id = ? AND o.status IN ('pending','ready') LIMIT 1`, [patientId, prescriptionId]);
     if (open) throw err(409, `Cette ordonnance est déjà envoyée à ${open.name}. Annulez cette demande pour en choisir une autre.`, 'order_exists');
     const id = randomUUID(), now = new Date();
+    // Les demandes restées « indisponibles » pour cette ordonnance sont closes : une seule pharmacie la lit.
+    const [stale] = await conn.execute("SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE patient_id = ? AND prescription_id = ? AND status = 'unavailable'", [patientId, prescriptionId]);
+    if (stale.length) await conn.execute("UPDATE nova_pharmacy_orders SET status = 'cancelled', updated_at = ? WHERE patient_id = ? AND prescription_id = ? AND status = 'unavailable'", [now, patientId, prescriptionId]);
+    closedStale = stale;
     await conn.execute(
       'INSERT INTO nova_pharmacy_orders (id, patient_id, pharmacy_id, prescription_id, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [id, patientId, pharmacyId, prescriptionId, 'pending', notes?.trim() || null, now.toISOString(), now]);
@@ -56,6 +60,7 @@ export async function createPharmacyOrder(patientId, { pharmacyId, prescriptionI
     order = { id, patient_id: patientId, pharmacy_id: pharmacyId };
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await signal(order);
+  for (const o of closedStale) await signal(o);
   return (await getPharmacyOrders(patientId)).find((o) => o.id === order.id);
 }
 
@@ -134,12 +139,18 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
 /** Appelé dans la transaction de délivrance : la commande en cours de cette pharmacie est close. */
 export async function closeOrdersOnDispense(conn, { pharmacyId, prescriptionId, dispenseId, status }) {
   if (status === 'refused') return [];
+  // Toutes les demandes ouvertes de l'ordonnance sont closes : « délivrée » chez la pharmacie qui délivre, annulée ailleurs.
   const [rows] = await conn.execute(
-    "SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')",
-    [pharmacyId, prescriptionId]);
-  if (rows.length) await conn.execute(
-    "UPDATE nova_pharmacy_orders SET status = 'dispensed', dispense_id = ?, updated_at = ? WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')",
-    [dispenseId, new Date(), pharmacyId, prescriptionId]);
+    "SELECT id, patient_id, pharmacy_id FROM nova_pharmacy_orders WHERE prescription_id = ? AND status IN ('pending','ready','unavailable')",
+    [prescriptionId]);
+  if (rows.length) {
+    await conn.execute(
+      "UPDATE nova_pharmacy_orders SET status = 'dispensed', dispense_id = ?, updated_at = ? WHERE pharmacy_id = ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')",
+      [dispenseId, new Date(), pharmacyId, prescriptionId]);
+    await conn.execute(
+      "UPDATE nova_pharmacy_orders SET status = 'cancelled', updated_at = ? WHERE pharmacy_id <> ? AND prescription_id = ? AND status IN ('pending','ready','unavailable')",
+      [new Date(), pharmacyId, prescriptionId]);
+  }
   return rows;
 }
 export const signalOrders = (rows) => Promise.all(rows.map(signal));

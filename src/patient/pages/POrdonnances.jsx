@@ -137,7 +137,9 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
   const loadOrders = () => patientApi.pharmacyOrders().then((r) => setOrders(Array.isArray(r) ? r : [])).catch(() => {});
   useEffect(() => { loadOrders(); }, []);
   useRealtime('pharmacy-order:changed', () => loadOrders());
-  const openOrderFor = (id) => orders.find((o) => o.prescriptionId === id && ['pending', 'ready', 'unavailable'].includes(o.status));
+  // Demande en cours (une demande « indisponible » n'empêche pas d'envoyer ailleurs : elle est alors close).
+  const openOrderFor = (id) => orders.find((o) => o.prescriptionId === id && ['pending', 'ready'].includes(o.status));
+  const unavailableFor = (id) => orders.find((o) => o.prescriptionId === id && o.status === 'unavailable');
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
   const [printing, setPrinting] = useState(null);
@@ -257,6 +259,11 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
                 {isSendable(selected) && !openOrderFor(selected.id) && <Button variant="secondary" darkMode={darkMode} Icon={Send} onClick={() => setSendFor(selected.id)}>Envoyer à une pharmacie</Button>}
                 <Button Icon={QrCode} onClick={() => showQr(selected)} disabled={qrLoading === selected.id}>{qrLoading === selected.id ? 'Génération…' : 'QR pour la pharmacie'}</Button>
               </div>
+              {!openOrderFor(selected.id) && unavailableFor(selected.id) && (
+                <p className={`rounded-xl border px-4 py-3 text-sm ${darkMode ? 'border-amber-900 bg-amber-950/30 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                  <span className="font-semibold">{unavailableFor(selected.id).pharmacyName}</span> ne peut pas préparer cette ordonnance{unavailableFor(selected.id).pharmacistMessage ? ` : ${unavailableFor(selected.id).pharmacistMessage}` : '.'} Vous pouvez l’envoyer à une autre pharmacie.
+                </p>
+              )}
               {openOrderFor(selected.id) && (() => {
                 const o = openOrderFor(selected.id);
                 const label = { pending: 'envoyée, en attente de préparation', ready: 'prête à retirer', unavailable: 'indisponible' }[o.status];

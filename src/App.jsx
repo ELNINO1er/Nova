@@ -250,7 +250,8 @@ export default function App() {
       .then(([notificationsResult, conversationsResult]) => {
         if (requestId !== badgeRequest.current) return;
         const notifList = notificationsResult.status === 'fulfilled' ? (Array.isArray(notificationsResult.value) ? notificationsResult.value : notificationsResult.value?.data) : null;
-        const notifications = Array.isArray(notifList) ? notifList.filter((n) => !n.isRead).length : 0;
+        const unreadTotal = notificationsResult.status === 'fulfilled' ? notificationsResult.value?.unreadCount : undefined;
+        const notifications = Number.isFinite(unreadTotal) ? unreadTotal : Array.isArray(notifList) ? notifList.filter((n) => !n.isRead).length : 0;
         const messages = conversationsResult.status === 'fulfilled' && Array.isArray(conversationsResult.value)
           ? conversationsResult.value.reduce((sum, c) => sum + Number(c.unreadCount || 0), 0)
           : 0;

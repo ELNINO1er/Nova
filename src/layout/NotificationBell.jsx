@@ -16,7 +16,7 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
   const apply = (list) => {
     const rows = Array.isArray(list) ? list : (list?.data || []);
     setItems(rows);
-    onCount?.(rows.filter((n) => !n.isRead).length);
+    onCount?.(Number.isFinite(list?.unreadCount) ? list.unreadCount : rows.filter((n) => !n.isRead).length);
   };
   const load = () => patientApi.notifications().then(apply).catch((err) => setError(err.message || 'Notifications indisponibles.'));
   // Panneau ouvert : une nouvelle notification s'affiche aussitôt.
@@ -47,7 +47,7 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
     catch (err) { setError(err.message || 'Action impossible.'); }
   };
 
-  const unread = items ? items.filter((n) => !n.isRead).length : count;
+  const unread = count;
   const panel = darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200';
   const rowHover = darkMode ? 'hover:bg-slate-800' : 'hover:bg-red-50/60';
 

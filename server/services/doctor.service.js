@@ -378,7 +378,7 @@ export async function updateConsultation(doctorId, id, changes) {
       const status=changes.status || current.status;
       if (!['draft','completed'].includes(status)) throw Object.assign(new Error('Statut invalide.'),{status:422});
       await conn.execute('UPDATE nova_consultations SET motif=?,diagnosis_main=?,diagnosis_secondary=?,notes=?,recommendations=?,status=?,completed_at=? WHERE id=?',[next.motif,next.diagnosis_main,next.diagnosis_secondary,next.notes,next.recommendations,status,status==='completed'?new Date().toISOString():null,id]);
-      if(status==='completed') await conn.execute('INSERT INTO nova_medical_history(id,patient_id,type,title,occurred_at,doctor_name) VALUES (?,?,?,?,?,?)',[randomUUID(),current.patient_id,'consultation',next.diagnosis_main||next.motif||'Consultation',new Date().toISOString(),'Medecin prescripteur']);
+      if(status==='completed'){const [[doc]]=await conn.execute('SELECT first_name,last_name FROM nova_doctors WHERE id=?',[current.doctor_id||doctorId]);await conn.execute('INSERT INTO nova_medical_history(id,patient_id,type,title,occurred_at,doctor_name) VALUES (?,?,?,?,?,?)',[randomUUID(),current.patient_id,'consultation',next.diagnosis_main||next.motif||'Consultation',current.started_at||new Date().toISOString(),doc?`Dr. ${doc.first_name} ${doc.last_name}`:(current.doctor_name||'Médecin')]);}
     }
     if(current.status==='completed'||changes.status==='completed'){const {createNotification}=await import('./notification.service.js');await createNotification({patientId:current.patient_id,targetRole:'patient',type:'consultation',title:current.status==='completed'?'Correction du compte rendu':'Compte rendu validé',linkPage:'history'},conn);}
     await conn.commit();

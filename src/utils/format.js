@@ -78,7 +78,7 @@ export function dashboardStatusClass(status) {
 }
 
 export function historyTypeLabel(type) {
-  const labels = { appointment: 'Consultation', prescription: 'Ordonnance', lab_result: 'Analyse', vaccination: 'Vaccination', vital: 'Constante', document: 'Document' };
+  const labels = { appointment: 'Consultation', consultation: 'Consultation', prescription: 'Ordonnance', lab_result: 'Analyse', lab: 'Analyse', vaccination: 'Vaccination', vaccine: 'Vaccination', vital: 'Constante', document: 'Document', surgery: 'Chirurgie', hospitalization: 'Hospitalisation' };
   return labels[type] || type;
 }
 

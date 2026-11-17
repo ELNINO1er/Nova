@@ -20,14 +20,14 @@ export async function getDashboard(patientId) {
 
   const [[nextRow]] = await pool.execute(
     `SELECT * FROM nova_appointments
-     WHERE patient_id = ? AND starts_at >= ?
+     WHERE patient_id = ? AND starts_at >= ? AND status <> 'cancelled'
      ORDER BY starts_at ASC LIMIT 1`,
     [patientId, new Date().toISOString()]
   );
   const nextAppointment = nextRow ? mapAppointment(nextRow) : null;
 
   const [[{ total: unreadMessages }]] = await pool.execute(
-    'SELECT COALESCE(SUM(unread_count), 0) AS total FROM nova_conversations WHERE patient_id = ?',
+    "SELECT COUNT(*) AS total FROM nova_messages m JOIN nova_conversations c ON c.id = m.conversation_id WHERE c.patient_id = ? AND m.sender_role = 'doctor' AND m.is_read = 0",
     [patientId]
   );
   const [[{ total: documentsCount }]] = await pool.execute(
@@ -397,6 +397,13 @@ export async function markConversationRead(patientId, conversationId) {
 
 /* ─── Ordonnances ────────────────────────────────────────────── */
 
+// Une ordonnance active ou partiellement délivrée dont la date de validité est passée est « expirée ».
+function prescriptionStatus(row) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (['active', 'partial'].includes(row.status) && row.valid_until && String(row.valid_until).slice(0, 10) < today) return 'expired';
+  return row.status;
+}
+
 const prescriptionItemTotals = `SELECT i.*, COALESCE((
   SELECT SUM(di.quantity_dispensed)
   FROM nova_dispense_items di JOIN nova_dispenses d ON d.id = di.dispense_id
@@ -443,7 +450,7 @@ export async function getPrescriptions(patientId, query = {}) {
     doctorSpecialty: row.doctor_specialty,
     issuedAt: row.issued_at,
     validUntil: row.valid_until,
-    status: row.status,
+    status: prescriptionStatus(row),
     notes: row.notes,
     items: itemsByPrescription.get(row.id) || [],
   }));
@@ -465,7 +472,7 @@ export async function getPrescription(patientId, id) {
     doctorSpecialty: row.doctor_specialty,
     issuedAt: row.issued_at,
     validUntil: row.valid_until,
-    status: row.status,
+    status: prescriptionStatus(row),
     notes: row.notes,
     items: items.map(patientPrescriptionItem),
   };
@@ -604,10 +611,11 @@ export async function getNotifications(patientId, query = {}) {
     `SELECT * FROM nova_notifications WHERE patient_id = ? ORDER BY created_at DESC LIMIT ${pg.limit} OFFSET ${pg.offset}`,
     [patientId]
   );
-  return paginatedResponse(rows.map((r) => ({
+  const [[{ unread }]] = await pool.execute('SELECT COUNT(*) AS unread FROM nova_notifications WHERE patient_id = ? AND is_read = 0', [patientId]);
+  return { ...paginatedResponse(rows.map((r) => ({
     id: r.id, type: r.type, title: r.title, body: r.body,
     linkPage: r.link_page, linkTargetId: r.link_target_id, isRead: Boolean(r.is_read), createdAt: r.created_at,
-  })), total, pg);
+  })), total, pg), unreadCount: Number(unread) };
 }
 
 export async function markNotificationRead(patientId, id) {
@@ -757,20 +765,31 @@ export async function getEmergencyCard(patientId) {
   const [[patient]] = await pool.execute('SELECT * FROM nova_patients WHERE id = ?', [patientId]);
   if (!patient) return null;
 
-  const [[mpRow]] = await pool.execute('SELECT * FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
   const declaredProfile = await getMedicalProfile(patientId);
-  const mp = mpRow ? {
-    allergies:       medicalList(mpRow.allergies),
-    chronicDiseases: medicalList(mpRow.chronic_diseases),
-    surgicalHistory: medicalList(mpRow.surgical_history),
-  } : { allergies: [], chronicDiseases: [], surgicalHistory: [] };
 
-  const [activeTreatments] = await pool.execute(
+  // Traitements en cours : plannings de prise non terminés, et traitements suivis sans planning.
+  const today = new Date().toISOString().slice(0, 10);
+  const [scheduled] = await pool.execute(
+    `SELECT s.name, s.dosage, t.diagnosis FROM nova_medication_schedules s
+     LEFT JOIN nova_medications m ON m.id = s.medication_id
+     LEFT JOIN nova_treatments t ON t.id = m.treatment_id
+     WHERE s.patient_id = ? AND (s.ends_on IS NULL OR s.ends_on >= ?) AND (s.starts_on IS NULL OR s.starts_on <= ?)`,
+    [patientId, today, today]
+  );
+  const [unscheduled] = await pool.execute(
     `SELECT t.diagnosis, m.name, m.dosage FROM nova_treatments t
      JOIN nova_medications m ON m.treatment_id = t.id
-     WHERE t.patient_id = ? AND t.status = 'active'`,
+     WHERE t.patient_id = ? AND t.status IN ('active','controlled')
+       AND NOT EXISTS (SELECT 1 FROM nova_medication_schedules s WHERE s.medication_id = m.id)`,
     [patientId]
   );
+  const seenMeds = new Set();
+  const activeTreatments = [...scheduled, ...unscheduled].filter((r) => {
+    const key = `${r.name}|${r.dosage || ''}`.toLowerCase();
+    if (seenMeds.has(key)) return false;
+    seenMeds.add(key);
+    return true;
+  });
 
   return {
     id: patient.id,

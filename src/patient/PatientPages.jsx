@@ -55,9 +55,9 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
       treatments: patientApi.treatments,
       rdv: patientApi.appointments,
       vaccinations: patientApi.vaccinations,
-      history: patientApi.history,
+      history: (p) => patientApi.history({ ...p, limit: 100 }),
       messages: patientApi.conversations,
-      documents: patientApi.documents,
+      documents: (p) => patientApi.documents({ ...p, limit: 100 }),
       notes: patientApi.notes,
       prescriptions: patientApi.prescriptions,
       labresults: patientApi.labResults,
@@ -114,12 +114,10 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
   const replacePageData = (key, value) => {
     setApiData((current) => ({ ...current, [key]: value }));
   };
+  // Après une action : recharge la page de notifications en cours et met à jour le compteur global.
   const replaceNotifications = (value) => {
-    replacePageData('notifications', value);
-    const list = Array.isArray(value) ? value : value?.data;
-    if (Array.isArray(list)) {
-      onBadgesChange?.({ notifications: list.filter((n) => !n.isRead).length });
-    }
+    loadPage('notifications', true);
+    if (Number.isFinite(value?.unreadCount)) onBadgesChange?.({ notifications: value.unreadCount });
   };
   const replaceMessages = (value) => {
     replacePageData('messages', value);
@@ -189,7 +187,15 @@ export default function PatientPages({ page, setPage, setShowQR, pills, setPills
         </div>
       )}
 
-      {pagination[page]?.totalPages>1 && <nav aria-label="Pagination" className="flex gap-4 items-center mb-3"><button disabled={pagination[page].page<=1 || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page-1)}>Précédent</button><span>Page {pagination[page].page} / {pagination[page].totalPages} — {pagination[page].total} éléments</span><button disabled={!pagination[page].hasMore || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page+1)}>Suivant</button></nav>}
+      {pagination[page]?.totalPages>1 && (
+        <nav aria-label="Pagination" className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <button type="button" disabled={pagination[page].page<=1 || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page-1)}
+            className={`h-10 px-4 rounded-full border text-sm font-semibold disabled:opacity-40 ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-red-200 text-red-700 bg-white hover:bg-red-50'}`}>← Précédent</button>
+          <span className={`text-sm ${sub}`}>Page {pagination[page].page} sur {pagination[page].totalPages} · {pagination[page].total} éléments</span>
+          <button type="button" disabled={!pagination[page].hasMore || apiLoading[page]} onClick={()=>loadPage(page,true,pagination[page].page+1)}
+            className={`h-10 px-4 rounded-full border text-sm font-semibold disabled:opacity-40 ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-red-200 text-red-700 bg-white hover:bg-red-50'}`}>Suivant →</button>
+        </nav>
+      )}
       {map[page] || <div className={`${card} border rounded-2xl p-8 text-center`}><p className={`${sub} text-sm`}>Page "{page}" en développement</p></div>}
     </>
   );
