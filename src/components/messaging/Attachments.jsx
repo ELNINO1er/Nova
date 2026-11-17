@@ -9,6 +9,7 @@ export const ATTACHMENT_META = {
   medical_summary: { label: 'Résumé médical', Icon: HeartPulse },
 };
 const ORDER = ['prescription', 'lab_result', 'document', 'medical_summary'];
+const MIME_LABELS = { 'application/pdf': 'PDF', 'image/jpeg': 'Image (JPEG)', 'image/png': 'Image (PNG)', 'image/webp': 'Image (WebP)' };
 const fmtDate = (v) => { if (!v) return ''; const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR'); };
 
 function Modal({ title, onClose, darkMode, children, footer }) {
@@ -54,7 +55,7 @@ export function AttachmentPicker({ load, onPick, onClose, darkMode }) {
         })}
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p>
-        : !data ? <div className="animate-pulse h-24 rounded-xl bg-red-50" />
+        : !data ? <div className={`animate-pulse h-24 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />
         : items.length === 0 ? <p className="text-sm text-slate-500 py-6 text-center">Aucun élément dans cette rubrique.</p>
         : (
           <ul className="space-y-2">
@@ -134,7 +135,7 @@ export function AttachmentViewer({ load, loadFile, onClose, darkMode }) {
         </button>
       )}>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {!d && !error && <div className="animate-pulse h-32 rounded-xl bg-red-50" />}
+      {!d && !error && <div className={`animate-pulse h-32 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />}
       {d?.type === 'prescription' && (
         <div className="space-y-1">
           <Row label="Prescripteur" value={[d.doctorName, d.doctorSpecialty].filter(Boolean).join(' · ')} />
@@ -164,7 +165,7 @@ export function AttachmentViewer({ load, loadFile, onClose, darkMode }) {
                 <tr key={i} className={`border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
                   <td className="py-1.5 pr-2">{it.name}</td>
                   <td className={`pr-2 ${LAB_TONE[it.status] || ''}`}>{it.value} {it.unit}</td>
-                  <td className="text-xs text-slate-500">{[it.refMin, it.refMax].filter(Boolean).join(' – ')}</td>
+                  <td className="text-xs text-slate-500">{[it.refMin, it.refMax].filter((x) => x !== null && x !== undefined && x !== '').join(' – ')}</td>
                 </tr>
               ))}
             </tbody>
@@ -175,7 +176,7 @@ export function AttachmentViewer({ load, loadFile, onClose, darkMode }) {
       {d?.type === 'document' && (
         <div className="space-y-1">
           <Row label="Ajouté le" value={fmtDate(d.createdAt)} />
-          <Row label="Type" value={d.mimeType} />
+          <Row label="Format" value={MIME_LABELS[d.mimeType] || (d.mimeType ? 'Fichier' : null)} />
           {!d.downloadable && <p className="text-sm text-slate-500 mt-2">Aucun fichier n’est associé à ce document.</p>}
         </div>
       )}

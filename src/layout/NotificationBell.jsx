@@ -3,8 +3,10 @@ import { Bell, Calendar, Microscope, MessageCircle, Pill, Syringe } from 'lucide
 import { patientApi } from '../api/patientApi.js';
 import { formatRelativeDate } from '../utils/format.js';
 import { useRealtime } from '../realtime/socket.js';
+import { notificationType } from '../utils/notificationTypes.js';
 
-const TYPE_ICON = { appointment: Calendar, medication: Pill, prescription: Pill, vaccine: Syringe, message: MessageCircle, result: Microscope, lab_result: Microscope };
+// Mêmes icônes que la page Notifications.
+const iconOf = (n) => notificationType(n).Icon;
 
 /* Cloche du header patient : les notifications s'ouvrent dans un panneau, sans quitter la page. */
 export default function NotificationBell({ count = 0, onCount, setPage, darkMode, sub }) {
@@ -73,7 +75,7 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
             {!error && !items && [0, 1, 2].map((i) => <div key={i} className={`animate-pulse h-14 m-1.5 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
             {!error && items?.length === 0 && <p className={`px-3 py-8 text-center text-sm ${sub}`}>Aucune notification.</p>}
             {items?.map((n) => {
-              const Icon = TYPE_ICON[n.type] || Bell;
+              const Icon = iconOf(n);
               return (
                 <button key={n.id} type="button" onClick={() => openItem(n)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left ${rowHover}`}>
                   <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${n.isRead ? (darkMode ? 'bg-slate-800 text-slate-400' : 'bg-white border border-red-100 text-red-400') : 'bg-red-50 text-red-600'}`}><Icon className="w-4 h-4" /></span>

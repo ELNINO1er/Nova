@@ -81,7 +81,7 @@ export async function getPublicEmergencyCard(token) {
     firstName: card.firstName,
     lastName: card.lastName,
     age: ageFrom(card.birthDate),
-    sex: card.sex === 'M' ? 'Homme' : card.sex === 'F' ? 'Femme' : null,
+    sex: ['m', 'h', 'male'].includes(String(card.sex || '').toLowerCase()) ? 'Homme' : ['f', 'female'].includes(String(card.sex || '').toLowerCase()) ? 'Femme' : null,
     bloodType: card.bloodType || null,
     allergies: card.allergies || [],
     chronicDiseases: card.chronicDiseases || [],

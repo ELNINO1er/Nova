@@ -6,6 +6,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx';
 import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
 import { ageFrom } from '../../utils/age.js';
+import { sexLabel } from '../../utils/format.js';
 
 const EMERGENCY_ICONS = { samu: PhoneCall, pompiers: Siren, police: Shield, gendarmerie: Shield };
 
@@ -60,7 +61,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
 
   const age = ageFrom(data.birthDate);
 
-  const sexLabel = data.sex === 'M' ? 'Homme' : data.sex === 'F' ? 'Femme' : data.sex;
+  const sexText = sexLabel(data.sex);
   const empty = (txt) => <p className={`text-sm ${sub}`}>{txt}</p>;
 
   return (
@@ -135,7 +136,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <p className="text-2xl font-bold tracking-tight break-words">{data.firstName} {data.lastName}</p>
-              {age && <p className={`text-sm mt-1 ${sub}`}>{age} ans · {sexLabel}</p>}
+              {(age != null || sexText) && <p className={`text-sm mt-1 ${sub}`}>{[age != null ? `${age} an${age > 1 ? 's' : ''}` : null, sexText].filter(Boolean).join(' · ')}</p>}
             </div>
             <div className="rounded-2xl bg-red-600 text-white px-4 py-2 text-center shrink-0">
               <p className="text-[11px] font-medium text-red-100">Groupe sanguin</p>
@@ -189,11 +190,17 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
               </div>
             ) : empty('Aucun contact renseigné')}
           </MedSection>
+
+          {data.surgicalHistory?.length > 0 && (
+            <MedSection Icon={Shield} label="Antécédents chirurgicaux" count={data.surgicalHistory.length} darkMode={darkMode} className="md:col-span-2 md:border-t">
+              <div className="flex flex-wrap gap-1.5">{data.surgicalHistory.map((x, i) => <Chip key={i}>{x}</Chip>)}</div>
+            </MedSection>
+          )}
         </dl>
       </Card>
 
       <p className={`text-xs ${sub}`}>
-        Présentez cette fiche ou son QR code aux secours. Mettez-la à jour depuis votre profil et votre ADN médical.
+        Présentez cette fiche ou son QR code aux secours. Mettez-la à jour depuis Identité et Infos médicales.
       </p>
     </div>
   );
@@ -215,7 +222,7 @@ function MedSection({ Icon, label, count, children, darkMode, className = '' }) 
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-red-700">Fiche d’urgence · NOVA</p>
                 <p className="text-2xl font-bold mt-1">{data.firstName} {data.lastName}</p>
-                <p className="text-sm">{[age != null ? `${age} ans` : null, sexLabel].filter(Boolean).join(' · ')}</p>
+                <p className="text-sm">{[age != null ? `${age} an${age > 1 ? 's' : ''}` : null, sexText].filter(Boolean).join(' · ')}</p>
                 <p className="mt-3 text-sm">Groupe sanguin : <strong className="text-xl text-red-700">{data.bloodType || 'non renseigné'}</strong></p>
               </div>
               <div className="text-center shrink-0">

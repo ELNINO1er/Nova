@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
 import { closeOrdersOnDispense, signalOrders } from './pharmacy-order.service.js';
+import { prescriptionQrSecret } from './prescription-qr.js';
 
 // Une ordonnance partiellement délivrée doit pouvoir être complétée.
 const DISPENSABLE_STATUSES = ['active', 'partial'];
@@ -55,9 +56,12 @@ export async function getPharmacyDashboard(pharmacyId) {
 export function decodePrescriptionQr(qrToken) {
   let decoded;
   try {
-    decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+    decoded = jwt.verify(qrToken, prescriptionQrSecret());
   } catch {
-    throw Object.assign(new Error('QR ordonnance invalide ou expiré.'), { status: 422, code: 'invalid_qr' });
+    // QR générés avant la clé dédiée (signés avec la clé des sessions) : encore acceptés jusqu'à leur expiration.
+    try { decoded = jwt.verify(qrToken, process.env.JWT_SECRET); } catch {
+      throw Object.assign(new Error('QR ordonnance invalide ou expiré.'), { status: 422, code: 'invalid_qr' });
+    }
   }
   if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
     throw Object.assign(new Error('QR ordonnance invalide.'), { status: 422, code: 'invalid_qr' });

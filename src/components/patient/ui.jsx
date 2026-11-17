@@ -50,11 +50,11 @@ export function CardTitle({ children, action, Icon, sub }) {
 /* Pastilles de sélection (onglets internes à une page, filtres). options: [[id, label, count?]] */
 export function Pills({ options, value, onChange, darkMode }) {
   return (
-    <div className="flex flex-wrap gap-1.5" role="tablist">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtres">
       {options.map(([id, label, count]) => {
         const active = value === id;
         return (
-          <button key={id} type="button" role="tab" aria-selected={active} onClick={() => onChange(id)}
+          <button key={id} type="button" aria-pressed={active} onClick={() => onChange(id)}
             className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors flex items-center gap-1.5 ${active
               ? 'bg-red-600 border-red-600 text-white'
               : darkMode ? 'border-slate-700 text-slate-300 hover:border-red-500' : 'border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-700'}`}>
@@ -265,11 +265,11 @@ export function Panel({ title, meta, actions, children, darkMode, className = ''
 /* Sélecteur segmenté à coins nets : options [[id, label, count?]]. */
 export function Segmented({ options, value, onChange, darkMode, label }) {
   return (
-    <div role="tablist" aria-label={label} className={`inline-flex max-w-full overflow-x-auto rounded-lg border p-0.5 ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+    <div role="group" aria-label={label} className={`inline-flex max-w-full overflow-x-auto rounded-lg border p-0.5 ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
       {options.map(([id, text, count]) => {
         const active = value === id;
         return (
-          <button key={id} type="button" role="tab" aria-selected={active} onClick={() => onChange(id)}
+          <button key={id} type="button" aria-pressed={active} onClick={() => onChange(id)}
             className={`shrink-0 h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${active ? 'bg-red-600 text-white' : darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-red-50 hover:text-red-700'}`}>
             {text}
             {count != null && <span className={`font-mono tabular-nums text-[11px] ${active ? 'text-red-100' : 'text-slate-400'}`}>{count}</span>}

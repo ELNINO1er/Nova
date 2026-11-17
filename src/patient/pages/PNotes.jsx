@@ -100,7 +100,7 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
   if (!data) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Bloc-notes" sub={sub} />
+        <PageHeader title="Mes notes" sub={sub} />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <Card darkMode={darkMode} className="space-y-3">{[0, 1, 2].map(i => <div key={i} className={`animate-pulse h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}</Card>
           <Card darkMode={darkMode} className="lg:col-span-2"><div className={`animate-pulse h-72 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
@@ -117,7 +117,7 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Bloc-notes" sub={sub} subtitle={`${ns.length} note${ns.length > 1 ? 's' : ''} personnelle${ns.length > 1 ? 's' : ''}`} actions={newNote} />
+      <PageHeader title="Mes notes" sub={sub} subtitle={`${ns.length} note${ns.length > 1 ? 's' : ''} personnelle${ns.length > 1 ? 's' : ''}`} actions={newNote} />
 
       {ns.length === 0 ? (
         <EmptyState Icon={StickyNote} title="Aucune note" darkMode={darkMode} action={newNote}>

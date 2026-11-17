@@ -6,9 +6,11 @@ import { useSearch, useUrlQuery } from '../../utils/search.js';
 import SendPrescriptionDialog from '../../components/pharmacy/SendPrescriptionDialog.jsx';
 import { confirmDialog } from '../../components/dialogs.jsx';
 import { useRealtime } from '../../realtime/socket.js';
+import { useLocation } from 'react-router-dom';
+import { openNow } from '../../utils/pharmacyHours.js';
 
 /* Champs cherchables : nom, ville, adresse, garde / ouverture, téléphone. */
-const FIELDS = (p) => [p.name, p.city, p.address, p.isDuty ? 'de garde pharmacie de garde' : '', p.isOpen ? 'ouvert ouverte' : 'fermé fermée', p.phone];
+const FIELDS = (p) => [p.name, p.city, p.address, p.isDuty ? 'de garde pharmacie de garde' : '', openNow(p) ? 'ouvert ouverte' : 'fermé fermée', p.phone];
 
 export default function PPharmacy({ data, card, sub, border, darkMode, notify, setPage }) {
   const [search, setSearch] = useUrlQuery();
@@ -16,12 +18,14 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
   const [selectedPh, setSelectedPh] = useState(null);
   const [orders, setOrders] = useState(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
-  const [tab, setTab] = useState('list'); // 'list' | 'orders'
+  // Arrivée depuis une notification de pharmacie : onglet du suivi directement.
+  const location = useLocation();
+  const [tab, setTab] = useState(location.state?.targetId === 'orders' ? 'orders' : 'list'); // 'list' | 'orders'
 
   const pharmacies = data || [];
 
   const results = useSearch(pharmacies, search, FIELDS);
-  const filtered = scope === 'open' ? results.filter((p) => p.isOpen) : scope === 'duty' ? results.filter((p) => p.isDuty) : results;
+  const filtered = scope === 'open' ? results.filter(openNow) : scope === 'duty' ? results.filter((p) => p.isDuty) : results;
 
   const loadOrders = async () => {
     try {
@@ -60,7 +64,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Pharmacie connectée" subtitle="Annuaire des pharmacies ; stock et distance non vérifiés" sub={sub} />
+      <PageHeader title="Pharmacies" subtitle="Envoyez une ordonnance à préparer ; stocks et distances non vérifiés" sub={sub} />
 
       <Pills darkMode={darkMode} value={tab}
         onChange={(id) => (id === 'orders' ? handleTabOrders() : setTab('list'))}
@@ -69,7 +73,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
       {tab === 'list' && (
         <>
           <div className="grid grid-cols-3 gap-3 sm:gap-5">
-            <StatTile label="Ouvertes" value={results.filter(p => p.isOpen).length} Icon={Clock} darkMode={darkMode} onClick={() => setScope('open')} />
+            <StatTile label="Ouvertes" value={results.filter(openNow).length} Icon={Clock} darkMode={darkMode} onClick={() => setScope('open')} />
             <StatTile label="De garde" value={results.filter(p => p.isDuty).length} Icon={Siren} highlight darkMode={darkMode} onClick={() => setScope('duty')} />
             <StatTile label="Total" value={results.length} Icon={MapPin} darkMode={darkMode} onClick={() => setScope('all')} />
           </div>
@@ -78,7 +82,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
             <SearchInput value={search} onChange={setSearch} darkMode={darkMode} count={filtered.length} className="flex-1 min-w-0"
               placeholder="Pharmacie, ville, quartier, « de garde »…" label="Rechercher une pharmacie" />
             <Pills darkMode={darkMode} value={scope} onChange={setScope}
-              options={[['all', 'Toutes', results.length], ['open', 'Ouvertes', results.filter(p => p.isOpen).length], ['duty', 'De garde', results.filter(p => p.isDuty).length]]} />
+              options={[['all', 'Toutes', results.length], ['open', 'Ouvertes', results.filter(openNow).length], ['duty', 'De garde', results.filter(p => p.isDuty).length]]} />
           </div>
 
           {filtered.length === 0 ? (
@@ -98,8 +102,8 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
                       <p className="font-semibold break-words"><Highlight text={ph.name} query={search} /></p>
                       <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                         {ph.isDuty && <Chip tone="alert">De garde</Chip>}
-                        <Chip tone={ph.isOpen ? 'watch' : 'neutral'}>
-                          <Clock className="w-3 h-3" />{ph.isOpen ? `Ouvert · ${ph.opensAt}–${ph.closesAt}` : 'Fermé'}
+                        <Chip tone={openNow(ph) ? 'watch' : 'neutral'}>
+                          <Clock className="w-3 h-3" />{openNow(ph) ? `Ouverte${ph.opensAt && ph.closesAt ? ` · ${ph.opensAt}–${ph.closesAt}` : ''}` : `Fermée${ph.opensAt && ph.closesAt ? ` · ${ph.opensAt}–${ph.closesAt}` : ''}`}
                         </Chip>
                       </div>
                       <p className={`text-xs mt-2 flex items-start gap-1.5 ${sub}`}><MapPin className="w-3 h-3 shrink-0 mt-0.5" /><span className="min-w-0 break-words"><Highlight text={ph.address} query={search} /></span></p>
@@ -107,10 +111,10 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
                     </div>
                   </div>
                   <div className={`mt-4 pt-4 border-t ${divider} flex items-center gap-2 flex-wrap`}>
-                    <a href={`tel:${ph.phone}`} aria-label={`Appeler ${ph.name}`}
+                    {ph.phone && <a href={`tel:${ph.phone.replace(/\s/g, '')}`} aria-label={`Appeler ${ph.name}`}
                       className={`h-9 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border transition-colors ${darkMode ? 'border-red-900 text-red-300 hover:bg-red-950/40' : 'border-red-200 bg-white text-red-700 hover:bg-red-50'}`}>
                       <Phone className="w-3.5 h-3.5" />{ph.phone}
-                    </a>
+                    </a>}
                     <button type="button" onClick={() => { setSelectedPh(ph); setShowOrderModal(true); }}
                       className="h-9 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-red-600 text-white hover:bg-red-700">
                       <Pill className="w-3.5 h-3.5" /> Envoyer une ordonnance
@@ -150,7 +154,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
                       {o.status === 'ready' && <p className="mt-2 text-xs font-semibold text-red-700">Passez à la pharmacie et présentez le QR code de l’ordonnance au comptoir.</p>}
                       {o.status === 'pending' && <p className={`mt-2 text-xs ${sub}`}>La pharmacie prépare votre ordonnance ; vous serez prévenu dès qu’elle est prête.</p>}
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {['ready', 'pending'].includes(o.status) && setPage && <Button darkMode={darkMode} onClick={() => setPage('prescriptions')}>Afficher le QR de l’ordonnance</Button>}
+                        {['ready', 'pending'].includes(o.status) && setPage && <Button darkMode={darkMode} onClick={() => setPage('prescriptions', o.prescriptionId)}>Afficher le QR de l’ordonnance</Button>}
                         {o.pharmacyPhone && ['pending', 'ready', 'unavailable'].includes(o.status) && <a href={`tel:${o.pharmacyPhone}`} className={`h-10 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border ${darkMode ? 'border-slate-700' : 'border-red-200 text-red-700'}`}><Phone className="w-3.5 h-3.5" />Appeler</a>}
                         {['pending', 'ready', 'unavailable'].includes(o.status) && <Button variant="secondary" darkMode={darkMode} onClick={() => cancelOrder(o)}>Annuler la demande</Button>}
                       </div>

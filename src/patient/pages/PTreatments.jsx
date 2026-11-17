@@ -7,13 +7,16 @@ import { useSearch, useUrlQuery, searchableDate } from '../../utils/search.js';
 /* Champs cherchables : pathologie, médicaments, statut, médecin, dates. */
 const FIELDS = (t) => [t.n, t.m.join(' '), t.s, t.dr, t.raw, searchableDate(t.startedAt), searchableDate(t.nextAt)];
 
+const TREATMENT_STATUS = { active: 'En cours', controlled: 'Stabilisé', paused: 'Suspendu', completed: 'Terminé', stopped: 'Arrêté' };
+const ONGOING = ['active', 'controlled'];
+
 export default function PTreatments({ data, card, sub, darkMode }) {
   const [query, setQuery] = useUrlQuery();
   const [filter, setFilter] = useState('all');
   const ts = useMemo(() => (data?.length ? data.map((t) => ({
     n: t.diagnosis,
-    s: t.stage || capitalize(t.status),
-    pr: t.progress || 0,
+    s: t.stage || TREATMENT_STATUS[t.status] || capitalize(t.status),
+    ongoing: ONGOING.includes(t.status),
     du: t.startedAt ? `Depuis ${formatDate(t.startedAt)}` : 'En cours',
     dr: t.doctorName || 'Médecin référent',
     m: t.medications?.map((m) => `${m.name} ${m.dosage || ''}`.trim()) || [],
@@ -38,7 +41,7 @@ export default function PTreatments({ data, card, sub, darkMode }) {
   return (
     <div className="space-y-5">
       <PageHeader title="Mes traitements" subtitle="Suivi de pathologies en cours" sub={sub}
-        actions={<Chip tone="watch">{ts.length} actif{ts.length > 1 ? 's' : ''}</Chip>} />
+        actions={<Chip tone="watch">{ts.filter((t) => t.ongoing).length} en cours</Chip>} />
       {ts.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <SearchInput value={query} onChange={setQuery} darkMode={darkMode} count={visible.length} className="flex-1 min-w-0"
@@ -66,17 +69,6 @@ export default function PTreatments({ data, card, sub, darkMode }) {
                   {t.s && <Chip tone="watch"><Highlight text={t.s} query={query} /></Chip>}
                 </div>
                 <p className={`text-xs mt-0.5 flex items-center gap-1.5 ${sub}`}><Stethoscope className="w-3.5 h-3.5 shrink-0" /><span className="min-w-0">{t.du} · <Highlight text={t.dr} query={query} /></span></p>
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className={`text-xs font-medium ${sub}`}>Progression</span>
-                <span className="text-xs font-semibold tabular-nums">{t.pr}%</span>
-              </div>
-              <div className={`h-2 rounded-full overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`}
-                role="progressbar" aria-valuenow={t.pr} aria-valuemin={0} aria-valuemax={100} aria-label={`Progression ${t.n}`}>
-                <div className="h-full bg-red-600 rounded-full" style={{ width: `${t.pr}%` }} />
               </div>
             </div>
 

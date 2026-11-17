@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, MapPin, Search, Send, Siren, X } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import { openNow } from '../../utils/pharmacyHours.js';
 
 // Ordonnances que l'on peut encore faire préparer (non délivrées en totalité, non expirées).
 export const isSendable = (p) => ['active', 'partial'].includes(p.status) && !(p.validUntil && String(p.validUntil).slice(0, 10) < new Date().toISOString().slice(0, 10));
@@ -16,6 +17,8 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
   const [query, setQuery] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -25,7 +28,7 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
       setPrescriptions(list);
       if (!initialRx && list.length === 1) setRxId(list[0].id);
     }).catch(() => setPrescriptions([]));
-    const esc = (e) => { if (e.key === 'Escape' && !busy) onClose(); };
+    const esc = (e) => { if (e.key === 'Escape' && !busyRef.current) onClose(); };
     document.addEventListener('keydown', esc);
     return () => document.removeEventListener('keydown', esc);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,7 +104,7 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
                     </span>
                     <span className="flex flex-col items-end gap-1 shrink-0 text-[11px] font-semibold">
                       {p.isDuty && <span className="inline-flex items-center gap-1 text-red-700"><Siren className="w-3 h-3" />De garde</span>}
-                      <span className={`inline-flex items-center gap-1 ${p.isOpen ? 'text-emerald-700' : muted}`}><Clock className="w-3 h-3" />{p.isOpen ? 'Ouverte' : 'Fermée'}</span>
+                      <span className={`inline-flex items-center gap-1 ${openNow(p) ? 'text-emerald-700' : muted}`}><Clock className="w-3 h-3" />{openNow(p) ? 'Ouverte' : 'Fermée'}</span>
                     </span>
                   </label>
                 ))}
@@ -114,7 +117,7 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
           </label>
 
           <p className={`text-xs rounded-xl p-3 ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
-            {ph ? <strong>{ph.name}</strong> : 'La pharmacie choisie'} verra cette ordonnance (médicaments, quantités, prescripteur) et votre prénom
+            {ph ? <strong>{ph.name}</strong> : 'La pharmacie choisie'} verra cette ordonnance (médicaments, quantités, prescripteur), votre prénom et l’initiale de votre nom
             le temps de la préparer. Vous pouvez annuler tant que l’ordonnance n’est pas délivrée.
           </p>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}

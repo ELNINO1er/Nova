@@ -26,7 +26,7 @@ const fmtDate=(v)=>{const d=new Date(v);return Number.isNaN(d.getTime())?'':d.to
 // Résumé affiché dans la bulle ; null si l'élément n'appartient pas au patient (ou n'existe plus).
 export async function describeAttachment(patientId,type,id,conn=pool){
  if(type==='prescription'){
-  const [[p]]=await conn.execute('SELECT id,doctor_name,issued_at,(SELECT COUNT(*) FROM nova_prescription_items i WHERE i.prescription_id=p.id) n FROM nova_prescriptions p WHERE id=? AND patient_id=?',[id,patientId]);
+  const [[p]]=await conn.execute('SELECT id,doctor_name,issued_at,(SELECT COUNT(*) FROM nova_prescription_items i WHERE i.prescription_id=p.id) n FROM nova_prescriptions p WHERE id=? AND patient_id=? AND deleted_at IS NULL',[id,patientId]);
   return p&&{type,id,title:'Ordonnance',subtitle:`${p.doctor_name||''} · ${Number(p.n)} médicament${Number(p.n)>1?'s':''}`,date:p.issued_at};
  }
  if(type==='lab_result'){
@@ -69,7 +69,7 @@ async function conversationFor(role,actorId,conversationId){
 export async function listAttachables(role,actorId,conversationId){
  const conv=await conversationFor(role,actorId,conversationId);
  const pid=conv.patient_id;
- const [pres]=await pool.execute('SELECT p.id,p.doctor_name,p.issued_at,(SELECT COUNT(*) FROM nova_prescription_items i WHERE i.prescription_id=p.id) n FROM nova_prescriptions p WHERE patient_id=? ORDER BY issued_at DESC LIMIT 50',[pid]);
+ const [pres]=await pool.execute('SELECT p.id,p.doctor_name,p.issued_at,(SELECT COUNT(*) FROM nova_prescription_items i WHERE i.prescription_id=p.id) n FROM nova_prescriptions p WHERE patient_id=? AND deleted_at IS NULL ORDER BY issued_at DESC LIMIT 50',[pid]);
  const [labs]=await pool.execute('SELECT id,title,lab_name,performed_at FROM nova_lab_results WHERE patient_id=? ORDER BY performed_at DESC LIMIT 50',[pid]);
  const [docs]=await pool.execute('SELECT id,title,created_at FROM nova_documents WHERE patient_id=? ORDER BY created_at DESC LIMIT 50',[pid]);
  return {
@@ -92,7 +92,7 @@ export async function getAttachmentDetail(role,actorId,conversationId,messageId)
  const {conv,type,id}=await attachedMessage(role,actorId,conversationId,messageId);
  const pid=conv.patient_id;
  if(type==='prescription'){
-  const [[p]]=await pool.execute('SELECT * FROM nova_prescriptions WHERE id=? AND patient_id=?',[id,pid]);
+  const [[p]]=await pool.execute('SELECT * FROM nova_prescriptions WHERE id=? AND patient_id=? AND deleted_at IS NULL',[id,pid]);
   if(!p)throw notFound('Élément retiré du dossier.');
   const [items]=await pool.execute('SELECT name,dosage,frequency,duration,instructions FROM nova_prescription_items WHERE prescription_id=?',[id]);
   return {type,id,doctorName:p.doctor_name,doctorSpecialty:p.doctor_specialty,issuedAt:p.issued_at,validUntil:p.valid_until,status:p.status,notes:p.notes,items};

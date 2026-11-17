@@ -47,6 +47,11 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
 
   // Seule la dernière fiche ouverte peut afficher ses créneaux : évite de réserver chez B un créneau de A.
   const openRequest = useRef(0);
+  const [slotsError, setSlotsError] = useState('');
+  // Médecins ayant déjà accès (pas de bouton « Autoriser » inutile).
+  const [accessIds, setAccessIds] = useState(new Set());
+  const loadAccess = () => patientApi.careTeam().then((rows) => setAccessIds(new Set((rows || []).filter((r) => r.hasAccess).map((r) => r.doctorId)))).catch(() => {});
+  useEffect(() => { loadAccess(); }, []);
   const openDoctor = async (doc) => {
     const request = ++openRequest.current;
     setSelected(doc);
@@ -56,9 +61,9 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     setLS(true);
     try {
       const s = await patientApi.doctorSlots(doc.id);
-      if (request === openRequest.current) setSlots(s);
-    } catch {
-      if (request === openRequest.current) setSlots([]);
+      if (request === openRequest.current) { setSlots(s); setSlotsError(''); }
+    } catch (e) {
+      if (request === openRequest.current) { setSlots([]); setSlotsError(e.message || 'Créneaux indisponibles.'); }
     } finally {
       if (request === openRequest.current) setLS(false);
     }
@@ -77,6 +82,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     try {
       await patientApi.bookSlot(selected.id, slot.id, shareRecord, ack);
       setShareAsk(null);
+      loadAccess();
       notify?.(`Rendez-vous confirmé le ${new Date(`${slot.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à ${String(slot.time).slice(0, 5)} avec ${selected.fullName}`);
       setSelected(null);
       setChosenSlot(null);
@@ -95,6 +101,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
     try {
       await patientApi.grantDoctorAccess(consentFor.id, ack);
       setConsentFor(null);
+      loadAccess();
       notify?.('Accès accordé au médecin.');
     } catch (e) {
       notify?.(e.message, 'error');
@@ -180,7 +187,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
                         <MapPin className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
                         <span className="min-w-0 break-words"><Highlight text={doc.address || shortCity(doc)} query={q} />{doc.address && shortCity(doc) ? <> · <Highlight text={shortCity(doc)} query={q} /></> : null}</span>
                       </p>
-                      <p className={`text-xs mt-1 flex items-center gap-1 ${sub}`}><Briefcase className="w-3 h-3" aria-hidden="true" />{doc.experienceYears} ans d'exp. · {fmtFee(doc.consultationFee)}</p>
+                      <p className={`text-xs mt-1 flex items-center gap-1 ${sub}`}><Briefcase className="w-3 h-3" aria-hidden="true" />{doc.experienceYears ? `${doc.experienceYears} ans d’exp. · ` : ''}{fmtFee(doc.consultationFee)}</p>
                     </button>
                     <div className={`grid grid-cols-2 border-t ${divider}`}>
                       <button type="button" onClick={() => openDoctor(doc)}
@@ -226,7 +233,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
                   <p className={`text-[11px] ${sub}`}>{selected.reviewsCount ?? 0} avis</p>
                 </div>
                 <div className={`py-3 px-2 border-x ${divider} min-w-0`}>
-                  <p className="text-sm font-bold">{selected.experienceYears ?? '—'} ans</p>
+                  <p className="text-sm font-bold">{selected.experienceYears ? `${selected.experienceYears} ans` : '—'}</p>
                   <p className={`text-[11px] ${sub}`}>d'expérience</p>
                 </div>
                 <div className="py-3 px-2 min-w-0">
@@ -246,9 +253,11 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
 
               <div className={`px-5 py-4 border-b ${divider} space-y-2`}>
                 <p className={`text-xs ${sub}`}>Accès au dossier clinique complet ; aucun partage par rubrique.</p>
-                <Button variant="danger" darkMode={darkMode} Icon={ShieldCheck} onClick={grantAccess} className="!h-9 !px-3 text-xs">
-                  Autoriser l’accès à mon dossier
-                </Button>
+                {accessIds.has(selected.id)
+                  ? <p className="text-sm font-semibold text-emerald-700 flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" />Ce médecin a déjà accès à votre dossier.</p>
+                  : <Button variant="danger" darkMode={darkMode} Icon={ShieldCheck} onClick={grantAccess} className="!h-9 !px-3 text-xs">
+                      Autoriser l’accès à mon dossier
+                    </Button>}
               </div>
 
               {/* Créneaux */}
@@ -257,7 +266,9 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
                 {loadingSlots ? (
                   <div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />
                 ) : Object.keys(slotsByDate).length === 0 ? (
-                  <p className={`text-sm ${sub} text-center py-6`}>Aucun créneau disponible pour le moment.</p>
+                  slotsError
+                    ? <div className="text-center py-6"><p className="text-sm text-red-700">{slotsError}</p><button type="button" onClick={() => openDoctor(selected)} className="mt-2 text-sm font-semibold text-red-700 underline">Réessayer</button></div>
+                    : <p className={`text-sm ${sub} text-center py-6`}>Aucun créneau disponible pour le moment.</p>
                 ) : (
                   <div className="space-y-4">
                     {Object.entries(slotsByDate).slice(0, 5).map(([date, daySlots]) => (

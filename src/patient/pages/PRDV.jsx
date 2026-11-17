@@ -250,7 +250,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
                 <label htmlFor="rdv-doctor" className={label}>Médecin</label>
                 <NovaSelect darkMode={darkMode} id="rdv-doctor" value={form.doctorId} disabled={!!editingId} onChange={(e) => setForm({...form, doctorId: e.target.value})} className={`${inputClass(darkMode)} disabled:opacity-60`}>
                   <option value="">{editingId ? 'Médecin (non modifiable)' : 'Sélectionner un médecin'}</option>
-                  {doctors.map((d) => (
+                  {doctors.filter((d) => d.isAvailable !== false || d.id === form.doctorId).map((d) => (
                     <option key={d.id} value={d.id}>{d.fullName} — {d.specialty}{d.city ? ` (${d.city})` : ''}</option>
                   ))}
                 </NovaSelect>

@@ -130,7 +130,7 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
     body: status === 'ready'
       ? `${ph.name} a préparé votre ordonnance. Présentez son QR code au comptoir.${message?.trim() ? ` Message : ${message.trim()}` : ''}`
       : `${ph.name} ne peut pas préparer votre ordonnance : ${message.trim()}`,
-    linkPage: 'pharmacy',
+    linkPage: 'pharmacy', linkTargetId: 'orders',
   });
   await signal(o);
   return { ok: true };

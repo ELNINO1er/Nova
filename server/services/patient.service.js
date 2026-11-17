@@ -215,7 +215,7 @@ export async function createAppointment(patientId, payload) {
   const startsAt=new Date(payload.startsAt).toISOString(); assertFuture(startsAt);
   const id=randomUUID();
   await withDoctorSchedule(payload.doctorId, async(conn,doctor)=>{
-    if(!doctor.is_available) throw Object.assign(new Error('Medecin indisponible.'),{status:409});
+    if(!doctor.is_available) throw Object.assign(new Error('Ce médecin ne prend pas de rendez-vous actuellement.'),{status:409});
     await assertDoctorSlotFree(doctor.id,startsAt,null,conn);
     await reserveMatchingSlot(conn,doctor.id,startsAt,patientId);
     await conn.execute("INSERT INTO nova_appointments(id,patient_id,doctor_id,starts_at,doctor_name,specialty,location,mode,status,created_at,updated_at,record_shared_at,share_terms_version,share_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,'requested',?,?,?,?,?)",[id,patientId,doctor.id,startsAt,`Dr. ${doctor.first_name} ${doctor.last_name}`,doctor.specialty||'',doctor.city||'',payload.mode||'onsite',new Date().toISOString(),new Date().toISOString(),payload.shareRecord?new Date():null,payload.shareRecord?CONSENT_TERMS_VERSION:null,payload.shareRecord?new Date():null]);
@@ -335,8 +335,8 @@ export async function deleteDocument(patientId, id) {
   if (doc.file_path) {
     const { unlink } = await import('node:fs/promises');
     const { uploadDir: ud } = await import('../middleware/upload.js');
-    const { join } = await import('node:path');
-    await unlink(join(ud, doc.file_path)).catch(() => {});
+    const { join, isAbsolute } = await import('node:path');
+    await unlink(isAbsolute(doc.file_path) ? doc.file_path : join(ud, doc.file_path)).catch(() => {});
   }
 }
 
@@ -349,7 +349,9 @@ export async function getDocumentFile(patientId, id) {
 
   const { uploadDir: ud } = await import('../middleware/upload.js');
   const { resolve, join, basename } = await import('node:path');
-  const absolute = resolve(join(ud, doc.file_path));
+  // Anciennes lignes : chemin absolu enregistré tel quel ; il doit rester dans le dossier de stockage.
+  const { isAbsolute } = await import('node:path');
+  const absolute = resolve(isAbsolute(doc.file_path) ? doc.file_path : join(ud, doc.file_path));
   const root = resolve(ud);
   if (!absolute.startsWith(root + (await import('node:path')).sep)) {
     const err = new Error('Chemin document invalide.');
@@ -554,7 +556,10 @@ export async function getDoctorSlots(doctorId, query = {}) {
   }
   sql += ' ORDER BY slot_date ASC, slot_time ASC';
 
-  const [rows] = await pool.execute(sql, params);
+  const [all] = await pool.execute(sql, params);
+  // Créneaux du jour déjà passés exclus (heure d'Abidjan = UTC).
+  const nowKey = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const rows = all.filter((r) => `${String(r.slot_date).slice(0, 10)} ${String(r.slot_time).slice(0, 5)}` > nowKey);
   return rows.map((r) => ({
     id: r.id,
     doctorId: r.doctor_id,
@@ -769,9 +774,10 @@ export async function updateNote(patientId, id, changes) {
 }
 
 export async function deleteNote(patientId, id) {
-  await pool.execute(
+  const [r] = await pool.execute(
     'DELETE FROM nova_notes WHERE patient_id = ? AND id = ?', [patientId, id]
   );
+  if (!r.affectedRows) throw Object.assign(new Error('Note introuvable.'), { status: 404 });
 }
 
 /* ─── Fiche Urgence ──────────────────────────────────────────── */
@@ -872,7 +878,8 @@ export async function updateWellnessGoal(patientId, id, changes) {
 }
 
 export async function deleteWellnessGoal(patientId, id) {
-  await pool.execute('DELETE FROM nova_wellness_goals WHERE patient_id = ? AND id = ?', [patientId, id]);
+  const [r] = await pool.execute('DELETE FROM nova_wellness_goals WHERE patient_id = ? AND id = ?', [patientId, id]);
+  if (!r.affectedRows) throw Object.assign(new Error('Objectif introuvable.'), { status: 404 });
 }
 
 /* ─── Paramètres ─────────────────────────────────────────────── */
@@ -1022,7 +1029,7 @@ function mapDocument(row) {
     category: row.category,
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
-    filePath: row.file_path || null,
+    hasFile: Boolean(row.file_path),
     createdAt: row.created_at,
   };
 }
@@ -1286,7 +1293,11 @@ async function setDoctorDecision(patientId,doctorId,status,requestId=null,ack=nu
     booking?.shared_at ? new Date(booking.shared_at).getTime() : 0));
   // Une décision (accord ou retrait) répond à toutes les demandes encore ouvertes de ce médecin :
   // jamais de demande « En attente » à côté d'un accès déjà accordé ou retiré.
-  await conn.execute("UPDATE nova_consents SET responded_at=? WHERE patient_id=? AND doctor_id=? AND status='pending' AND responded_at IS NULL",[instant,patientId,doctorId]);
+  const [answered]=await conn.execute("UPDATE nova_consents SET responded_at=? WHERE patient_id=? AND doctor_id=? AND status='pending' AND responded_at IS NULL",[instant,patientId,doctorId]);
+  if(status==='revoked'&&!requestId&&!answered.affectedRows){
+    const {getDoctorAccessDetails}=await import('./access.js');
+    if(!(await getDoctorAccessDetails(doctorId,patientId))){await conn.commit();return {doctorId,status,unchanged:true};}
+  }
   // Un retrait doit être daté à nouveau : un partage de rendez-vous a pu intervenir depuis le précédent.
   if(last?.status===status&&(status==='granted' && (requestId||!last.expires_at||new Date(last.expires_at)>new Date()))){
     // Accès déjà accordé : la confirmation enregistre l'acceptation des conditions sur l'accord en cours.
@@ -1397,12 +1408,12 @@ export async function getPrescriptionQR(patientId, prescriptionId) {
   );
   if (!rx) return null;
 
-  const JWT_SECRET = process.env.JWT_SECRET;
-  // Sign a minimal payload — NO medical data in QR
+  const { prescriptionQrSecret, prescriptionQrLifetimeSeconds } = await import('./prescription-qr.js');
+  // Contenu minimal (aucune donnée médicale) ; clé dédiée ; valable jusqu'à la fin de l'ordonnance.
   const qrToken = jwt.sign(
     { type: 'prescription', prescriptionId: rx.id, patientId, issuedAt: rx.issued_at, validUntil: rx.valid_until },
-    JWT_SECRET,
-    { expiresIn: '90d' }
+    prescriptionQrSecret(),
+    { expiresIn: prescriptionQrLifetimeSeconds(rx.valid_until) }
   );
 
   const QRCode = (await import('qrcode')).default;

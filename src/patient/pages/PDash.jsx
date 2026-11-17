@@ -9,6 +9,7 @@ import { DashSkeleton } from '../../components/PatientModal.jsx';
 import { Avatar, Empty, dayKey, fmtDay, fmtTime, initialsOf } from '../../components/dashboard/kit.jsx';
 import { Card, Chip, Pills } from '../../components/patient/ui.jsx';
 import { ageFrom } from '../../utils/age.js';
+import { sexLabel } from '../../utils/format.js';
 
 /*
  * Accueil patient (« Aujourd'hui ») : disposition Nexus en rouge et blanc.
@@ -144,8 +145,8 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
     },
     meds: {
       cols: ['Médicament', 'Dosage', 'Heure', 'Moment', 'Statut'],
-      rows: meds.slice(0, 5).map((m) => [m.name, m.dosage || '—', m.time || '—', m.period || '—',
-        m.intake?.status === 'taken' ? <Chip>Pris</Chip> : <Chip tone="alert">À prendre</Chip>]),
+      rows: meds.slice(0, 5).map((m) => [m.name, m.dosage || '—', m.time || '—', m.period || (Number.isFinite(parseInt(m.time, 10)) ? (parseInt(m.time, 10) < 11 ? 'Matin' : parseInt(m.time, 10) < 16 ? 'Midi' : 'Soir') : '—'),
+        m.intake?.status === 'taken' ? <Chip>Pris</Chip> : m.intake?.status === 'missed' ? <Chip tone="alert">Oublié</Chip> : m.intake?.status === 'skipped' ? <Chip>Ignoré</Chip> : <Chip tone="watch">À prendre</Chip>]),
       page: 'pilulier', empty: 'Aucune prise prévue aujourd’hui.',
     },
     history: {
@@ -243,7 +244,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
               <div className={`absolute left-3 right-3 bottom-3 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-sm ${darkMode ? 'bg-slate-900/95' : 'bg-white/95'}`}>
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{profile ? `${profile.firstName} ${profile.lastName}` : '—'}</p>
-                  <p className={`text-xs ${sub}`}>{[age != null && `${age} ans`, profile?.sex === 'F' ? 'Femme' : profile?.sex === 'M' ? 'Homme' : null, profile?.bloodType].filter(Boolean).join(' · ')}</p>
+                  <p className={`text-xs ${sub}`}>{[age != null && `${age} ans`, sexLabel(profile?.sex)].filter(Boolean).join(' · ')}</p>
                 </div>
                 <button type="button" onClick={() => setPage('profile')} aria-label="Mon profil" className="w-9 h-9 rounded-full bg-red-600 text-white flex items-center justify-center shrink-0"><ArrowUpRight className="w-4 h-4" /></button>
               </div>

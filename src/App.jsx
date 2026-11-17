@@ -403,7 +403,7 @@ export default function App() {
           </div>
         </main>
       </div>
-      <CompactNavigation role={role} page={page} setPage={setPage} onMenu={() => setSbOpen(true)} menuOpen={sbOpen} darkMode={darkMode} />
+      <CompactNavigation role={role} page={page} setPage={setPage} onMenu={() => setSbOpen(true)} menuOpen={sbOpen} darkMode={darkMode} badges={badges} />
 
       {/* Une modale qui plante se ferme au lieu de faire tomber l'application. */}
       {showQR && <ErrorBoundary fallback={null} onError={() => setShowQR(false)}><QRModal onClose={() => setShowQR(false)} /></ErrorBoundary>}

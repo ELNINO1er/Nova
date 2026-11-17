@@ -95,3 +95,11 @@ export function patientLabel(p) {
 export function patientMeta(p) {
   return [p?.cmuNumber && `CMU ${p.cmuNumber}`, Number.isInteger(p?.age) && `${p.age} ans`].filter(Boolean).join(' • ') || 'Informations non renseignées';
 }
+
+// Sexe : même lecture partout (valeurs historiques M/H/male et F/female).
+export function sexLabel(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (['m', 'h', 'male', 'homme'].includes(v)) return 'Homme';
+  if (['f', 'female', 'femme'].includes(v)) return 'Femme';
+  return null;
+}

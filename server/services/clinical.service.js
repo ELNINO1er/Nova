@@ -19,7 +19,7 @@ export async function recordLabResult(doctorId, requestId, payload) {
     const [[doctor]]=await conn.execute('SELECT first_name,last_name FROM nova_doctors WHERE id=?',[doctorId]);const doctorName=`Dr. ${doctor.first_name} ${doctor.last_name}`;
     const id=randomUUID();
     await conn.execute('INSERT INTO nova_lab_results(id,patient_id,title,lab_name,ordered_by,performed_at,status,notes,doctor_id) VALUES (?,?,?,?,?,?,?,?,?)',[id,request.patient_id,request.title,payload.laboratoryName,doctorName,payload.performedAt,'available',`Transcrit par le prescripteur. ${payload.notes||''}`,doctorId]);
-    for(const item of payload.items) await conn.execute('INSERT INTO nova_lab_result_items(id,lab_result_id,name,value,unit,ref_min,ref_max,status) VALUES (?,?,?,?,?,?,?,?)',[randomUUID(),id,item.name,item.value,item.unit||null,item.refMin||null,item.refMax||null,item.status||'normal']);
+    for(const item of payload.items) await conn.execute('INSERT INTO nova_lab_result_items(id,lab_result_id,name,value,unit,ref_min,ref_max,status) VALUES (?,?,?,?,?,?,?,?)',[randomUUID(),id,item.name,item.value,item.unit||null,item.refMin??null,item.refMax??null,item.status||'normal']);
     await conn.execute("UPDATE nova_lab_requests SET status='completed',result_id=?,result_hash=? WHERE id=?",[id,hash,requestId]);
     await conn.execute('INSERT INTO nova_medical_history(id,patient_id,type,title,occurred_at,doctor_name) VALUES (?,?,?,?,?,?)',[randomUUID(),request.patient_id,'lab',request.title,new Date().toISOString(),doctorName]);
     await notifyPatientLabResult(request.patient_id,request.title,conn);

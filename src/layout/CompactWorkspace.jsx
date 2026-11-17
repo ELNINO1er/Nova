@@ -36,9 +36,13 @@ export function CompactShortcuts({ role, setPage, darkMode }) {
   );
 }
 
-export function CompactNavigation({ role, page, setPage, onMenu, menuOpen, darkMode }) {
+export function CompactNavigation({ role, page, setPage, onMenu, menuOpen, darkMode, badges = {} }) {
   const links = mobileLinks[role] || [];
   const current = spaceOf(role, page);
+  // Compteurs (messages non lus, ordonnances reçues) : sur l'onglet de leur espace, sinon sur « Plus ».
+  const spaceCount = (space) => (space?.pages || []).reduce((n, pg) => n + (pg.b ? Number(badges[pg.b]) || 0 : 0), 0);
+  const shownSpaces = new Set(links.map(([id]) => spaceOf(role, id)?.id));
+  const hiddenCount = (ROLE_SPACES[role] || []).filter((sp) => !shownSpaces.has(sp.id)).reduce((n, sp) => n + spaceCount(sp), 0);
   const itemClass = 'flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-semibold';
   return (
     <nav aria-label="Navigation mobile" className={`fixed inset-x-0 bottom-0 z-30 grid auto-cols-fr grid-flow-col gap-1 border-t px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden ${darkMode ? 'border-slate-700 bg-slate-950' : 'border-red-100 bg-white'}`}>
@@ -48,11 +52,11 @@ export function CompactNavigation({ role, page, setPage, onMenu, menuOpen, darkM
         const active = current?.id === space.id && (id !== 'dashboard' || page === id);
         return <button key={id} type="button" aria-current={active ? 'page' : undefined}
           onClick={() => setPage(id)} className={`${itemClass} ${active ? 'bg-red-50 text-red-700' : ''}`}>
-          <Icon size={19} aria-hidden="true" /><span>{label}</span>
+          <span className="relative"><Icon size={19} aria-hidden="true" />{spaceCount(space) > 0 && <span className="absolute -top-1.5 -right-2 min-w-[1rem] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-4 text-center">{spaceCount(space)}</span>}</span><span>{label}</span>
         </button>;
       })}
       <button type="button" aria-expanded={menuOpen} onClick={onMenu} className={itemClass}>
-        <Ellipsis size={19} aria-hidden="true" /><span>Plus</span>
+        <span className="relative"><Ellipsis size={19} aria-hidden="true" />{hiddenCount > 0 && <span className="absolute -top-1.5 -right-2 min-w-[1rem] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-4 text-center" aria-label={`${hiddenCount} non lu${hiddenCount > 1 ? 's' : ''}`}>{hiddenCount}</span>}</span><span>Plus</span>
       </button>
     </nav>
   );

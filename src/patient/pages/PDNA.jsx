@@ -6,6 +6,7 @@ import {
   Button, Highlight, Label, NoResults, PageHeader, Panel, SearchInput, Segmented, inputClass,
 } from '../../components/patient/ui.jsx';
 import { ageFrom } from '../../utils/age.js';
+import { sexLabel } from '../../utils/format.js';
 
 /*
  * ADN médical : fiche structurée.
@@ -23,7 +24,6 @@ const EMPTY_PROFILE = { allergies: [], chronicDiseases: [], familyHistory: [], s
 const FIELDS = (t) => [t.item, t.label];
 
 const ageOf = (birth) => ageFrom(birth);
-const sexLabel = (s) => (s === 'M' || s === 'male' ? 'Homme' : s === 'F' || s === 'female' ? 'Femme' : null);
 
 export default function PDNA({ data, profile: profileProp, onReload, notify, sub, darkMode }) {
   const [profile, setProfile] = useState(profileProp || null);
@@ -45,12 +45,12 @@ export default function PDNA({ data, profile: profileProp, onReload, notify, sub
     (mp[key] || []).map((item, idx) => ({ id: `${key}-${idx}`, key, label, item: String(item), idx }))), [mp]);
   const found = useSearch(tags, query, FIELDS);
 
-  const saveSection = async (key, newList) => {
+  const saveSection = async (key, newList, message = 'Infos médicales mises à jour.') => {
     setSaving(true);
     try {
       const updated = await patientApi.updateMedicalProfile({ [key]: newList });
       onReload?.(updated);
-      notify?.('Profil médical mis à jour');
+      notify?.(message);
       setEditing(null);
       setInput('');
     } catch (e) {
@@ -66,12 +66,15 @@ export default function PDNA({ data, profile: profileProp, onReload, notify, sub
   };
   const removeItem = (key, idx) => {
     const value = mp[key]?.[idx];
-    saveSection(key, (mp.patientDeclarations?.[key] || []).filter((x) => x !== value));
+    // Inscrit aussi au dossier par un médecin : seule votre déclaration est retirée, l'élément reste affiché.
+    const inRecord = (mp.professionalOrHistorical?.[key] || []).includes(value);
+    saveSection(key, (mp.patientDeclarations?.[key] || []).filter((x) => x !== value),
+      inRecord ? 'Votre déclaration est retirée ; l’élément reste inscrit au dossier par votre médecin.' : 'Élément retiré.');
   };
 
   if (!data) return (
     <div className="space-y-5">
-      <PageHeader title="ADN médical" sub={sub} />
+      <PageHeader title="Infos médicales" sub={sub} />
       {[0, 1].map((i) => <div key={i} className={`animate-pulse h-40 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
     </div>
   );
@@ -93,7 +96,7 @@ export default function PDNA({ data, profile: profileProp, onReload, notify, sub
 
   return (
     <div className="space-y-5">
-      <PageHeader title="ADN médical" sub={sub}
+      <PageHeader title="Infos médicales" sub={sub}
         subtitle="Fiche médicale de référence : à présenter à un soignant, notamment en urgence." />
 
       {/* 1. Identité médicale */}

@@ -8,6 +8,7 @@ import {
   Button, EmptyState, Highlight, Label, NoResults, PageHeader, Panel, SearchInput, Segmented, StatusMark,
 } from '../../components/patient/ui.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
+import { useLocation } from 'react-router-dom';
 
 /*
  * Ordonnances : registre (liste à gauche) + document de l'ordonnance sélectionnée (à droite).
@@ -141,7 +142,9 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
   const openOrderFor = (id) => orders.find((o) => o.prescriptionId === id && ['pending', 'ready'].includes(o.status));
   const unavailableFor = (id) => orders.find((o) => o.prescriptionId === id && o.status === 'unavailable');
   const [filter, setFilter] = useState('all');
-  const [selectedId, setSelectedId] = useState(null);
+  // Ordonnance ciblée depuis une autre page (ex. « Afficher le QR » d'un envoi en pharmacie).
+  const location = useLocation();
+  const [selectedId, setSelectedId] = useState(location.state?.targetId || null);
   const [printing, setPrinting] = useState(null);
   const [qrModal, setQrModal] = useState(null);
   const [qrLoading, setQrLoading] = useState('');
@@ -213,7 +216,7 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
             <SearchInput value={query} onChange={setQuery} darkMode={darkMode} count={filtered.length} className="flex-1 min-w-0"
               placeholder="Médicament, médecin, posologie, référence, date…" label="Rechercher dans mes ordonnances" />
             <Segmented darkMode={darkMode} value={filter} onChange={setFilter} label="Filtrer par statut"
-              options={[['all', 'Toutes', results.length], ['active', 'Actives', count('active')], ['dispensed', 'Délivrées', count('dispensed')], ['expired', 'Expirées', count('expired')]]} />
+              options={[['all', 'Toutes', results.length], ['active', 'Actives', count('active')], ['partial', 'Partielles', count('partial')], ['dispensed', 'Délivrées', count('dispensed')], ['expired', 'Expirées', count('expired')]]} />
           </div>
         )}
         {qrError && <p role="alert" className="text-sm text-red-700">{qrError}</p>}

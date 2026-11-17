@@ -16,7 +16,7 @@ const fullName = (m) => `${m.firstName || ''} ${m.lastName || ''}`.trim();
 const fmtBirth = (v) => (v ? new Date(v).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
 const ageOf = (v) => ageFrom(v);
 /* Champs cherchables d'un membre, du plus au moins important. */
-const FAMILY_FIELDS = (m) => [fullName(m), relLabel(m.relationship), m.phone, m.email, searchableDate(m.birthDate), m.notes];
+const FAMILY_FIELDS = (m) => [fullName(m), relLabel(m.relationship), searchableDate(m.birthDate), m.notes];
 
 const emptyForm = { firstName: '', lastName: '', relationship: 'spouse', birthDate: '', notes: '' };
 
@@ -92,7 +92,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   if (!data) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Contacts familiaux" sub={sub} />
+        <PageHeader title="Famille" sub={sub} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {[0, 1].map(i => (
             <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
@@ -105,8 +105,8 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Contacts familiaux"
-        subtitle={`${members.length} membre${members.length > 1 ? 's' : ''} · Ces contacts n’accordent aucun accès à leur dossier. La délégation médicale n’est pas disponible.`}
+        title="Famille"
+        subtitle={`${members.length} proche${members.length > 1 ? 's' : ''} · Simple carnet de contacts : aucun accès à un dossier médical n’est partagé.`}
         sub={sub}
         actions={<Button Icon={Plus} darkMode={darkMode} onClick={() => { resetForm(); setShowForm(true); }}>Ajouter un membre</Button>}
       />
@@ -153,7 +153,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
       {members.length === 0 ? (
         <EmptyState Icon={Users} title="Aucun membre familial" darkMode={darkMode}
           action={<Button Icon={Plus} variant="secondary" darkMode={darkMode} onClick={() => { resetForm(); setShowForm(true); }}>Ajouter un membre</Button>}>
-          Ajoutez des membres de votre famille pour un meilleur suivi médical.
+          Notez vos proches (lien, date de naissance, remarques) pour les avoir sous la main. Aucun dossier n’est partagé.
         </EmptyState>
       ) : (
         <Card darkMode={darkMode} className="!p-0 overflow-hidden">
@@ -210,8 +210,6 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
                     </div>
                     <dl className={`mt-3 space-y-1.5 text-xs ${sub}`}>
                       {m.birthDate && <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 shrink-0" /> Né(e) le {fmtBirth(m.birthDate)}</div>}
-                      {m.phone && <div className="flex items-center gap-1.5"><Smartphone className="w-3.5 h-3.5 shrink-0" /><Highlight text={m.phone} query={query} /></div>}
-                      {m.email && <div className="flex items-center gap-1.5 min-w-0"><Mail className="w-3.5 h-3.5 shrink-0" /><span className="break-all"><Highlight text={m.email} query={query} /></span></div>}
                     </dl>
                     {m.notes && <p className={`text-sm mt-2 line-clamp-2 ${sub}`}><Highlight text={m.notes} query={query} /></p>}
                   </li>

@@ -89,7 +89,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   if (!data) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Confidentialité" sub={sub} />
+        <PageHeader title="Accès au dossier" sub={sub} />
         {[0, 1, 2].map(i => (
           <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
         ))}
@@ -146,7 +146,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Confidentialité" subtitle="Gérez vos consentements et consultez les accès à votre dossier" sub={sub} />
+      <PageHeader title="Accès au dossier" subtitle="Gérez vos consentements et consultez les accès à votre dossier" sub={sub} />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <StatTile label="Médecins avec accès" value={withAccess} Icon={Lock} darkMode={darkMode} onClick={() => setTab('team')} />

@@ -10,6 +10,9 @@ import { ROLE_SPACES } from '../navigation.js';
 import { prepareSearchNavigation, scoreFields, searchableDate, tokenize } from '../utils/search.js';
 import { Highlight } from '../components/patient/ui.jsx';
 
+const DOC_CATEGORY = { prescription: 'Ordonnance', lab: 'Analyse', consultation: 'Consultation', vaccine: 'Certificat', other: 'Document' };
+const TREATMENT_STATUS = { active: 'En cours', controlled: 'Stabilisé', paused: 'Suspendu', completed: 'Terminé', stopped: 'Arrêté' };
+
 /*
  * Recherche globale de l'espace patient (Ctrl+K ou « Rechercher » dans le header).
  * Cherche à la fois dans les pages de l'application et dans les données du patient
@@ -44,7 +47,7 @@ const PAGE_KEYWORDS = {
   profile: 'identite coordonnees photo profil',
   family: 'famille proches contacts',
   insurance: 'assurance cmu remboursement mutuelle',
-  settings: 'parametres export donnees langue notifications',
+  settings: 'parametres export donnees notifications mot de passe fermer compte',
   urgence: 'sos urgence samu 185 police pompiers',
   notifications: 'notifications alertes',
   assistant: 'aide nova assistant question',
@@ -73,11 +76,11 @@ const SOURCES = [
   { key: 'messages', label: 'Messages', Icon: MessageCircle, load: patientApi.conversations,
     map: (c) => ({ title: c.doctorName, subtitle: c.lastMessage, page: 'messages', fields: [c.doctorName, c.lastMessage, c.doctorSpecialty, 'message'] }) },
   { key: 'documents', label: 'Documents', Icon: FileText, load: patientApi.documents,
-    map: (d) => ({ title: d.title, subtitle: [d.category, day(d.createdAt)].filter(Boolean).join(' · '), page: 'documents', fields: [d.title, d.category, searchableDate(d.createdAt)] }) },
+    map: (d) => ({ title: d.title, subtitle: [DOC_CATEGORY[d.category] || 'Document', day(d.createdAt)].filter(Boolean).join(' · '), page: 'documents', fields: [d.title, d.category, searchableDate(d.createdAt)] }) },
   { key: 'notes', label: 'Mes notes', Icon: StickyNote, load: patientApi.notes,
     map: (n) => ({ title: n.title || 'Note', subtitle: String(n.content || '').slice(0, 80), page: 'notes', fields: [n.title, n.content, searchableDate(n.updatedAt)] }) },
   { key: 'treatments', label: 'Traitements', Icon: HeartPulse, load: patientApi.treatments,
-    map: (t) => ({ title: t.diagnosis, subtitle: t.status, page: 'treatments', fields: [t.diagnosis, 'traitement'] }) },
+    map: (t) => ({ title: t.diagnosis, subtitle: TREATMENT_STATUS[t.status] || 'Traitement', page: 'treatments', fields: [t.diagnosis, 'traitement'] }) },
   { key: 'doctors', label: 'Médecins', Icon: Stethoscope, load: patientApi.doctors,
     map: (d) => ({ title: d.fullName, subtitle: [d.specialty, d.city].filter(Boolean).join(' · '), page: 'doctors', fields: [d.fullName, d.specialty, d.subSpecialty, d.city, d.address, 'medecin docteur'] }) },
   { key: 'pharmacies', label: 'Pharmacies', Icon: Building2, load: patientApi.pharmacies,

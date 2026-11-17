@@ -36,7 +36,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
     s: formatBytes(doc.sizeBytes),
     I: doc.category === 'lab' ? Microscope : doc.category === 'vaccine' ? ClipboardList : FileText,
     id: doc.id,
-    filePath: doc.filePath,
+    hasFile: doc.hasFile,
     at: doc.createdAt,
     bytes: Number(doc.sizeBytes) || 0,
   })) : [];
@@ -101,7 +101,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   }
 
   const closeForm = () => { setShowForm(false); setPickedFile(null); };
-  const withFile = apiDocs.filter(d => d.filePath).length;
+  const withFile = apiDocs.filter(d => d.hasFile).length;
   const totalBytes = apiDocs.reduce((n, d) => n + d.bytes, 0);
   const latestDoc = [...apiDocs].filter(d => d.at).sort((a, b) => new Date(b.at) - new Date(a.at))[0];
 
@@ -237,7 +237,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
                 <span className={`hidden md:block text-sm ${sub}`}><Highlight text={d.d} query={query} /></span>
                 <span className={`hidden md:block text-sm text-right tabular-nums ${sub}`}>{d.s}</span>
                 <div className="flex items-center gap-2 w-full md:w-[8.5rem] md:justify-end pl-[3.25rem] md:pl-0">
-                  {d.filePath ? (
+                  {d.hasFile ? (
                     <a href={`${API_BASE_URL}/${apiOverride ? 'doctor' : 'patient'}/me/documents/${d.id}/download`}
                       target="_blank" rel="noreferrer" aria-label={`Ouvrir ${d.n}`}
                       className={`flex-1 md:flex-none h-10 px-4 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-2 border ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:border-red-300 hover:text-red-700'}`}>

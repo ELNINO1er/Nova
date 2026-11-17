@@ -264,7 +264,10 @@ router.post('/documents', requirePermission('patient.documents'), upload.single(
   const title = String(req.body.title || req.file.originalname || 'Document').trim().slice(0, 255);
   const category = ['prescription', 'lab', 'consultation', 'vaccine', 'other'].includes(req.body.category) ? req.body.category : 'other';
   try {
-    const doc = await createDocument(req.user.patientId, { title, category, mimeType: req.file.mimetype, sizeBytes: req.file.size, filePath: req.file.path });
+    // Chemin enregistré relatif au dossier de stockage (fonctionne aussi avec UPLOAD_DIR externe).
+    const { uploadDir } = await import('../middleware/upload.js');
+    const relativePath = path.relative(uploadDir, req.file.path).split(path.sep).join('/');
+    const doc = await createDocument(req.user.patientId, { title, category, mimeType: req.file.mimetype, sizeBytes: req.file.size, filePath: relativePath });
     res.status(201).json(doc);
   } catch (e) { await discard(); throw e; }
 }));
@@ -425,7 +428,9 @@ router.patch('/notes/:id', validateBody(z.object({
   color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).optional(),
   pinned:  z.boolean().optional(),
 })), wrap(async (req, res) => {
-  res.json(await updateNote(req.user.patientId, req.params.id, req.body));
+  const note = await updateNote(req.user.patientId, req.params.id, req.body);
+  if (!note) return res.status(404).json({ error: 'not_found', message: 'Note introuvable.' });
+  res.json(note);
 }));
 
 router.delete('/notes/:id', wrap(async (req, res) => {
@@ -621,10 +626,10 @@ router.get('/settings', wrap(async (req, res) => {
   res.json(await getSettings(req.user.patientId));
 }));
 
-router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
-  (val) => JSON.stringify(val).length < 50000,
-  { message: 'Payload trop volumineux' }
-)), wrap(async (req, res) => {
+router.patch('/settings', validateBody(z.object({
+  notifications: z.object({ appointments: z.boolean().optional(), medications: z.boolean().optional(), messages: z.boolean().optional() }).strict().optional(),
+  privacy: z.object({ emergencyQr: z.boolean().optional() }).strict().optional(),
+}).strict()), wrap(async (req, res) => {
   res.json(await updateSettings(req.user.patientId, req.body));
 }));
 
@@ -643,7 +648,7 @@ router.post('/consents/:id/grant', requirePermission('patient.consents'), valida
   res.json(await grantConsent(req.user.patientId, req.params.id, req.body));
 }));
 
-router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
+router.post('/consents/:id/revoke', requirePermission('patient.consents'), auditLog('patient.access.revoke', 'consent'), wrap(async (req, res) => {
   res.json(await revokeConsent(req.user.patientId, req.params.id));
 }));
 

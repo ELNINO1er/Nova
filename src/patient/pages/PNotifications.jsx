@@ -3,23 +3,9 @@ import { Bell, CheckCheck, Calendar, Pill, Microscope, MessageCircle, Syringe, F
 import { patientApi } from '../../api/patientApi.js';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { PageHeader, Card, Button, IconBadge, EmptyState, Pills, Chip, SearchInput, Highlight, NoResults } from '../../components/patient/ui.jsx';
+import { NOTIFICATION_TYPES } from '../../utils/notificationTypes.js';
 
-/* Type de notification → icône, libellé lisible et famille de filtre. */
-const TYPES = {
-  appointment:  { Icon: Calendar,      label: 'Rendez-vous',   group: 'appointment' },
-  consultation: { Icon: Stethoscope,   label: 'Consultation',  group: 'appointment' },
-  referral:     { Icon: Share2,        label: 'Orientation',   group: 'appointment' },
-  prescription: { Icon: FileText,      label: 'Ordonnance',    group: 'medication' },
-  medication:   { Icon: Pill,          label: 'Médicament',    group: 'medication' },
-  pharmacy:     { Icon: Pill,          label: 'Pharmacie',     group: 'medication' },
-  dispense:     { Icon: Pill,          label: 'Délivrance',    group: 'medication' },
-  lab_result:   { Icon: Microscope,    label: 'Résultat',      group: 'result' },
-  result:       { Icon: Microscope,    label: 'Résultat',      group: 'result' },
-  vaccine:      { Icon: Syringe,       label: 'Vaccination',   group: 'other' },
-  message:      { Icon: MessageCircle, label: 'Message',       group: 'message' },
-  consent:      { Icon: ShieldCheck,   label: 'Accès dossier', group: 'other' },
-  system:       { Icon: Bell,          label: 'Information',   group: 'other' },
-};
+const TYPES = NOTIFICATION_TYPES;
 const typeOf = (n) => TYPES[n.type] || TYPES.system;
 
 const FILTERS = [

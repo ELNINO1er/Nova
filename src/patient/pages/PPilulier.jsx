@@ -5,6 +5,13 @@ import { PageHeader, Card, CardTitle, Chip, Button, EmptyState, StatTile, Pills,
 import { useSearch, useUrlQuery } from '../../utils/search.js';
 
 const PERIODS = ['Matin', 'Midi', 'Soir'];
+// Moment de la journée déduit de l'heure quand il n'est pas renseigné (prises créées depuis une ordonnance).
+const periodOf = (period, time) => {
+  if (PERIODS.includes(period)) return period;
+  const h = Number(String(time || '').split(':')[0]);
+  if (!Number.isFinite(h)) return period || 'Autre';
+  return h < 11 ? 'Matin' : h < 16 ? 'Midi' : 'Soir';
+};
 const STATUS_LABEL = { taken: 'pris', missed: 'oublié', skipped: 'ignoré', pending: 'à prendre' };
 /* Champs cherchables : médicament, dosage, heure, moment de la journée, statut, interaction. */
 const FIELDS = (m) => [m.n, m.d, m.t, m.p, STATUS_LABEL[m.status] || '', m.i ? 'interaction' : ''];
@@ -17,7 +24,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
     n: item.name,
     d: item.dosage,
     t: item.time,
-    p: item.period,
+    p: periodOf(item.period, item.time),
     i: item.interaction,
     status: item.intake?.status || 'pending',
     at: item.intake?.taken_at || null,
@@ -60,7 +67,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
   if (!data) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Pilulier numérique" sub={sub} />
+        <PageHeader title="Prises prévues" sub={sub} />
         <Card darkMode={darkMode}>
           <div className="animate-pulse space-y-3">
             {[0, 1, 2].map((i) => <div key={i} className={`h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />)}
@@ -72,7 +79,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Pilulier numérique" sub={sub}
+      <PageHeader title="Prises prévues" sub={sub}
         subtitle={meds.length ? `${cnt} / ${meds.length} prise${meds.length > 1 ? 's' : ''} aujourd'hui` : 'Vos prises du jour'} />
       {meds.length === 0 ? (
         <EmptyState Icon={Pill} title="Aucun médicament programmé" darkMode={darkMode}
@@ -113,7 +120,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
                 <div key={per}>
                   <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     {per === 'Soir' ? <Moon className="w-4 h-4 text-red-600" /> : <Sun className="w-4 h-4 text-red-600" />}
-                    <Highlight text={per} query={query} /> <span className={`font-normal ${sub}`}>· {pm[0].t}</span>
+                    <Highlight text={per} query={query} /> <span className={`font-normal ${sub}`}>· {[...new Set(pm.map((x) => x.t))].sort().join(', ')}</span>
                     {pending.length === 0 && <Chip className="ml-auto"><Check className="w-3 h-3" /> Terminé</Chip>}
                   </h4>
                   <div className="space-y-2">

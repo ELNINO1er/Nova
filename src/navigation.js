@@ -23,7 +23,7 @@ export const ROLE_SPACES = {
   patient: [
     { id: 'today', label: 'Aujourd’hui', Icon: Sun, pages: [{ id: 'dashboard', label: 'Aujourd’hui', Icon: Home }] },
     { id: 'record', label: 'Mon dossier', Icon: FolderHeart, pages: [
-      { id: 'history', label: 'Consultations', Icon: ClipboardList },
+      { id: 'history', label: 'Historique', Icon: ClipboardList },
       { id: 'dna', label: 'Infos médicales', Icon: Droplet },
       { id: 'vitals', label: 'Constantes', Icon: Activity },
       { id: 'labresults', label: 'Analyses', Icon: Microscope },

@@ -7,6 +7,7 @@ import { useUnsaved } from '../../unsaved.js';
 import { PHOTO_ACCEPT, announcePhotoChange, preparePhoto, usePatientPhoto } from '../../utils/photo.js';
 import { Button, Card, CardTitle, Chip, Field, PageHeader, inputClass } from '../../components/patient/ui.jsx';
 import { ageFrom } from '../../utils/age.js';
+import { sexLabel } from '../../utils/format.js';
 
 /* Date de naissance en toutes lettres (« 14 mai 1950 »), sans décalage de fuseau. */
 const fmtBirth = (value) => {
@@ -14,8 +15,7 @@ const fmtBirth = (value) => {
   const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 };
-const SEX_LABELS = { M: 'Homme', F: 'Femme', H: 'Homme' };
-const fmtSex = (value) => (value ? SEX_LABELS[String(value).toUpperCase()] || value : null);
+const fmtSex = (value) => sexLabel(value);
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
