@@ -9,9 +9,9 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
   const filtered = filter === 'all' ? patients : patients.filter(p => p.risk === filter);
 
   const riskCfg = {
-    high:   { label: 'Critique',     cls: 'bg-red-100 text-red-700',     dot: 'bg-red-500',     bar: 'bg-red-500' },
-    medium: { label: 'À surveiller', cls: 'bg-red-100 text-red-700', dot: 'bg-red-500',   bar: 'bg-red-500' },
-    low:    { label: 'Stable',       cls: 'bg-red-100 text-red-700', dot: 'bg-red-500', bar: 'bg-red-500' },
+    high:   { label: 'Suivi en retard', cls: 'bg-red-100 text-red-800',         dot: 'bg-red-600',     bar: 'bg-red-600' },
+    medium: { label: 'À revoir bientôt', cls: 'bg-amber-100 text-amber-800',    dot: 'bg-amber-500',   bar: 'bg-amber-500' },
+    low:    { label: 'Suivi à jour',    cls: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
   };
 
   const counts = { high: patients.filter(p => p.risk === 'high').length, medium: patients.filter(p => p.risk === 'medium').length, low: patients.filter(p => p.risk === 'low').length };
@@ -22,7 +22,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold">Suivi des maladies chroniques</h2>
-          <p className={`text-sm ${sub}`}>{patients.length} patients suivis</p>
+          <p className={`text-sm ${sub}`}>{patients.length} patient{patients.length > 1 ? 's' : ''} avec une maladie chronique · classés selon la date de votre dernière consultation</p>
         </div>
         <button onClick={onReload} className={`px-4 py-2 rounded-xl border text-sm font-semibold flex items-center gap-2 ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
           <Activity className="w-4 h-4" /> Actualiser
@@ -31,11 +31,11 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
 
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-3">
-        {[{ k: 'high', l: 'Critique', I: AlertCircle }, { k: 'medium', l: 'À surveiller', I: Clock }, { k: 'low', l: 'Stable', I: CheckCircle2 }].map(({ k, l, I }) => (
+        {[{ k: 'high', l: 'Suivi en retard (> 6 mois ou jamais vu)', I: AlertCircle }, { k: 'medium', l: 'À revoir bientôt (> 3 mois)', I: Clock }, { k: 'low', l: 'Suivi à jour (< 3 mois)', I: CheckCircle2 }].map(({ k, l, I }) => (
           <button key={k} onClick={() => setFilter(filter === k ? 'all' : k)}
             className={`${card} border rounded-2xl p-4 text-left transition-all ${filter === k ? 'ring-2 ring-red-500' : ''}`}>
-            <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-red-100' : 'bg-red-100'}`}>
-              <I className={`w-4 h-4 ${k === 'high' ? 'text-red-600' : k === 'medium' ? 'text-red-600' : 'text-red-600'}`} />
+            <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+              <I className={`w-4 h-4 ${k === 'high' ? 'text-red-700' : k === 'medium' ? 'text-amber-700' : 'text-emerald-700'}`} />
             </div>
             <p className="text-2xl font-black">{counts[k]}</p>
             <p className={`text-xs ${sub}`}>{l}</p>

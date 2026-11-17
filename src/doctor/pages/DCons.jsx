@@ -7,6 +7,7 @@ import { ClipboardList, Edit3, Plus, Save, Stethoscope, X } from 'lucide-react';
 import { confirmDialog, promptDialog } from '../../components/dialogs.jsx';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials, patientLabel } from '../../utils/format.js';
+import { CONSULTATION_STATUS, CONSULTATION_FIELDS, consultationStatusLabel } from '../../utils/statusLabels.js';
 
 export default function DCons({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const { state } = useLocation();
@@ -111,7 +112,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
               {patients.map(p => <option key={p.id} value={p.id}>{patientLabel(p)}</option>)}
             </NovaSelect>
           </div>
-          <label className="block text-sm">État de la consultation<NovaSelect darkMode={darkMode} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">Valider le compte rendu</option></NovaSelect></label>
+          <label className="block text-sm">État de la consultation<NovaSelect darkMode={darkMode} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">{CONSULTATION_STATUS.completed}</option></NovaSelect></label>
           {fld('Motif de consultation' , 'motif', 'textarea', 'Symptômes, raison de la visite...')}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {fld('Diagnostic principal', 'diagnosisMain', 'input', 'Ex: Hypertension artérielle stade 1')}
@@ -163,7 +164,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                 <NovaSelect darkMode={darkMode} disabled={editCons.status==='completed'} value={editCons.status} onChange={e => setEditCons(c => ({ ...c, status: e.target.value }))}
                   className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                   <option value="draft">Brouillon</option>
-                  <option value="completed">Terminée</option>
+                  <option value="completed">{CONSULTATION_STATUS.completed}</option>
                 </NovaSelect>
               </div>
             </div>
@@ -199,8 +200,8 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                   <p className={`text-xs ${sub}`}>{new Date(c.startedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>
-                    {c.status === 'draft' ? 'Brouillon' : 'Terminée'}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                    {consultationStatusLabel(c.status)}
                   </span>
                   <button onClick={() => openEdit(c)}
                     className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 ${darkMode ? 'border-slate-600 hover:bg-slate-700' : 'border-slate-200 hover:bg-slate-100'}`}>
@@ -214,7 +215,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                   <Stethoscope className="w-3 h-3" />{c.diagnosisMain}
                 </div>
               )}
-              {c.amendments?.length>0 && <details className="mt-2 text-sm"><summary>{c.amendments.length} correction(s) tracée(s)</summary>{c.amendments.map((a,i)=><div key={i} className="border-t py-2"><p>{a.reason} — {formatDate(a.created_at)}</p>{Object.entries(typeof a.content==='string'?JSON.parse(a.content):a.content).filter(([k])=>!['amendmentReason','status'].includes(k)).map(([k,v])=><p key={k}>{k} : {String(v)}</p>)}</div>)}</details>}
+              {c.amendments?.length>0 && <details className="mt-2 text-sm"><summary>{c.amendments.length} correction(s) tracée(s)</summary>{c.amendments.map((a,i)=><div key={i} className="border-t py-2"><p>{a.reason} — {formatDate(a.created_at)}</p>{Object.entries(typeof a.content==='string'?JSON.parse(a.content):a.content).filter(([k,v])=>CONSULTATION_FIELDS[k]&&v!=null&&v!=='').map(([k,v])=><p key={k}><strong>{CONSULTATION_FIELDS[k]} :</strong> {String(v)}</p>)}</div>)}</details>}
               {c.notes && <p className={`text-xs ${sub} mt-2 line-clamp-2`}>{c.notes}</p>}
               {c.recommendations && <p className="text-xs text-red-600 font-medium mt-1">→ {c.recommendations}</p>}
             </div>

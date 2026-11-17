@@ -84,13 +84,16 @@ export async function listDoctorPayments(doctorId) {
 }
 
 export async function markDoctorPaymentPaid(doctorId, paymentId, reference = null) {
-  const [result] = await pool.execute(
+  const [[current]] = await pool.execute('SELECT status FROM nova_payments WHERE id = ? AND doctor_id = ?', [paymentId, doctorId]);
+  if (!current) return null;
+  // Remboursé, échoué ou déjà encaissé : l'état ne revient pas à « payé ».
+  if (current.status !== 'pending') throw Object.assign(new Error('Seul un paiement en attente peut être marqué comme encaissé.'), { status: 409 });
+  await pool.execute(
     `UPDATE nova_payments
      SET status = 'paid', reference = COALESCE(?, reference)
-     WHERE id = ? AND doctor_id = ?`,
+     WHERE id = ? AND doctor_id = ? AND status = 'pending'`,
     [reference, paymentId, doctorId]
   );
-  if (!result.affectedRows) return null;
   const [[row]] = await pool.execute('SELECT * FROM nova_payments WHERE id = ?', [paymentId]);
   return mapPayment(row);
 }

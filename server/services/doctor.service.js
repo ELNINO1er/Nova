@@ -142,21 +142,31 @@ export async function updateDoctorAppointment(doctorId,id,changes){
     if(!row) return null;
     const [[patient]] = await conn.execute('SELECT id FROM nova_patients WHERE id = ? AND deleted_at IS NULL', [row.patient_id]);
     if (!patient) return null;
+    // Un rendez-vous passé ou annulé ne se modifie plus (il reste dans l'historique).
+    if (row.status === 'cancelled' && (changes.startsAt || (changes.status && changes.status !== 'cancelled')))
+      throw Object.assign(new Error('Ce rendez-vous est annulé : proposez un nouveau rendez-vous au patient.'), { status: 409 });
+    if (new Date(row.starts_at).getTime() < Date.now())
+      throw Object.assign(new Error('Ce rendez-vous est déjà passé : il ne peut plus être confirmé, annulé ni déplacé.'), { status: 409 });
     if(changes.status) assertTransition(APPOINTMENT_TRANSITIONS,row.status,changes.status,'doctor');
-    let startsAt=row.starts_at;
-    if(changes.startsAt&&new Date(changes.startsAt).toISOString()!==row.starts_at){
+    let startsAt=row.starts_at, moved=false;
+    if(changes.startsAt&&new Date(changes.startsAt).toISOString()!==new Date(row.starts_at).toISOString()){
       startsAt=new Date(changes.startsAt).toISOString();assertFuture(startsAt);await assertDoctorSlotFree(doctorId,startsAt,id,conn);
-      await releaseSlotFor(row,conn);await reserveMatchingSlot(conn,doctorId,startsAt,row.patient_id);
+      await releaseSlotFor(row,conn);await reserveMatchingSlot(conn,doctorId,startsAt,row.patient_id);moved=true;
     }
     if(changes.status==='cancelled') await releaseSlotFor(row,conn);
     await conn.execute('UPDATE nova_appointments SET starts_at=?,status=?,location=?,updated_at=? WHERE id=?',[startsAt,changes.status||row.status,changes.location||row.location,new Date().toISOString(),id]);
-    const [[updated]]=await conn.execute('SELECT a.*,p.first_name,p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id=a.patient_id WHERE a.id=?',[id]);return updated;
+    const [[updated]]=await conn.execute('SELECT a.*,p.first_name,p.last_name FROM nova_appointments a JOIN nova_patients p ON p.id=a.patient_id WHERE a.id=?',[id]);
+    return {updated,statusChanged:Boolean(changes.status&&changes.status!==row.status),moved};
   });
   if(!result) return null;
-  if (changes.status) {
-    notifyPatientAppointmentStatus(result.patient_id, 'Votre médecin', result.status, result.starts_at, result.id).catch(() => {});
+  const {updated,statusChanged,moved}=result;
+  // Le patient est prévenu de toute décision ou de tout déplacement, avec le nom du médecin.
+  if (statusChanged || moved) {
+    const [[doc]] = await pool.execute('SELECT first_name, last_name FROM nova_doctors WHERE id = ?', [doctorId]);
+    const doctorName = doc ? `Dr. ${doc.first_name} ${doc.last_name}` : 'Votre médecin';
+    notifyPatientAppointmentStatus(updated.patient_id, doctorName, statusChanged ? updated.status : 'moved', updated.starts_at, updated.id).catch(() => {});
   }
-  return mapApptWithPatient({ ...result, has_access: await hasDoctorPatientAccess(doctorId, result.patient_id) });
+  return mapApptWithPatient({ ...updated, has_access: await hasDoctorPatientAccess(doctorId, updated.patient_id) });
 }
 
 /* ─── Consultations ──────────────────────────────────────────── */
@@ -677,13 +687,11 @@ export async function getChronicPatients(doctorId) {
      FROM nova_patients p
      LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
      WHERE p.deleted_at IS NULL AND ${chronicAccess.sql}
-       AND mp.chronic_diseases IS NOT NULL AND mp.chronic_diseases != '[]'
+       AND mp.chronic_diseases IS NOT NULL AND JSON_LENGTH(mp.chronic_diseases) > 0
      ORDER BY last_consult ASC`,
     [doctorId, doctorId, ...chronicAccess.params]
   );
-  return rows.map(r => {
-    const birth = r.birth_date ? new Date(r.birth_date) : null;
-    const today = new Date();
+  return rows.filter(r => medicalList(r.chronic_diseases).length).map(r => {
   const age   = ageFrom(r.birth_date);
     const chronic = medicalList(r.chronic_diseases);
     const daysSince = r.last_consult
@@ -768,7 +776,9 @@ export async function getDoctorFinances(doctorId) {
   const [[doc]] = await pool.execute(
     `SELECT consultation_fee, accepts_cmu FROM nova_doctors WHERE id = ?`, [doctorId]
   );
-  const fee = doc?.consultation_fee || 15000;
+  // Pas de tarif renseigné : pas d'estimation (aucun montant inventé).
+  const fee = Number(doc?.consultation_fee) > 0 ? Number(doc.consultation_fee) : null;
+  const [[paid]] = await pool.execute("SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM nova_payments WHERE doctor_id = ? AND status = 'paid'", [doctorId]);
 
   const [monthly] = await pool.execute(
     `SELECT SUBSTR(started_at,1,7) AS month, COUNT(*) AS count
@@ -790,7 +800,7 @@ export async function getDoctorFinances(doctorId) {
   );
 
   const [[{ activePrescriptions }]] = await pool.execute(
-    `SELECT COUNT(*) AS activePrescriptions FROM nova_prescriptions WHERE doctor_id = ? AND status = 'active'`,
+    `SELECT COUNT(*) AS activePrescriptions FROM nova_prescriptions WHERE doctor_id = ? AND deleted_at IS NULL AND status IN ('active','partial') AND (valid_until IS NULL OR valid_until >= CURDATE())`,
     [doctorId]
   );
 
@@ -798,13 +808,15 @@ export async function getDoctorFinances(doctorId) {
     consultationFee:       fee,
     totalConsultations:    total,
     monthConsultations:    monthCount,
-    estimatedMonthRevenue: monthCount * fee,
-    estimatedTotalRevenue: total * fee,
+    estimatedMonthRevenue: fee == null ? null : monthCount * fee,
+    estimatedTotalRevenue: fee == null ? null : total * fee,
+    paidTotal:             Number(paid.total) || 0,
+    paidCount:             Number(paid.n) || 0,
     activePrescriptions,
     monthlyData: monthly.reverse().map(r => ({
       month:   r.month,
       count:   r.count,
-      revenue: r.count * fee,
+      revenue: fee == null ? null : r.count * fee,
     })),
   };
 }
@@ -855,6 +867,8 @@ export async function getDoctorSignatureData(doctorId) {
 }
 
 export async function saveDoctorSignatureData(doctorId, signatureData) {
+  if (signatureData !== null && !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(signatureData))
+    throw Object.assign(new Error('Signature invalide : image PNG attendue.'), { status: 422 });
   await pool.execute(
     `UPDATE nova_doctors SET signature_data = ? WHERE id = ?`, [signatureData, doctorId]
   );

@@ -132,6 +132,13 @@ export async function notifyDoctorAppointment(doctorId, patientName, date, conn=
 }
 
 /** Notification → patient : rendez-vous confirmé ou annulé par le médecin. */
+// Date lisible d'un rendez-vous (« lundi 17 novembre à 10:30 ») ; un texte déjà formaté est gardé tel quel.
+function appointmentDate(value) {
+  const d = new Date(value);
+  if (!value || Number.isNaN(d.getTime()) || !/^\d{4}-\d{2}-\d{2}/.test(String(value instanceof Date ? d.toISOString() : value))) return String(value || '');
+  return d.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Abidjan' });
+}
+
 export async function notifyPatientAppointmentStatus(patientId, doctorName, status, dateStr, appointmentId, conn=pool) {
   const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ? AND deleted_at IS NULL', [patientId]);
   return createNotification({
@@ -139,8 +146,10 @@ export async function notifyPatientAppointmentStatus(patientId, doctorName, stat
     userId: user?.id,
     targetRole: 'patient',
     type: 'appointment',
-    title: status === 'confirmed' ? 'Rendez-vous confirmé' : 'Rendez-vous annulé',
-    body: `${doctorName} a ${status === 'confirmed' ? 'confirmé' : 'annulé'} votre rendez-vous du ${dateStr}.`,
+    title: status === 'confirmed' ? 'Rendez-vous confirmé' : status === 'moved' ? 'Rendez-vous déplacé' : 'Rendez-vous annulé',
+    body: status === 'moved'
+      ? `${doctorName} a déplacé votre rendez-vous au ${appointmentDate(dateStr)}.`
+      : `${doctorName} a ${status === 'confirmed' ? 'confirmé' : 'annulé'} votre rendez-vous du ${appointmentDate(dateStr)}.`,
     linkPage: 'rdv',
     linkTargetId: appointmentId,
   },conn);

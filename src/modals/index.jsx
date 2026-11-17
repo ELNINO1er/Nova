@@ -107,7 +107,7 @@ export function AyaChat({ onClose }) {
   );
 }
 
-export function VideoModal({ onClose }) {
+export function VideoModal({ onClose, role }) {
   // Aucun service vidéo n'est intégré : on l'indique clairement au lieu de simuler un appel.
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label="Téléconsultation">
@@ -117,7 +117,9 @@ export function VideoModal({ onClose }) {
           <button onClick={onClose} aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <p className="text-sm">La vidéo n’est pas encore disponible dans NOVA.</p>
-        <p className="text-sm text-slate-600 mt-2">Pour un rendez-vous en téléconsultation, le médecin vous indique comment le joindre (téléphone ou application de son choix). Vous pouvez aussi lui écrire depuis la messagerie.</p>
+        <p className="text-sm text-slate-600 mt-2">{role === 'doctor'
+          ? 'Pour une téléconsultation, indiquez au patient comment vous joindre (téléphone ou application de votre choix), par exemple depuis la messagerie.'
+          : 'Pour un rendez-vous en téléconsultation, le médecin vous indique comment le joindre (téléphone ou application de son choix). Vous pouvez aussi lui écrire depuis la messagerie.'}</p>
         <button type="button" onClick={onClose} className="mt-5 w-full min-h-11 rounded-xl bg-red-600 text-white font-semibold">J’ai compris</button>
       </div>
     </div>

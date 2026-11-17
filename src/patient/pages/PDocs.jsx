@@ -16,7 +16,8 @@ const TYPE_LABEL = { PDF: 'PDF', IMG: 'Image', DOC: 'Document' };
 // Champs cherchables, du plus au moins important.
 const FIELDS = (d) => [d.n, CAT_LABEL[d.cat] || d.cat, `${d.t} ${TYPE_LABEL[d.t] || ''}`, searchableDate(d.at)];
 
-export default function PDocs({ data, onReload, notify, card, sub, border, darkMode, api: apiOverride }) {
+export default function PDocs({ data, onReload, notify, card, sub, border, darkMode, api: apiOverride, viewerRole = 'patient' }) {
+  const isDoctor = viewerRole === 'doctor';
   const api = apiOverride || patientApi;
   const [f, setF] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -108,7 +109,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   return (
     <div className="space-y-5">
       <PageHeader title="Mes documents" sub={sub}
-        subtitle={<span className="inline-flex items-center gap-1.5">{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} <span aria-hidden="true">·</span> <Lock className="w-3.5 h-3.5" /> Visibles par vous et vos médecins autorisés</span>}
+        subtitle={<span className="inline-flex items-center gap-1.5">{apiDocs.length} document{apiDocs.length > 1 ? 's' : ''} <span aria-hidden="true">·</span> <Lock className="w-3.5 h-3.5" /> {isDoctor ? 'Documents de votre compte professionnel, visibles par vous seul' : 'Visibles par vous et vos médecins autorisés'}</span>}
         actions={<Button Icon={Plus} onClick={() => setShowForm(true)}>Importer</Button>} />
 
       {showForm && (
@@ -176,7 +177,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
             <IconBadge Icon={AlertTriangle} solid />
             <div className="min-w-0">
               <p className="font-semibold break-words">{pendingDelete.n}</p>
-              <p className={`text-sm ${sub} mt-1`}>Le document sera retiré de votre dossier.</p>
+              <p className={`text-sm ${sub} mt-1`}>{isDoctor ? 'Le document sera supprimé de vos documents professionnels.' : 'Le document sera retiré de votre dossier.'}</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -192,7 +193,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
             hint={latestDoc ? `Dernier ajout : ${latestDoc.d}` : undefined} />
           <StatTile label="Avec fichier" value={withFile} Icon={Download} darkMode={darkMode}
             hint={`${apiDocs.length - withFile} sans pièce jointe`} />
-          <StatTile label="Espace utilisé" value={totalBytes ? formatBytes(totalBytes) : '—'} Icon={HardDrive} darkMode={darkMode} hint="Accès réservé à vous et à vos médecins autorisés" />
+          <StatTile label="Espace utilisé" value={totalBytes ? formatBytes(totalBytes) : '—'} Icon={HardDrive} darkMode={darkMode} hint={isDoctor ? 'Accès réservé à vous' : 'Accès réservé à vous et à vos médecins autorisés'} />
         </div>
       )}
 

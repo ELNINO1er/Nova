@@ -4,10 +4,11 @@ import { doctorApi } from '../../api/doctorApi.js';
 import { Empty, MiniCalendar, dayKey, fmtDay, fmtTime, initialsOf } from '../../components/dashboard/kit.jsx';
 import { usePrivatePhoto } from '../../utils/photo.js';
 import { normalize } from '../../utils/search.js';
+import { APPOINTMENT_STATUS } from '../../utils/statusLabels.js';
 
 const list = value => Array.isArray(value) ? value : value?.data || [];
 const dateLabel = value => value ? fmtDay(value) : '—';
-const statusLabels = { requested: 'En attente', confirmed: 'Confirmé', completed: 'Terminé' };
+const statusLabels = Object.fromEntries(Object.entries(APPOINTMENT_STATUS).map(([k, v]) => [k, v.label]));
 const numberFormat = new Intl.NumberFormat('fr-FR');
 
 function Portrait({ appointment, large = false }) {

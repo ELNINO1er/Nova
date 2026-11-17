@@ -22,7 +22,7 @@ import PDocs from '../patient/pages/PDocs.jsx';
 import SettingsPage from '../patient/pages/SettingsPage.jsx';
 import PageError from '../components/PageError.jsx';
 
-export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedTick, setShowVid, card, sub, border, darkMode }) {
+export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedTick, setShowVid, onBadgesChange, card, sub, border, darkMode }) {
   const generations=useRef({});
   const [apiData,    setApiData]    = useState({});
   const [apiLoading, setApiLoading] = useState({});
@@ -101,9 +101,9 @@ export default function DoctorPages({ page, setPage, onRx, onCP, patientCreatedT
       {page === 'agenda'        && <DAgenda   data={apiData.agenda}        loading={apiLoading.agenda}        onReload={() => loadPage('agenda', true)}   {...p} />}
       {page === 'consultations' && <DCons     data={apiData.consultations} loading={apiLoading.consultations} onReload={() => loadPage('consultations', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'stats'         && <DStats    data={apiData.stats}         loading={apiLoading.stats}         {...p} />}
-      {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>setApiData(c=>({...c,notifications:v}))} {...p} />}
-      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => setApiData(c => ({...c, messages: v}))} setShowVid={setShowVid} api={doctorApi} viewerRole="doctor" {...p} />}
-      {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} {...p} />}
+      {page === 'notifications' && <PNotifications data={apiData.notifications} api={doctorApi} onReload={v=>{setApiData(c=>({...c,notifications:v}));const list=Array.isArray(v)?v:v?.data;const n=Number.isFinite(v?.unreadCount)?v.unreadCount:Array.isArray(list)?list.filter(x=>!x.isRead).length:null;if(n!=null)onBadgesChange?.({notifications:n});}} {...p} />}
+      {page === 'messages'      && <PMsg data={apiData.messages} onConversationsChange={(v) => { setApiData(c => ({...c, messages: v})); if (Array.isArray(v)) onBadgesChange?.({ messages: v.reduce((n, c) => n + Number(c.unreadCount || 0), 0) }); }} setShowVid={setShowVid} api={doctorApi} viewerRole="doctor" {...p} />}
+      {page === 'documents'     && <PDocs data={apiData.documents} onReload={() => loadPage('documents', true)} notify={notify} api={doctorApi} viewerRole="doctor" {...p} />}
       {page === 'profile'       && <DProfile      data={apiData.profile}           loading={apiLoading.profile}           onSaved={(v) => setApiData((c) => ({ ...c, profile: v }))} {...p} />}
       {page === 'prescriptions' && <DPrescriptions data={apiData.prescriptions}    loading={apiLoading.prescriptions}    onReload={() => loadPage('prescriptions', true)} patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}
       {page === 'lab-requests'       && <DLabRequests     data={apiData['lab-requests']}       loading={apiLoading['lab-requests']}      onReload={() => loadPage('lab-requests', true)}      patientsData={apiData.patients} loadPatients={() => loadPage('patients')} {...p} />}

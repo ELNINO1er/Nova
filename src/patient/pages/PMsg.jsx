@@ -226,7 +226,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
     <div className="space-y-5">
       <PageHeader
         title="Messages"
-        subtitle="Échanges sécurisés avec votre équipe soignante"
+        subtitle={viewerRole === 'doctor' ? 'Échanges sécurisés avec vos patients' : 'Échanges sécurisés avec votre équipe soignante'}
         sub={sub}
         actions={(
           <>

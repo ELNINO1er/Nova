@@ -51,6 +51,7 @@ import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
 import { auditLog, accessLog, recordAccess } from '../middleware/audit.js';
 import { isValidBirthDate } from '../services/birthdate.js';
+import { VITAL_NORMS, normalizeVital } from '../services/vital-norms.js';
 // Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
 const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
 
@@ -147,10 +148,10 @@ router.get('/appointments', accessLog('appointments'), wrap(async (req, res) => 
 }));
 
 router.patch('/appointments/:id', validateBody(z.object({
-  status:   z.enum(['confirmed','cancelled','requested']).optional(),
+  status:   z.enum(['confirmed','cancelled']).optional(),
   startsAt: z.string().datetime().optional(),
-  location: z.string().optional(),
-})), wrap(async (req, res) => {
+  location: z.string().max(200).optional(),
+})), auditLog('appointment.update', 'appointment'), wrap(async (req, res) => {
   const result = await updateDoctorAppointment(req.user.doctorId, req.params.id, req.body);
   if (!result) return res.status(404).json({ error: 'not_found' });
   res.json(result);
@@ -272,7 +273,7 @@ router.get('/payments', wrap(async (req, res) => {
 
 router.patch('/payments/:id/paid', validateBody(z.object({
   reference: z.string().max(100).optional(),
-})), wrap(async (req, res) => {
+})), auditLog('payment.mark_paid', 'payment'), wrap(async (req, res) => {
   const payment = await markDoctorPaymentPaid(req.user.doctorId, req.params.id, req.body.reference || null);
   if (!payment) return res.status(404).json({ error: 'not_found', message: 'Paiement introuvable.' });
   res.json(payment);
@@ -289,8 +290,8 @@ router.get('/signature', wrap(async (req, res) => {
 }));
 
 router.post('/signature', validateBody(z.object({
-  signatureData: z.string().min(1).max(500000),
-})), wrap(async (req, res) => {
+  signatureData: z.string().min(30).max(500000).nullable(),
+})), auditLog('doctor.signature.update', 'doctor'), wrap(async (req, res) => {
   res.json(await saveDoctorSignatureData(req.user.doctorId, req.body.signatureData));
 }));
 
@@ -447,29 +448,25 @@ router.post('/referrals', validateBody(z.object({
   res.status(201).json(await createReferral(req.user.doctorId, req.body));
 }));
 
-router.post('/referrals/:id/accept', wrap(async (req, res) => {
+router.post('/referrals/:id/accept', auditLog('referral.accept', 'referral'), wrap(async (req, res) => {
   res.json(await respondReferral(req.user.doctorId, req.params.id, true));
 }));
 
-router.post('/referrals/:id/decline', wrap(async (req, res) => {
+router.post('/referrals/:id/decline', auditLog('referral.decline', 'referral'), wrap(async (req, res) => {
   res.json(await respondReferral(req.user.doctorId, req.params.id, false));
 }));
 
 /* ─── Constantes vitales par médecin ─────────────────────────── */
-router.post('/patients/:id/vitals', validateBody(z.object({
-  type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature', 'weight', 'spo2']),
-  value:      z.string().min(1),
-  label:      z.string().optional(),
-  unit:       z.string().optional(),
-  measuredAt: z.string().optional(),
+router.post('/patients/:id/vitals', requirePermission('doctor.patients'), validateBody(z.object({
+  type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature']),
+  value:      z.string().min(1).max(20),
+  measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), auditLog('vital.create', 'vital'), wrap(async (req, res) => {
-  const labels = { blood_pressure: 'Tension', blood_glucose: 'Glycémie', heart_rate: 'Fréquence', temperature: 'Température', weight: 'Poids', spo2: 'SpO2' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C', weight: 'kg', spo2: '%' };
-  const payload = {
-    ...req.body,
-    label: req.body.label || labels[req.body.type],
-    unit:  req.body.unit  || units[req.body.type],
-  };
+  // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.
+  const norm = VITAL_NORMS[req.body.type];
+  const value = normalizeVital(req.body.type, req.body.value);
+  if (!value) return res.status(422).json({ error: 'invalid_vital', message: `Valeur invalide pour ${norm.label.toLowerCase()} : exemple ${norm.example} ${norm.unit}.` });
+  const payload = { ...req.body, value, label: norm.label, unit: norm.unit };
   res.status(201).json(await addVitalByDoctor(req.user.doctorId, req.params.id, payload));
 }));
 

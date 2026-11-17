@@ -5,6 +5,9 @@ import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials, patientMeta } from '../../utils/format.js';
 import ActivationNotice from '../../components/ActivationNotice.jsx';
 import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
+import { consultationStatusLabel } from '../../utils/statusLabels.js';
+import DReferrals from './DReferrals.jsx';
+import { VITAL_NORMS, vitalLevel, vitalNumber } from '../../utils/vitalNorms.js';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
   const [search,   setSearch]   = useState('');
@@ -47,6 +50,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
       {/* Colonne gauche : recherche + liste */}
       <div className="lg:col-span-1 space-y-4">
+        <DReferrals card={card} sub={sub} notify={notify} onChanged={onReload} />
         <PendingActivations card={card} sub={sub} darkMode={darkMode} notify={notify} />
         <div className={`${card} border rounded-2xl p-4 space-y-3`}>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -237,27 +241,29 @@ function PatientTabProfil({ pat, card, sub, border, darkMode }) {
 
 function PatientTabConstantes({ pat, card, sub, border, darkMode }) {
   const types = ['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature'];
-  const labels = { blood_pressure: 'Tension', blood_glucose: 'Glycémie', heart_rate: 'Fréq. cardiaque', temperature: 'Température' };
+  const labels = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].label]));
   const colors = { blood_pressure: '#dc2626', blood_glucose: '#2563eb', heart_rate: '#16a34a', temperature: '#d97706' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C' };
+  const units  = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].unit]));
+  const LEVEL = { normal: ['Normal', 'bg-emerald-100 text-emerald-800'], watch: ['À surveiller', 'bg-amber-100 text-amber-800'], critical: ['Hors normes', 'bg-red-100 text-red-800'] };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {types.map(type => {
         const data = (pat.vitals || []).filter(v => v.type === type).slice(0, 12).reverse();
         const last = data[data.length - 1];
-        const vals = data.map(v => Number(String(v.value).split('/')[0])).filter(Boolean);
+        const vals = data.map(v => vitalNumber(type, v.value)).filter(Number.isFinite);
         const mx = Math.max(...vals, 1), mn = Math.min(...vals);
         const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * 96 + 2},${96 - ((v - mn) / (mx - mn || 1)) * 70 - 10}`).join(' ');
         return (
           <div key={type} className={`${card} border rounded-2xl p-4`}>
             <div className="flex items-center justify-between mb-2">
               <p className="font-bold text-sm">{labels[type]}</p>
-              <span className={`text-xs ${sub}`}>{data.length} mesures</span>
+              <span className={`text-xs ${sub}`}>{data.length} mesure{data.length > 1 ? 's' : ''}</span>
             </div>
-            <p className="text-2xl font-bold mb-2" style={{ color: colors[type] }}>
-              {last?.value || '—'} <span className={`text-xs font-normal ${sub}`}>{units[type]}</span>
+            <p className="text-2xl font-bold mb-1" style={{ color: colors[type] }}>
+              {last?.value ? String(last.value).replace('.', ',') : '—'} <span className={`text-xs font-normal ${sub}`}>{units[type]}</span>
             </p>
+            {last && <p className="mb-2 flex items-center gap-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${LEVEL[vitalLevel(type, last.value)][1]}`}>{LEVEL[vitalLevel(type, last.value)][0]}</span><span className={`text-[10px] ${sub}`}>Repère : {VITAL_NORMS[type].normal} · {last.sourceRole === 'doctor' ? 'saisie médecin' : last.sourceRole === 'patient' ? 'saisie patient' : 'mesure'}</span></p>}
             {vals.length > 1 && (
               <div className="h-24">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
@@ -330,7 +336,7 @@ function PatientTabConsult({ pat, card, sub, border, darkMode }) {
                 <p className={`text-xs ${sub}`}>{new Date(c.startedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">Terminée</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{consultationStatusLabel(c.status)}</span>
           </div>
           {c.motif && <p className={`text-xs ${sub} mt-2`}><strong>Motif :</strong> {c.motif}</p>}
           {c.notes && <p className={`text-xs ${sub} mt-1`}>{c.notes}</p>}

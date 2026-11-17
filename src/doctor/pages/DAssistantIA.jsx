@@ -4,8 +4,9 @@ import { doctorApi } from '../../api/doctorApi.js';
 
 export default function DAssistantIA({ chronicData, consultData, statsData, loadChronic, loadConsult, loadStats, notify, card, sub, border, darkMode }) {
   const [query,    setQuery]    = useState('');
+  const [sending,  setSending]  = useState(false);
   const [messages, setMessages] = useState([
-    { role: 'ai', text: 'Bonjour Docteur 👋 Je suis votre assistant médical Nova. Je peux vous aider à analyser vos dossiers patients, suggérer des suivis prioritaires et alerter sur des cas à risque. Comment puis-je vous aider ?' }
+    { role: 'ai', text: 'Bonjour Docteur. Je réponds à partir d’une base de connaissances locale (protocoles courants, rappels de suivi). Je ne lis pas les dossiers de vos patients et je ne remplace pas votre jugement clinique.' }
   ]);
 
   useEffect(() => {
@@ -22,11 +23,11 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
   const aiAlerts = [
     ...chronic.filter(p => p.risk === 'high').map(p => ({
       level: 'critical', icon: '🚨',
-      text: `${p.firstName} ${p.lastName} — ${p.chronicDiseases[0] || 'Maladie chronique'} — Pas de visite depuis ${p.daysSince ?? '?'} jours`,
+      text: `${p.firstName} ${p.lastName} — ${p.chronicDiseases[0] || 'Maladie chronique'} — ${p.daysSince == null ? 'jamais vu en consultation' : `pas de visite depuis ${p.daysSince} jours`}`,
     })),
     ...chronic.filter(p => p.risk === 'medium').slice(0, 3).map(p => ({
       level: 'warning', icon: '⚠️',
-      text: `${p.firstName} ${p.lastName} — Suivi ${p.chronicDiseases[0] || ''} recommandé (${p.daysSince}j)`,
+      text: `${p.firstName} ${p.lastName} — suivi ${p.chronicDiseases[0] || ''} à prévoir (dernière visite il y a ${p.daysSince} jours)`,
     })),
     ...(stats.diagnoses || []).slice(0, 2).map(d => ({
       level: 'info', icon: '📊',
@@ -35,7 +36,8 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
   ].slice(0, 6);
 
   const handleSend = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() || sending) return;
+    setSending(true);
     const q = query.trim();
     setMessages(m => [...m, { role: 'user', text: q }]);
     setQuery('');
@@ -46,7 +48,7 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
       setMessages(m => [...m, { role: 'ai', text: `${prefix}${reply.answer}\n\n${reply.disclaimer}` }]);
     } catch (err) {
       setMessages(m => [...m, { role: 'ai', text: `Service assistant indisponible. ${err.message || ''}`.trim() }]);
-    }
+    } finally { setSending(false); }
   };
 
   const levelCls = { critical: 'border-red-200 bg-red-50', warning: 'border-red-200 bg-red-50', info: 'border-red-200 bg-red-50' };
@@ -66,8 +68,8 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
               <Brain className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="font-bold text-sm">Nova Medical AI</p>
-              <div className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /><span className={`text-[10px] ${sub}`}>En ligne</span></div>
+              <p className="font-bold text-sm">Aide-mémoire NOVA</p>
+              <p className={`text-[10px] ${sub}`}>Base de connaissances locale · sans IA générative</p>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -85,9 +87,9 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
           <div className={`p-3 border-t ${border} flex gap-2`}>
             <input value={query} onChange={e => setQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
-              placeholder="Posez votre question médicale..."
+              placeholder="Ex. : protocole hypertension" aria-label="Question pour l’aide-mémoire"
               className={`flex-1 px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
-            <button onClick={handleSend} disabled={!query.trim()}
+            <button onClick={handleSend} disabled={!query.trim() || sending} aria-label="Envoyer la question"
               className="px-3 py-2 rounded-xl bg-red-600 text-white disabled:opacity-40 hover:bg-red-700">
               <Send className="w-4 h-4" />
             </button>
@@ -100,11 +102,11 @@ export default function DAssistantIA({ chronicData, consultData, statsData, load
             <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
               <Zap className="w-4 h-4 text-red-500" /> Rappels de suivi (règles)
               <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-bold ${aiAlerts.filter(a => a.level === 'critical').length > 0 ? 'bg-red-100 text-red-700' : 'bg-red-100 text-red-700'}`}>
-                {aiAlerts.filter(a => a.level === 'critical').length} critique{aiAlerts.filter(a => a.level === 'critical').length > 1 ? 's' : ''}
+                {aiAlerts.filter(a => a.level === 'critical').length} en retard
               </span>
             </h3>
             {aiAlerts.length === 0 ? (
-              <p className={`text-xs ${sub} text-center py-4`}>Chargement des données...</p>
+              <p className={`text-xs ${sub} text-center py-4`}>{chronicData && statsData ? 'Aucun rappel : tous vos patients chroniques ont été vus récemment.' : 'Chargement des données…'}</p>
             ) : (
               <div className="space-y-2">
                 {aiAlerts.map((a, i) => (

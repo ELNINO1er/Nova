@@ -349,9 +349,9 @@ export default function App() {
                 setPage={setPage} darkMode={darkMode} sub={sub} />
             )}
             {role === 'doctor' && (
-              <button onClick={() => setPage('notifications')} className={`relative p-2 rounded-lg ${hover}`} aria-label="Notifications">
+              <button onClick={() => setPage('notifications')} className={`relative p-2 rounded-lg ${hover}`} aria-label={badges.notifications > 0 ? `Notifications : ${badges.notifications} non lue${badges.notifications > 1 ? 's' : ''}` : 'Notifications'}>
                 <Bell className="w-4 h-4" />
-                {badges.notifications > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
+                {badges.notifications > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-4 text-center">{badges.notifications > 99 ? '99+' : badges.notifications}</span>}
               </button>
             )}
             <AccountMenu user={user} roleLabel={roleLabel} photoSrc={photoSrc} links={ACCOUNT_LINKS[role] || []} onNavigate={setPage}
@@ -393,7 +393,8 @@ export default function App() {
                     setUser(updated);
                     localStorage.setItem('nova_user', JSON.stringify(updated));
                   }} {...props} />}
-                {role === 'doctor' && <DoctorPages key={user?.id} page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid} {...props} />}
+                {role === 'doctor' && <DoctorPages key={user?.id} page={page} setPage={setPage} onCP={() => setShowCP(true)} patientCreatedTick={patientCreatedTick} setShowVid={setShowVid}
+                  onBadgesChange={(nextBadges) => setBadges((current) => ({ ...current, ...nextBadges }))} {...props} />}
                 {role === 'pharmacist' && <PharmacyPages key={user?.id} page={page} setPage={setPage} {...props} />}
                 {role === 'admin' && <AdminPages key={user?.id} page={page} setPage={setPage} {...props} />}
                 {role === 'governor' && <GovernorPages key={user?.id} page={page} {...props} />}
@@ -408,7 +409,7 @@ export default function App() {
       {/* Une modale qui plante se ferme au lieu de faire tomber l'application. */}
       {showQR && <ErrorBoundary fallback={null} onError={() => setShowQR(false)}><QRModal onClose={() => setShowQR(false)} /></ErrorBoundary>}
       {showCP && <ErrorBoundary fallback={null} onError={() => setShowCP(false)}><CreatePatientModal onClose={() => setShowCP(false)} onCreated={() => setPatientCreatedTick(t => t + 1)} role={role} {...props} /></ErrorBoundary>}
-      {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal onClose={() => setShowVid(false)} /></ErrorBoundary>}
+      {showVid && <ErrorBoundary fallback={null} onError={() => setShowVid(false)}><VideoModal role={role} onClose={() => setShowVid(false)} /></ErrorBoundary>}
 
       {role === 'patient' && page !== 'assistant' && (
         <button onClick={() => setPage('assistant')} aria-label="Aide NOVA" title="Aide NOVA" className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-6 right-4 md:right-6 w-12 h-12 md:w-14 md:h-14 rounded-full bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 flex items-center justify-center text-white hover:scale-110 z-30">
