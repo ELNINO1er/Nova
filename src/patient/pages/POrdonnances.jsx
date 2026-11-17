@@ -9,6 +9,7 @@ import {
 } from '../../components/patient/ui.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { useLocation } from 'react-router-dom';
+import { useEscape } from '../../utils/useEscape.js';
 
 /*
  * Ordonnances : registre (liste à gauche) + document de l'ordonnance sélectionnée (à droite).
@@ -147,6 +148,7 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
   const [selectedId, setSelectedId] = useState(location.state?.targetId || null);
   const [printing, setPrinting] = useState(null);
   const [qrModal, setQrModal] = useState(null);
+  useEscape(Boolean(qrModal), () => setQrModal(null));
   const [qrLoading, setQrLoading] = useState('');
   const [qrError, setQrError] = useState('');
 

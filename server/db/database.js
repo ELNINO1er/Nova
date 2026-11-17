@@ -1038,7 +1038,7 @@ async function seedDemo(conn) {
 
   await conn.query(`
     INSERT INTO nova_lab_result_items (id, lab_result_id, name, value, unit, ref_min, ref_max, status) VALUES
-    ('lri-1','lr-1','Glycémie à jeun','1.10','g/L','0.70','1.10','high'),
+    ('lri-1','lr-1','Glycémie à jeun','1.10','g/L','0.70','1.10','normal'),
     ('lri-2','lr-1','Créatinine','9.2','mg/L','6.0','11.0','normal'),
     ('lri-3','lr-1','Acide urique','65','mg/L','35','70','normal'),
     ('lri-4','lr-1','ALAT (TGP)','42','UI/L','0','40','high'),

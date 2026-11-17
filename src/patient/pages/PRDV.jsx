@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../components/PatientModal.jsx';
 import ConsentDialog from '../../components/ConsentDialog.jsx';
 import { PageHeader, Card, CardTitle, Chip, Button, IconButton, EmptyState, DateBlock, Avatar, Pills, SearchInput, Highlight, NoResults, inputClass } from '../../components/patient/ui.jsx';
 import { useSearch, useUrlQuery, searchableDate } from '../../utils/search.js';
+import { useEscape } from '../../utils/useEscape.js';
 
 // Un champ datetime-local attend l'heure LOCALE (AAAA-MM-JJTHH:MM) ; l'API stocke de l'UTC.
 const toLocalInput = (iso) => {
@@ -218,6 +219,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
 
   const openNew = () => { resetRdvForm(); setShowForm(true); };
   const closeForm = () => { setShowForm(false); resetRdvForm(); };
+  useEscape(showForm && !shareAsk, closeForm);
   const smallBtn = '!h-9 !px-3 text-xs';
   const label = `block text-xs font-medium mb-1.5 ${sub}`;
 

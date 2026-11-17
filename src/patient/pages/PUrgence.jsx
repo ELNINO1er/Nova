@@ -7,11 +7,13 @@ import { PageHeader, Card, Chip, Button } from '../../components/patient/ui.jsx'
 import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
 import { ageFrom } from '../../utils/age.js';
 import { sexLabel } from '../../utils/format.js';
+import { useEscape } from '../../utils/useEscape.js';
 
 const EMERGENCY_ICONS = { samu: PhoneCall, pompiers: Siren, police: Shield, gendarmerie: Shield };
 
 export default function PUrgence({ data, card, sub, border, darkMode }) {
   const [showQR, setShowQR]   = useState(false);
+  useEscape(showQR, () => setShowQR(false));
   const [qrData, setQrData]   = useState(null);
   const [loadQR, setLoadQR]   = useState(false);
 
@@ -202,19 +204,6 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
       <p className={`text-xs ${sub}`}>
         Présentez cette fiche ou son QR code aux secours. Mettez-la à jour depuis Identité et Infos médicales.
       </p>
-    </div>
-  );
-}
-
-/* Rubrique de la fiche : intitulé (avec nombre d'éléments) et contenu. */
-function MedSection({ Icon, label, count, children, darkMode, className = '' }) {
-  return (
-    <div className={`p-5 min-w-0 ${darkMode ? 'md:border-slate-800' : 'md:border-red-100'} ${className}`}>
-      <dt className="flex items-center justify-between gap-2 mb-3">
-        <span className="text-sm font-semibold flex items-center gap-2"><Icon className="w-4 h-4 text-red-600 shrink-0" />{label}</span>
-        {count > 0 && <span className="text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5">{count}</span>}
-      </dt>
-      <dd>{children}</dd>
       {printing && qrData && createPortal(
         <div className="print-root bg-white text-slate-900 p-6">
           <div className="max-w-xl mx-auto border-2 border-red-600 rounded-2xl p-6">
@@ -239,6 +228,19 @@ function MedSection({ Icon, label, count, children, darkMode, className = '' }) 
             <p className="mt-4 text-xs">{EMERGENCY_NUMBERS.map((n) => `${n.label} ${n.number}`).join(' · ')} — Informations déclarées, à confirmer cliniquement.</p>
           </div>
         </div>, document.body)}
+    </div>
+  );
+}
+
+/* Rubrique de la fiche : intitulé (avec nombre d'éléments) et contenu. */
+function MedSection({ Icon, label, count, children, darkMode, className = '' }) {
+  return (
+    <div className={`p-5 min-w-0 ${darkMode ? 'md:border-slate-800' : 'md:border-red-100'} ${className}`}>
+      <dt className="flex items-center justify-between gap-2 mb-3">
+        <span className="text-sm font-semibold flex items-center gap-2"><Icon className="w-4 h-4 text-red-600 shrink-0" />{label}</span>
+        {count > 0 && <span className="text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5">{count}</span>}
+      </dt>
+      <dd>{children}</dd>
     </div>
   );
 }

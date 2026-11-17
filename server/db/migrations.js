@@ -128,6 +128,8 @@ export async function migrate(conn) {
       ['20261117_21_insurance_cnam', async () => {
         // Donnée de démonstration : la CMU ivoirienne est gérée par la CNAM (la CNAMGS est gabonaise).
         await conn.query("UPDATE nova_insurance SET provider = 'CNAM (CMU)' WHERE provider = 'CNAMGS'");
+        // Donnée de démonstration : 1,10 g/L est la borne haute normale, pas une valeur élevée.
+        await conn.query("UPDATE nova_lab_result_items SET status = 'normal' WHERE id = 'lri-1' AND value = '1.10' AND ref_max = '1.10' AND status = 'high'");
       }],
     ];
     for (const [version, run] of migrations) {

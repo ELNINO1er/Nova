@@ -250,8 +250,8 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
               </div>
             </div>
             <dl className="mt-4 space-y-2.5 text-sm">
-              <div className="flex items-start gap-2.5"><MapPin className={`w-4 h-4 mt-0.5 shrink-0 ${sub}`} /><dd className={sub}>{[profile?.address, profile?.city].filter(Boolean).join(', ') || 'Adresse non renseignée'}</dd></div>
-              <div className="flex items-start gap-2.5"><Phone className={`w-4 h-4 mt-0.5 shrink-0 ${sub}`} /><dd className={sub}>{profile?.phone || '—'}</dd></div>
+              <div className="flex items-start gap-2.5"><dt className="sr-only">Adresse</dt><MapPin aria-hidden="true" className={`w-4 h-4 mt-0.5 shrink-0 ${sub}`} /><dd className={sub}>{[profile?.address, profile?.city].filter(Boolean).join(', ') || 'Adresse non renseignée'}</dd></div>
+              <div className="flex items-start gap-2.5"><dt className="sr-only">Téléphone</dt><Phone aria-hidden="true" className={`w-4 h-4 mt-0.5 shrink-0 ${sub}`} /><dd className={sub}>{profile?.phone || '—'}</dd></div>
               <div className={`pt-2.5 border-t text-xs ${darkMode ? 'border-slate-800' : 'border-slate-100'} ${sub}`}>
                 CMU <span className="font-mono">{profile?.cmuNumber || '—'}</span>{lastVisit ? ` · Dernière consultation : ${fmtDay(lastVisit.occurredAt)}` : ''}
               </div>

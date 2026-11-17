@@ -27,7 +27,7 @@ const PATIENT_ADVICE = [
   { tags: ['vaccin'],
     answer: "Votre carnet est dans Mon dossier › Vaccinations : dates d'injection, prochains rappels et rappels en retard. Le bouton « Imprimer mon carnet » produit une version papier." },
   { tags: ['message', 'ecrire', 'écrire', 'contacter mon medecin', 'contacter mon médecin'],
-    answer: "Ouvrez Mes rendez-vous › Messages, puis « Nouvelle conversation » et choisissez un médecin qui a accès à votre dossier. Vous pouvez joindre une ordonnance, une analyse ou un document." },
+    answer: "Ouvrez Messages, puis « Nouvelle conversation » et choisissez un médecin qui a accès à votre dossier. Vous pouvez joindre une ordonnance, une analyse ou un document." },
   { tags: ['urgence', 'qr'],
     answer: "En cas d'urgence vitale, appelez le 185 (SAMU). Votre fiche d'urgence et son QR, lisible par un secouriste avec l'appareil photo d'un téléphone, sont dans SOS Urgence." },
   { tags: ['marche', 'marcher', 'pas par jour'],

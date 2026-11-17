@@ -4,6 +4,7 @@ import { patientApi } from '../../api/patientApi.js';
 import { useSearch, useUrlQuery } from '../../utils/search.js';
 import { PageHeader, Card, CardTitle, Chip, Button, IconBadge, EmptyState, StatTile, SearchInput, Highlight, NoResults, inputClass } from '../../components/patient/ui.jsx';
 import { confirmDialog } from '../../components/dialogs.jsx';
+import { useEscape } from '../../utils/useEscape.js';
 
 /* Échelle d'IMC linéaire 15–40 : bandes, repères et curseur partagent la même fonction de position. */
 const BMI_MIN = 15;
@@ -78,6 +79,7 @@ export default function PWell({ data, profile: profileProp, onReload, notify, ca
     return () => { alive = false; };
   }, [profileProp]);
   const [showAdd, setShowAdd] = useState(false);
+  useEscape(showAdd, () => setShowAdd(false));
   const [newGoal, setNewGoal] = useState({ title: '', target: '', unit: '', color: 'emerald' });
   const [saving, setSaving]   = useState(false);
   const [query, setQuery]     = useUrlQuery();

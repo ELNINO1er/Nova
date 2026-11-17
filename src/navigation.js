@@ -40,8 +40,8 @@ export const ROLE_SPACES = {
     { id: 'care', label: 'Mes rendez-vous', Icon: CalendarClock, pages: [
       { id: 'rdv', label: 'Rendez-vous', Icon: CalendarClock },
       { id: 'doctors', label: 'Trouver un médecin', Icon: Stethoscope },
-      { id: 'messages', label: 'Messages', Icon: MessageCircle, b: 'messages' },
     ]},
+    { id: 'inbox', label: 'Messages', Icon: MessageCircle, pages: [{ id: 'messages', label: 'Messages', Icon: MessageCircle, b: 'messages' }] },
     { id: 'wellness', label: 'Bien-être', Icon: Target, pages: [{ id: 'wellness', label: 'Bien-être', Icon: Target }] },
     { id: 'account', label: 'Partage et compte', Icon: Lock, pages: [
       { id: 'privacy', label: 'Accès au dossier', Icon: Lock },

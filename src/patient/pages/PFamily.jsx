@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../../components/PatientModal.jsx';
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { Avatar, Button, Card, Chip, DataTable, EmptyState, Highlight, IconButton, NoResults, PageHeader, SearchInput, inputClass } from '../../components/patient/ui.jsx';
 import { ageFrom } from '../../utils/age.js';
+import { useEscape } from '../../utils/useEscape.js';
 
 /* Codes enregistrés par l'API (nova_family_members.relationship) et leurs libellés. */
 const REL_OPTIONS = [['spouse', 'Conjoint(e)'], ['parent', 'Parent'], ['child', 'Enfant'], ['sibling', 'Frère / sœur'], ['other', 'Autre']];
@@ -86,6 +87,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   };
 
   const closeForm = () => { setShowForm(false); resetForm(); };
+  useEscape(showForm, closeForm);
   const fieldCls = inputClass(darkMode);
   const labelCls = 'block text-xs font-medium text-slate-500 space-y-1';
 
