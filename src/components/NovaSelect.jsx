@@ -9,6 +9,8 @@ export default function NovaSelect({ children, value, onChange, disabled, id, cl
   const [open, setOpen] = useState(false);
   const touchingMenu = useRef(false);
   const [above, setAbove] = useState(false);
+  const [maxHeight, setMaxHeight] = useState(undefined);
+  const menu = useRef(null);
   const [active, setActive] = useState(-1);
   const [localValue, setLocalValue] = useState(undefined);
   const options = Children.toArray(children).map(({ props }) => ({
@@ -24,6 +26,11 @@ export default function NovaSelect({ children, value, onChange, disabled, id, cl
     return () => document.removeEventListener('pointerdown', closeOutside);
   }, [open]);
 
+  // Si la liste dépasse malgré tout d'un conteneur défilant, celui-ci défile pour la montrer entière.
+  useEffect(() => {
+    if (open) menu.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [open]);
+
   useEffect(() => {
     if (!open || !activeOption.current) return;
     const item = activeOption.current;
@@ -36,7 +43,23 @@ export default function NovaSelect({ children, value, onChange, disabled, id, cl
 
   function show(index = enabled.includes(selected) ? selected : enabled[0]) {
     const rect = root.current.getBoundingClientRect();
-    setAbove(window.innerHeight - rect.bottom < 245 && rect.top > window.innerHeight - rect.bottom);
+    // Zone réellement visible : l'écran, réduit par les conteneurs qui coupent leur contenu
+    // (fenêtre modale défilante, carte…). Sinon la liste s'ouvre dans une partie masquée.
+    let top = 0, bottom = window.innerHeight;
+    for (let el = root.current.parentElement; el && el !== document.body; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY + style.overflow)) {
+        const box = el.getBoundingClientRect();
+        top = Math.max(top, box.top);
+        bottom = Math.min(bottom, box.bottom);
+      }
+    }
+    const menuHeight = Math.min(224, options.length * 46 + 10) + 8;
+    const spaceBelow = bottom - rect.bottom, spaceAbove = rect.top - top;
+    const up = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+    setAbove(up);
+    // Liste bornée à la place disponible (au moins 3 lignes visibles).
+    setMaxHeight(Math.max(140, Math.min(224, (up ? spaceAbove : spaceBelow) - 12)));
     setActive(index ?? -1);
     setOpen(true);
   }
@@ -94,7 +117,7 @@ export default function NovaSelect({ children, value, onChange, disabled, id, cl
         <span className="nova-select-value">{options[selected]?.label ?? 'Choisir…'}</span>
         <ChevronDown size={16} aria-hidden="true" />
       </button>
-      {open && !disabled && <span id={listId} role="listbox" aria-label={label || 'Options'} className="nova-select-menu" data-above={above}
+      {open && !disabled && <span id={listId} role="listbox" aria-label={label || 'Options'} ref={menu} style={maxHeight ? { maxHeight } : undefined} className="nova-select-menu" data-above={above}
         onPointerDown={event => { touchingMenu.current = true; if (event.pointerType === 'mouse') event.preventDefault(); }}
         onPointerUp={() => { touchingMenu.current = false; }}
         onPointerCancel={() => { touchingMenu.current = false; }}>
