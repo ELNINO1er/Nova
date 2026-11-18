@@ -307,11 +307,11 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
                   <p className={`text-[11px] ${sub}`}>Facultatif. Aide à identifier le patient ; il pourra la changer lui-même.</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Choisir…</option><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>Prénom *</label><input type="text" value={d.fn} onChange={(e) => setD({...d, fn: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>Nom *</label><input type="text" value={d.ln} onChange={(e) => setD({...d, ln: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>Date naissance *</label><input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={d.bd} onChange={(e) => setD({...d, bd: e.target.value})} className={`block w-full min-w-0 max-w-full appearance-none min-h-[2.5rem] mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>Sexe *</label><NovaSelect darkMode={darkMode} value={d.sex} onChange={(e) => setD({...d, sex: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Choisir…</option><option value="M">Masculin</option><option value="F">Féminin</option></NovaSelect></div>
               </div>
             </>
           )}
@@ -326,16 +326,16 @@ export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, bo
                 </div>
               </div>
               <p className={`text-[11px] ${sub}`}>Un code d’activation à usage unique est créé automatiquement : envoyé par SMS au patient quand NOVA est configuré pour, sinon affiché une seule fois pour être remis en main propre. Le patient choisit ensuite son mot de passe.</p>
-              <div><label className={`text-xs ${sub}`}>Adresse</label><input type="text" value={d.addr} onChange={(e) => setD({...d, addr: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-              <div><label className={`text-xs ${sub}`}>Ville</label><input type="text" value={d.city} onChange={(e) => setD({...d, city: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+              <div className="min-w-0"><label className={`text-xs ${sub}`}>Adresse</label><input type="text" value={d.addr} onChange={(e) => setD({...d, addr: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+              <div className="min-w-0"><label className={`text-xs ${sub}`}>Ville</label><input type="text" value={d.city} onChange={(e) => setD({...d, city: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
             </>
           )}
           {step === 3 && (
             <>
               <h4 className="font-bold">Données médicales</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className={`text-xs ${sub}`}>N° CMU</label><input type="text" value={d.cmu} onChange={(e) => setD({...d, cmu: e.target.value})} placeholder="CI-2026-XXXX" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
-                <div><label className={`text-xs ${sub}`}>Groupe sanguin</label><NovaSelect darkMode={darkMode} value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Inconnu (à compléter plus tard)</option>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g} value={g}>{g}</option>)}</NovaSelect></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>N° CMU</label><input type="text" value={d.cmu} onChange={(e) => setD({...d, cmu: e.target.value})} placeholder="CI-2026-XXXX" className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`} /></div>
+                <div className="min-w-0"><label className={`text-xs ${sub}`}>Groupe sanguin</label><NovaSelect darkMode={darkMode} value={d.bt} onChange={(e) => setD({...d, bt: e.target.value})} className={`w-full mt-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-300'}`}><option value="">Inconnu (à compléter plus tard)</option>{['O+','O-','A+','A-','B+','B-','AB+','AB-'].map(g => <option key={g} value={g}>{g}</option>)}</NovaSelect></div>
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
