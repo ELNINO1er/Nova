@@ -197,8 +197,9 @@ export function ConsModal({ onClose, darkMode, sub, border }) {
 export function CreatePatientModal({ onClose, onCreated, role, darkMode, sub, border }) {
   const [step, setStep] = useState(1);
   const [d, setD] = useState({ fn: '', ln: '', p: '', cmu: '', sex: '', bd: '', bt: '', addr: '', city: 'Abidjan' });
-  useEscape(!saving, () => { if (!saving) onClose(); });
   const [saving, setSaving] = useState(false);
+  // Échap ferme le formulaire (déclaré après « saving », qu'il utilise).
+  useEscape(!saving, () => { if (!saving) onClose(); });
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
   const [photo, setPhoto] = useState(null); // data URL réduite, envoyée avec la création
