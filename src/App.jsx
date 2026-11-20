@@ -313,7 +313,7 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${bg} ${text} flex flex-col`}>
-      <header className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-950/90' : 'bg-white/90 max-xl:bg-red-700 max-xl:text-white'} backdrop-blur-xl border-b ${border}`}>
+      <header className={`sticky top-0 z-40 pt-[env(safe-area-inset-top)] ${darkMode ? 'bg-slate-950/90' : 'bg-white/90 max-xl:bg-red-700 max-xl:text-white'} backdrop-blur-xl border-b ${border}`}>
         <div className="px-3 sm:px-6 py-2 xl:py-3 flex items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
             <button onClick={() => setSbOpen(true)} className={`md:hidden p-2 rounded-lg ${hover}`} aria-label="Ouvrir le menu"><Menu className="w-5 h-5" /></button>

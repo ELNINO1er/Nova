@@ -126,7 +126,12 @@ app.use('/api/governor/me', governorRoutes);
 app.use('/api/public', publicRoutes);
 
 if (isProduction) {
-  app.use(express.static(distDir, { index: false, maxAge: '1h' }));
+  app.use(express.static(distDir, {
+    index: false, maxAge: '1h',
+    setHeaders(res, filePath) {
+      if (['sw.js', 'manifest.json', 'offline.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache');
+    },
+  }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
     return res.sendFile(path.join(distDir, 'index.html'));

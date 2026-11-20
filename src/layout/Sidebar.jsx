@@ -76,7 +76,7 @@ export default function Sidebar({ role, page, setPage, sbOpen, onCP, badges = {}
   const parentActive = darkMode ? 'text-red-300 hover:bg-slate-800' : 'text-red-700 hover:bg-red-50';
 
   return (
-    <aside className={`${sbBg} border-r ${border} fixed md:sticky md:top-[57px] xl:top-[65px] top-0 left-0 z-50 md:z-30 w-64 md:w-48 xl:w-64 shrink-0 h-dvh md:h-[calc(100dvh-57px)] xl:h-[calc(100dvh-65px)] transition-transform duration-300 ${sbOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'} md:visible md:translate-x-0 flex flex-col`}>
+    <aside className={`${sbBg} border-r ${border} fixed md:sticky md:top-[calc(57px+env(safe-area-inset-top))] xl:top-[calc(65px+env(safe-area-inset-top))] top-0 left-0 z-50 md:z-30 w-64 md:w-48 xl:w-64 shrink-0 h-dvh max-md:pt-[env(safe-area-inset-top)] md:h-[calc(100dvh-57px-env(safe-area-inset-top))] xl:h-[calc(100dvh-65px-env(safe-area-inset-top))] transition-transform duration-300 ${sbOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'} md:visible md:translate-x-0 flex flex-col`}>
       {role === 'doctor' && <DoctorIdentity user={user} photoSrc={photoSrc} sub={sub} darkMode={darkMode} />}
       <nav className="flex-1 p-3 overflow-y-auto" aria-label="Espaces">
         <div className="space-y-1">
