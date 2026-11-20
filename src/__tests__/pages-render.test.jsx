@@ -33,7 +33,15 @@ describe('pages de l’espace médecin', () => {
   it('Signature', () => expect(text(<DSignature {...ui} data={{ signatureData: null }} onSave={() => {}} />)).toContain('Signature manuscrite'));
   it('Suivi chronique', () => {
     const html = text(<DSuiviChroniques {...ui} data={[{ id: 'p1', firstName: 'Awa', lastName: 'K', chronicDiseases: ['HTA'], allergies: [], risk: 'high', daysSince: null }]} />);
-    expect(html).toContain('Suivi en retard');
+    expect(html).toContain('Échéance à définir');
+    expect(html).toContain('Aucune échéance définie');
+    expect(html).not.toContain('180j recommandés');
+  });
+  it('une échéance future ne promet pas la stabilité clinique', () => {
+    const html = text(<DSuiviChroniques {...ui} data={[{ id: 'p1', firstName: 'Awa', chronicDiseases: ['HTA'], risk: 'high', daysSince: 400, nextFollowupDate: '2027-01-12', followupStatus: 'scheduled' }]} />);
+    expect(html).toContain('Échéance planifiée');
+    expect(html).toContain('ne renseigne pas la stabilité clinique');
+    expect(html).not.toContain('Suivi à jour');
   });
   it('Aide-mémoire', () => expect(text(<DAssistantIA {...ui} chronicData={[]} consultData={[]} statsData={{}} loadChronic={() => {}} loadConsult={() => {}} loadStats={() => {}} />)).toContain('Aide-mémoire NOVA'));
   it('Profil', () => {

@@ -131,6 +131,27 @@ export async function migrate(conn) {
         // Donnée de démonstration : 1,10 g/L est la borne haute normale, pas une valeur élevée.
         await conn.query("UPDATE nova_lab_result_items SET status = 'normal' WHERE id = 'lri-1' AND value = '1.10' AND ref_max = '1.10' AND status = 'high'");
       }],
+      ['20261120_22_doctor_followup_vital_context', async () => {
+        await column(conn, 'nova_vitals', 'measurement_context', 'JSON NULL');
+        await conn.query(`CREATE TABLE IF NOT EXISTS nova_chronic_followups (
+          doctor_id VARCHAR(36) NOT NULL, patient_id VARCHAR(36) NOT NULL,
+          next_followup_date VARCHAR(10) NULL,
+          updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY(doctor_id, patient_id), INDEX(doctor_id, next_followup_date))`);
+      }],
+      ['20261120_23_operations_reliability_evidence', async () => {
+        await conn.query(`CREATE TABLE IF NOT EXISTS nova_reliability_checks (
+          id VARCHAR(36) PRIMARY KEY, kind VARCHAR(20) NOT NULL,
+          verified_at DATETIME(3) NOT NULL, reference VARCHAR(200) NOT NULL,
+          verified_by VARCHAR(36) NOT NULL,
+          created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), INDEX(kind, verified_at))`);
+      }],
+      ['20261120_24_prescription_cancellation_reason', async () => {
+        await conn.query(`CREATE TABLE IF NOT EXISTS nova_prescription_cancellations (
+          prescription_id VARCHAR(36) PRIMARY KEY, doctor_id VARCHAR(36) NOT NULL,
+          reason VARCHAR(1000) NOT NULL,
+          created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3))`);
+      }],
     ];
     for (const [version, run] of migrations) {
       const [[done]] = await conn.execute('SELECT version FROM nova_schema_migrations WHERE version=?', [version]);

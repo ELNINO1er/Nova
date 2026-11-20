@@ -17,10 +17,24 @@ describe('Normes des constantes', () => {
     expect(normalizeVital('temperature', '52')).toBeNull();
   });
 
-  it('mêmes seuils partout : 1,10 g/L normal, 37,8 °C à surveiller, 14/9 à surveiller', () => {
-    expect(vitalLevel('blood_glucose', '1.10')).toBe('normal');
-    expect(vitalLevel('temperature', '37.8')).toBe('watch');
-    expect(vitalLevel('blood_pressure', '14/9')).toBe('watch');
-    expect(vitalLevel('blood_pressure', '120/80')).toBe('normal');
+  it('ne confond pas repère glycémique, contexte et urgence', () => {
+    expect(vitalLevel('blood_glucose', '1.10')).toBe('unknown');
+    expect(vitalLevel('blood_glucose', '1.10', { glucoseTiming: 'fasting' })).toBe('watch');
+    expect(vitalLevel('blood_glucose', '1.26', { glucoseTiming: 'fasting' })).toBe('watch');
+    expect(vitalLevel('blood_glucose', '0.99', { glucoseTiming: 'fasting' })).toBe('normal');
+    expect(vitalLevel('blood_glucose', '0.53')).toBe('critical');
+    expect(vitalLevel('blood_glucose', '0.54')).toBe('watch');
+    expect(vitalLevel('blood_glucose', '0.70')).toBe('unknown');
+    expect(vitalLevel('blood_glucose', '2')).toBe('watch');
+  });
+  it.each([['120/95', 'watch'], ['130/120', 'critical'], ['180/80', 'critical'], ['90/60', 'critical'], ['120/80', 'normal'], ['14/9', 'watch']])('prend en compte les deux pressions : %s', (value, level) => {
+    expect(vitalLevel('blood_pressure', value)).toBe(level);
+  });
+  it.each([['heart_rate', '40', 'critical'], ['heart_rate', '41', 'watch'], ['heart_rate', '130', 'watch'], ['heart_rate', '131', 'critical'], ['temperature', '35', 'critical'], ['temperature', '38', 'normal'], ['temperature', '38.1', 'watch'], ['temperature', '39.1', 'critical']])('teste la borne %s %s', (type, value, level) => {
+    expect(vitalLevel(type, value)).toBe(level);
+  });
+  it.each(['', ' ', 'NaN', 'Infinity', '0x10', '1e2', '-1', '1.2.3'])('refuse une saisie non décimale %s', value => {
+    expect(normalizeVital('blood_glucose', value)).toBeNull();
+    expect(vitalLevel('blood_glucose', value)).toBe('unknown');
   });
 });

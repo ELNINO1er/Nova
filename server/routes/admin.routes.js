@@ -6,6 +6,7 @@ import { auditLog } from '../middleware/audit.js';
 import { validateBody } from '../middleware/helpers.js';
 import { setPatientAccountActive } from '../services/account-closure.service.js';
 import { phoneSchema } from '../services/phone.js';
+import { recordReliabilityCheck } from '../services/reliability.service.js';
 import {
   getAdminAccessLogs,
   getAdminAuditLogs,
@@ -67,6 +68,16 @@ router.get('/system', requirePermission('admin.stats'), async (_req, res, next) 
   } catch (err) {
     next(err);
   }
+});
+
+router.post('/system/reliability-checks', requirePermission('admin.audit_logs'), validateBody(z.object({
+  kind: z.enum(['backup', 'restore']),
+  verifiedAt: z.iso.datetime({ offset: true }),
+  reference: z.string().trim().min(3).max(200),
+})), auditLog('admin.reliability.checked', 'reliability_check'), async (req, res, next) => {
+  try {
+    res.status(201).json(await recordReliabilityCheck(req.user.id, req.body));
+  } catch (error) { next(error); }
 });
 
 // Fermeture ou réouverture d'un compte patient (le dossier médical est conservé).

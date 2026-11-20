@@ -12,7 +12,7 @@ const periodOf = (period, time) => {
   if (!Number.isFinite(h)) return period || 'Autre';
   return h < 11 ? 'Matin' : h < 16 ? 'Midi' : 'Soir';
 };
-const STATUS_LABEL = { taken: 'pris', missed: 'oublié', skipped: 'ignoré', pending: 'à prendre' };
+const STATUS_LABEL = { taken: 'pris', missed: 'oublié', skipped: 'ignoré', pending: 'à prendre', cancelled: 'ordonnance annulée' };
 /* Champs cherchables : médicament, dosage, heure, moment de la journée, statut, interaction. */
 const FIELDS = (m) => [m.n, m.d, m.t, m.p, STATUS_LABEL[m.status] || '', m.i ? 'interaction' : ''];
 
@@ -26,7 +26,8 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
     t: item.time,
     p: periodOf(item.period, item.time),
     i: item.interaction,
-    status: item.intake?.status || 'pending',
+    cancelled: Boolean(item.cancelledAt),
+    status: item.intake?.status || (item.cancelledAt ? 'cancelled' : 'pending'),
     at: item.intake?.taken_at || null,
   })) : []), [data]);
   const results = useSearch(meds, query, FIELDS);
@@ -35,15 +36,16 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
   useEffect(() => {
     if (!data?.length) return;
     const statuses = {};
-    data.forEach((item) => { statuses[item.id] = item.intake?.status || 'pending'; });
+    data.forEach((item) => { statuses[item.id] = item.intake?.status || (item.cancelledAt ? 'cancelled' : 'pending'); });
     setPills(statuses);
   }, [data, setPills]);
   const cnt = Object.values(pills).filter((status) => status === 'taken' || status === true).length;
   const missed = Object.values(pills).filter((status) => status === 'missed').length;
-  const obs = meds.length ? Math.round((cnt / meds.length) * 100) : 0;
+  const plannedCount = meds.filter((med) => !med.cancelled || med.at).length;
+  const obs = plannedCount ? Math.round((cnt / plannedCount) * 100) : 0;
   const obsLabel = obs >= 80 ? 'Excellent' : obs >= 50 ? 'À améliorer' : obs > 0 ? 'Insuffisant' : '—';
   const obsTone = obs >= 80 ? 'neutral' : obs >= 50 ? 'watch' : 'alert';
-  const nextDue = meds.find((med) => !['taken', 'skipped', 'missed'].includes(pills[med.id] || med.status));
+  const nextDue = meds.find((med) => !med.cancelled && !['taken', 'skipped', 'missed'].includes(pills[med.id] || med.status));
   const interactionMeds = meds.filter((m) => m.i);
   // Prise déjà renseignée : on affiche le résultat ; « Modifier » rouvre les choix.
   const [editing, setEditing] = useState(null);
@@ -115,7 +117,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
               if (period !== 'all' && per !== period) return null;
               const pm = per === 'Autre' ? otherPeriods : visible.filter((m) => m.p === per);
               if (!pm.length) return null;
-              const pending = pm.filter((m) => !['taken', 'missed', 'skipped'].includes(pills[m.id] || m.status));
+              const pending = pm.filter((m) => !m.cancelled && !['taken', 'missed', 'skipped'].includes(pills[m.id] || m.status));
               return (
                 <div key={per}>
                   <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
@@ -141,10 +143,11 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
                               {m.i && !isDone && <Chip tone="alert"><AlertTriangle className="w-3 h-3" /> Interaction</Chip>}
                               {isMissed && <Chip tone="alert">Oublié</Chip>}
                               {skipped && <Chip>Ignoré</Chip>}
+                              {m.cancelled && <Chip tone="alert">Ordonnance annulée</Chip>}
                             </div>
                             <p className={`text-xs ${sub}`}><Highlight text={m.d} query={query} /> · <Highlight text={m.t} query={query} /></p>
                           </div>
-                          {isDone && editing !== m.id ? (
+                          {m.cancelled && !isDone ? <span className={`text-xs ${sub}`}>Contacter le prescripteur</span> : isDone && editing !== m.id ? (
                             <div className="flex flex-col items-end gap-1 shrink-0">
                               <span className={`inline-flex items-center gap-1.5 h-8 px-3 whitespace-nowrap rounded-full text-xs font-semibold ${isTaken ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : isMissed ? 'bg-red-50 text-red-700 border border-red-200' : darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
                                 {isTaken ? <Check className="w-4 h-4" strokeWidth={3} /> : isMissed ? <X className="w-4 h-4" /> : <Clock className="w-4 h-4" />}

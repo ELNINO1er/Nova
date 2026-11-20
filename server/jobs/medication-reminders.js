@@ -22,6 +22,7 @@ export async function sendDueReminders(now = new Date()) {
     `SELECT s.id, s.patient_id, s.name, s.dosage, s.take_time FROM nova_medication_schedules s
      JOIN nova_users u ON u.patient_id = s.patient_id AND u.deleted_at IS NULL AND u.disabled_at IS NULL
      WHERE (s.starts_on IS NULL OR s.starts_on <= ?) AND (s.ends_on IS NULL OR s.ends_on >= ?)
+       AND NOT EXISTS (SELECT 1 FROM nova_prescription_items pi JOIN nova_prescription_cancellations pc ON pc.prescription_id = pi.prescription_id WHERE pi.id = s.prescription_item_id)
        AND NOT EXISTS (SELECT 1 FROM nova_medication_intakes i WHERE i.schedule_id = s.id AND i.taken_at LIKE ?)
        AND NOT EXISTS (SELECT 1 FROM nova_medication_reminders r WHERE r.schedule_id = s.id AND r.day = ?)`,
     [day, day, `${day}%`, day]);

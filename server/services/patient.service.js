@@ -8,7 +8,7 @@ import { notifyDoctorConsent, notifyDoctorAppointment, notifyDoctorAppointmentCh
 import { APPOINTMENT_TRANSITIONS, assertDoctorSlotFree, assertFuture, assertTransition, releaseSlotFor, withDoctorSchedule, reserveMatchingSlot } from './workflow.js';
 import { parsePagination, paginatedResponse } from '../middleware/paginate.js';
 import { CONSENT_TERMS_VERSION, CONSENT_DURATION_DAYS } from './consent-terms.js';
-import { vitalLevel } from './vital-norms.js';
+import { vitalLevel, vitalNumber, VITAL_NORMS, normalizeVital, vitalAssessment, parseVitalContext, validateVitalContext } from './vital-norms.js';
 import { prescriptionStatus, validUntilOf } from './prescription-status.js';
 import { ratingColumns, ratingOf, reviewsOf } from './doctor-rating.js';
 
@@ -152,7 +152,12 @@ export async function getTreatments(patientId) {
 
 export async function getMedicationToday(patientId) {
   const [schedules] = await pool.execute(
-    "SELECT * FROM nova_medication_schedules WHERE patient_id = ? AND (starts_on IS NULL OR starts_on<=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d')) AND (ends_on IS NULL OR ends_on>=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d')) ORDER BY take_time ASC",
+    `SELECT s.*, pc.created_at AS cancelled_at FROM nova_medication_schedules s
+     LEFT JOIN nova_prescription_items pi ON pi.id = s.prescription_item_id
+     LEFT JOIN nova_prescription_cancellations pc ON pc.prescription_id = pi.prescription_id
+     WHERE s.patient_id = ? AND (s.starts_on IS NULL OR s.starts_on<=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d'))
+       AND (s.ends_on IS NULL OR s.ends_on>=DATE_FORMAT(UTC_DATE(),'%Y-%m-%d'))
+       AND (pc.created_at IS NULL OR DATE(pc.created_at) = UTC_DATE()) ORDER BY s.take_time ASC`,
     [patientId]
   );
   const today = new Date().toISOString().slice(0, 10);
@@ -173,6 +178,7 @@ export async function getMedicationToday(patientId) {
     period: row.period,
     color: row.color,
     interaction: Boolean(row.has_interaction),
+    cancelledAt: row.cancelled_at || null,
     intake: intakeBySchedule.get(row.id) || null,
   }));
 }
@@ -187,6 +193,10 @@ export async function createMedicationIntake(patientId,scheduleId,payload){
   if(!schedule)throw Object.assign(new Error('Médicament non autorisé.'),{status:403});
   if((schedule.starts_on&&day<schedule.starts_on)||(schedule.ends_on&&day>schedule.ends_on))throw Object.assign(new Error('Date hors de la période prescrite.'),{status:422});
   const [[existing]]=await conn.execute('SELECT id FROM nova_medication_intakes WHERE patient_id=? AND schedule_id=? AND LEFT(taken_at,10)=?',[patientId,scheduleId,day]);
+  if (schedule.prescription_item_id) {
+    const [[cancellation]] = await conn.execute('SELECT pc.created_at FROM nova_prescription_cancellations pc JOIN nova_prescription_items pi ON pi.prescription_id = pc.prescription_id WHERE pi.id = ?', [schedule.prescription_item_id]);
+    if (cancellation && !existing && Date.parse(takenAt) > new Date(cancellation.created_at).getTime()) throw Object.assign(new Error('Ordonnance annulée. Contactez le prescripteur pour connaître la conduite à tenir.'), { status: 409 });
+  }
   const id=existing?.id||randomUUID();
   if(existing)await conn.execute('UPDATE nova_medication_intakes SET status=?,taken_at=? WHERE id=?',[payload.status,takenAt,id]);
   else await conn.execute('INSERT INTO nova_medication_intakes(id,patient_id,schedule_id,status,taken_at,created_at) VALUES (?,?,?,?,?,?)',[id,patientId,scheduleId,payload.status,takenAt,now]);
@@ -471,7 +481,9 @@ export async function getPrescriptions(patientId, query = {}) {
 
 export async function getPrescription(patientId, id) {
   const [[row]] = await pool.execute(
-    'SELECT * FROM nova_prescriptions WHERE patient_id = ? AND id = ? AND deleted_at IS NULL',
+    `SELECT rx.*, pc.reason AS cancellation_reason, pc.created_at AS cancelled_at
+     FROM nova_prescriptions rx LEFT JOIN nova_prescription_cancellations pc ON pc.prescription_id = rx.id
+     WHERE rx.patient_id = ? AND rx.id = ? AND rx.deleted_at IS NULL`,
     [patientId, id]
   );
   if (!row) return null;
@@ -483,6 +495,7 @@ export async function getPrescription(patientId, id) {
     id: row.id,
     doctorName: row.doctor_name,
     doctorSpecialty: row.doctor_specialty,
+    cancellation: row.cancellation_reason ? { reason: row.cancellation_reason, createdAt: row.cancelled_at } : null,
     issuedAt: row.issued_at,
     validUntil: validUntilOf(row),
     status: prescriptionStatus(row),
@@ -494,12 +507,16 @@ export async function getPrescription(patientId, id) {
 /* ─── Vitaux (ajout manuel) ──────────────────────────────────── */
 
 export async function addVital(patientId, payload) {
+  const norm = VITAL_NORMS[payload.type];
+  const value = normalizeVital(payload.type, payload.value);
+  if (!norm || value === null) throw Object.assign(new Error('Constante invalide.'), { status: 422 });
+  const context = validateVitalContext(payload.context);
   const id = randomUUID();
   const now = payload.measuredAt || new Date().toISOString();
   await pool.execute(
-    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.type, payload.label, String(payload.value), payload.unit || '', now, 'patient', patientId]
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id, measurement_context)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, norm.label, value, norm.unit, now, 'patient', patientId, JSON.stringify(context)]
   );
   const [[row]] = await pool.execute('SELECT * FROM nova_vitals WHERE id = ?', [id]);
   return mapVital(row);
@@ -935,6 +952,8 @@ async function getDashboardVitals(patientId) {
         unit: latest.unit,
         measuredAt: latest.measuredAt,
         status: getVitalStatus(latest),
+        context: latest.context,
+        assessment: vitalAssessment(latest.type, latest.value, latest.context),
         history: history
           .slice(-7)
           .map((p) => ({ value: p.historyValue, measuredAt: p.measuredAt }))
@@ -985,6 +1004,8 @@ function mapVital(row) {
     value: Number.isNaN(numeric) ? row.value : numeric,
     unit: row.unit,
     measuredAt: row.measured_at,
+    context: parseVitalContext(row.measurement_context),
+    assessment: vitalAssessment(row.type, row.value, parseVitalContext(row.measurement_context)),
     sourceRole:row.source_role || 'legacy', authorId:row.author_id,
   };
 }
@@ -1096,13 +1117,12 @@ function mapNote(row) {
 /* ─── Helpers ────────────────────────────────────────────────── */
 
 function vitalToHistoryValue(vital) {
-  if (vital.type === 'blood_pressure') return Number(String(vital.value).split('/')[0]);
-  return Number(vital.value);
+  return vitalNumber(vital.type, vital.value);
 }
 
 function getVitalStatus(vital) {
   // Seuils partagés avec l'écran (vital-norms.js).
-  return vitalLevel(vital.type, vital.value);
+  return vitalLevel(vital.type, vital.value, vital.context);
 }
 
 function deepMerge(target, source) {
@@ -1403,6 +1423,9 @@ export async function getPrescriptionQR(patientId, prescriptionId) {
     [prescriptionId, patientId]
   );
   if (!rx) return null;
+  if (!['active', 'partial'].includes(prescriptionStatus(rx))) {
+    throw Object.assign(new Error('Cette ordonnance est clôturée ou expirée. Son QR ne peut plus être présenté pour une délivrance.'), { status: 409 });
+  }
 
   const { prescriptionQrSecret, prescriptionQrLifetimeSeconds } = await import('./prescription-qr.js');
   // Contenu minimal (aucune donnée médicale) ; clé dédiée ; valable jusqu'à la fin de l'ordonnance.

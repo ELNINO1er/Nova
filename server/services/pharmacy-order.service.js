@@ -41,7 +41,7 @@ export async function createPharmacyOrder(patientId, { pharmacyId, prescriptionI
     await conn.execute('SELECT id FROM nova_patients WHERE id = ? FOR UPDATE', [patientId]);
     const [[ph]] = await conn.execute('SELECT id, name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
     if (!ph) throw err(404, 'Pharmacie introuvable.');
-    const [[rx]] = await conn.execute('SELECT id, status, valid_until, issued_at FROM nova_prescriptions WHERE id = ? AND patient_id = ? AND deleted_at IS NULL', [prescriptionId, patientId]);
+    const [[rx]] = await conn.execute('SELECT id, status, valid_until, issued_at FROM nova_prescriptions WHERE id = ? AND patient_id = ? AND deleted_at IS NULL FOR UPDATE', [prescriptionId, patientId]);
     if (!rx) throw err(404, 'Ordonnance introuvable.');
     if (!['active', 'partial'].includes(rx.status)) throw err(409, 'Cette ordonnance a déjà été délivrée ou n’est plus active.', 'prescription_closed');
     if (isPrescriptionExpired(rx)) throw err(409, 'Cette ordonnance a expiré : demandez-en une nouvelle à votre médecin.', 'prescription_expired');
@@ -78,16 +78,19 @@ export async function cancelPharmacyOrder(patientId, orderId) {
 export async function getPharmacyOrders(patientId) {
   const [rows] = await pool.execute(
     `SELECT po.*, ph.name AS pharmacy_name, ph.address AS pharmacy_address, ph.phone AS pharmacy_phone, ph.city AS pharmacy_city,
-            rx.doctor_name, rx.issued_at,
+            rx.doctor_name, rx.issued_at, rx.status AS prescription_status,
+            d.status AS last_dispense_status, d.dispensed_at AS last_dispensed_at,
             (SELECT COUNT(*) FROM nova_prescription_items i WHERE i.prescription_id = po.prescription_id) AS item_count
      FROM nova_pharmacy_orders po
      JOIN nova_pharmacies ph ON ph.id = po.pharmacy_id
      LEFT JOIN nova_prescriptions rx ON rx.id = po.prescription_id
+     LEFT JOIN nova_dispenses d ON d.id = po.dispense_id
      WHERE po.patient_id = ?
      ORDER BY po.created_at DESC LIMIT 100`, [patientId]);
   return rows.map((r) => ({
     id: r.id, status: r.status, notes: r.notes, pharmacistMessage: r.pharmacist_message || null,
     createdAt: r.created_at, updatedAt: r.updated_at,
+    prescriptionStatus: r.prescription_status, lastDispenseStatus: r.last_dispense_status || null, lastDispensedAt: r.last_dispensed_at || null,
     pharmacyId: r.pharmacy_id, pharmacyName: r.pharmacy_name, pharmacyAddress: r.pharmacy_address, pharmacyCity: r.pharmacy_city, pharmacyPhone: r.pharmacy_phone,
     prescriptionId: r.prescription_id, prescriptionDoctor: r.doctor_name, prescriptionIssuedAt: r.issued_at, itemCount: Number(r.item_count || 0),
   }));
@@ -97,8 +100,9 @@ export async function getPharmacyOrders(patientId) {
 
 export async function getOrdersForPharmacy(pharmacyId) {
   const [rows] = await pool.execute(
-    `SELECT po.*, p.first_name, p.last_name FROM nova_pharmacy_orders po
+    `SELECT po.*, p.first_name, p.last_name, d.status AS last_dispense_status, d.dispensed_at AS last_dispensed_at FROM nova_pharmacy_orders po
      JOIN nova_patients p ON p.id = po.patient_id
+     LEFT JOIN nova_dispenses d ON d.id = po.dispense_id
      WHERE po.pharmacy_id = ? AND (po.status IN ('pending','ready','unavailable') OR po.updated_at >= DATE_SUB(NOW(), INTERVAL 30 DAY))
      ORDER BY FIELD(po.status,'pending','ready','unavailable','dispensed','cancelled'), po.created_at DESC LIMIT 200`, [pharmacyId]);
   return Promise.all(rows.map(async (r) => {
@@ -109,6 +113,7 @@ export async function getOrdersForPharmacy(pharmacyId) {
     return withPatient({
       id: r.id, status: r.status, notes: r.notes, pharmacistMessage: r.pharmacist_message || null,
       createdAt: r.created_at, updatedAt: r.updated_at,
+      lastDispenseStatus: r.last_dispense_status || null, lastDispensedAt: r.last_dispensed_at || null,
       patientName: `${r.first_name || ''} ${(r.last_name || '').charAt(0)}.`.trim(),
       prescription: rx && { id: rx.id, doctorName: rx.doctorName, doctorSpecialty: rx.doctorSpecialty, issuedAt: rx.issuedAt, validUntil: rx.validUntil, status: prescriptionStatus({ status: rx.status, valid_until: rx.validUntil }),
         items: rx.items.map(({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining }) => ({ id, name, dosage, frequency, duration, instructions, quantityPrescribed, quantityUnit, remaining })) },
@@ -130,7 +135,10 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
     if (!rx || !['active', 'partial'].includes(rx.status) || isPrescriptionExpired(rx))
       throw err(409, 'Cette ordonnance est expirée ou déjà délivrée : elle ne peut pas être préparée. Indiquez-la indisponible.', 'prescription_closed');
   }
-  await pool.execute('UPDATE nova_pharmacy_orders SET status = ?, pharmacist_message = ?, updated_at = ? WHERE id = ?', [status, message?.trim() || null, new Date(), orderId]);
+  // Compare-and-set: a patient cancellation or counter dispense must never be undone
+  // by a pharmacist responding to a stale screen.
+  const [changed] = await pool.execute('UPDATE nova_pharmacy_orders SET status = ?, pharmacist_message = ?, updated_at = ? WHERE id = ? AND pharmacy_id = ? AND status = ?', [status, message?.trim() || null, new Date(), orderId, pharmacyId, o.status]);
+  if (!changed.affectedRows) throw err(409, 'Cette commande a changé. Rechargez la liste avant de répondre.', 'order_changed');
   const [[ph]] = await pool.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
   await createNotification({
     patientId: o.patient_id, userId: await patientUserId(o.patient_id), targetRole: 'patient', type: 'pharmacy',

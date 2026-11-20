@@ -169,6 +169,7 @@ router.get('/vitals', wrap(async (req, res) => {
 router.post('/vitals', validateBody(z.object({
   type:       z.enum(['blood_pressure','blood_glucose','heart_rate','temperature']),
   value:      z.string().min(1).max(20),
+  context: z.object({ glucoseTiming: z.enum(['fasting', 'post_meal', 'random', 'unknown']).optional() }).strict().optional(),
   measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), wrap(async (req, res) => {
   // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.

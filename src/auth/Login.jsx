@@ -31,6 +31,7 @@ export default function Login({ setAuth, onLogin }) {
     setChallengeId(result.challengeId || '');
     setEnrollment({ qr: result.qrCodeDataUrl, secret: result.secret });
     setCode('');
+    setNotice('');
     setStep(result.nextAction || 'verify_totp');
   };
 
@@ -74,7 +75,9 @@ export default function Login({ setAuth, onLogin }) {
   };
 
   const verifyTotp = async () => {
-    setError(''); setLoading(true);
+    setError('');
+    if (loading || (step === 'enroll_totp' ? !/^\d{6}$/.test(code.trim()) : code.trim().length < 6)) return;
+    setLoading(true);
     try {
       const result = step === 'enroll_totp'
         ? await authApi.verifyDoctorTotpEnrollment(challengeId, code.trim())
@@ -105,7 +108,7 @@ export default function Login({ setAuth, onLogin }) {
   };
 
   const reset = () => {
-    setStep('login'); setAuth('login'); setPassword(''); setNewPassword(''); setConfirmPassword(''); setCode(''); setChallengeId(''); setError(''); setLoading(false);
+    setStep('login'); setAuth('login'); setPassword(''); setNewPassword(''); setConfirmPassword(''); setCode(''); setChallengeId(''); setEnrollment({}); setRecoveryCodes([]); setPendingUser(null); setNotice(''); setError(''); setLoading(false);
   };
 
   return <div className="min-h-screen flex bg-white">
@@ -119,10 +122,11 @@ export default function Login({ setAuth, onLogin }) {
         <LoginForm {...{ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }} />
         <button type="button" className="mt-4 text-sm font-semibold text-red-700 underline"
           onClick={() => { setNotice(''); setError(''); setStep('recover_patient'); }}>Mot de passe patient oublié</button>
+        <details className="mt-4 text-sm text-slate-600"><summary className="min-h-11 cursor-pointer font-semibold">Besoin d’aide pour vous connecter ?</summary><p>Patient : le lien ci-dessus utilise uniquement votre code de secours patient. Il ne s’agit pas d’un code SMS ni d’un code Authenticator.</p><p className="mt-2">Professionnel : si vous avez encore votre mot de passe, utilisez Authenticator ou un code de récupération sur l’écran suivant. Si vous avez perdu votre mot de passe ou tous vos codes, contactez l’administrateur ou l’assistance pour la procédure adaptée à votre rôle. La récupération patient ne réinitialise pas un compte professionnel ni sa double authentification.</p></details>
       </>}
       {step === 'recover_patient' && (
         <form className="space-y-4" onSubmit={recoverPassword}>
-          <Header title="Récupérer mon compte patient" text="Utilisez le code de secours généré depuis vos paramètres." />
+          <Header title="Récupérer mon compte patient" text="Utilisez le code de secours patient créé et sauvegardé auparavant dans vos paramètres. Ce code est à usage unique : après récupération, créez-en un nouveau dans vos paramètres." />
           <label className="block text-sm">Numéro de téléphone
             <input type="tel" autoComplete="username" value={phone} onChange={e => setPhone(formatPhone(e.target.value))}
               className="mt-1 block w-full rounded-xl border p-3" required />
@@ -140,6 +144,7 @@ export default function Login({ setAuth, onLogin }) {
               className="mt-1 block w-full rounded-xl border p-3" required />
           </label>
           <p className="text-xs text-slate-600">Au moins 8 caractères, dont une lettre et un chiffre.</p>
+          <p className="text-xs text-slate-600">Sans ce code, cette récupération est impossible. Contactez votre médecin ou l’assistance pour connaître la procédure de vérification d’identité ; aucun accès automatique ne peut être promis.</p>
           <Error value={error} />
           <button type="submit" disabled={loading || cleanedPhone.length !== 10}
             className="w-full rounded-xl bg-red-700 px-4 py-3 font-semibold text-white disabled:opacity-50">
@@ -150,13 +155,13 @@ export default function Login({ setAuth, onLogin }) {
       {step === 'change_password' && <PasswordForm {...{ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong: isStrongRole(accountRole) }} />}
       {step === 'enroll_totp' && <Enrollment {...{ enrollment, code, setCode, error, loading, verifyTotp }} />}
       {step === 'verify_totp' && <Verification {...{ code, setCode, error, loading, verifyTotp }} />}
-      {step === 'recovery_codes' && <Recovery codes={recoveryCodes} copy={() => navigator.clipboard.writeText(recoveryCodes.join('\n'))} finish={() => onLogin(pendingUser)} />}
+      {step === 'recovery_codes' && <Recovery codes={recoveryCodes} finish={() => onLogin(pendingUser)} />}
     </div></main>
   </div>;
 }
 
 function LoginForm({ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }) {
-  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 00 00 00 00" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><PasswordInput inline value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 min-w-0 outline-none" autoComplete="current-password" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : saisissez le code d’activation reçu par SMS ou remis par votre médecin, puis choisissez votre mot de passe. En cas d’oubli, contactez l’assistance pour vérifier votre identité.</p></section>;
+  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 00 00 00 00" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><PasswordInput inline value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 min-w-0 outline-none" autoComplete="current-password" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : utilisez votre téléphone et le mot de passe provisoire qui vous a été remis, puis choisissez votre mot de passe personnel. Médecins et administrateurs : Authenticator est obligatoire. Pour les autres professionnels, il peut être demandé selon la configuration.</p></section>;
 }
 
 function PasswordForm({ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong }) {
@@ -164,13 +169,20 @@ function PasswordForm({ newPassword, setNewPassword, confirmPassword, setConfirm
   return <section className="space-y-5"><Header icon={KeyRound} title="Sécurisez votre compte" text="Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire." /><Field label="Nouveau mot de passe"><PasswordInput inline value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex-1 min-w-0 outline-none" autoComplete="new-password" autoFocus /></Field><Field label="Confirmation"><PasswordInput inline value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && changePassword()} className="flex-1 min-w-0 outline-none" autoComplete="new-password" /></Field><div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-600">{strong ? <><strong>12 caractères minimum</strong>, avec majuscule, minuscule, chiffre et caractère spécial.</> : <><strong>8 caractères minimum</strong>, avec au moins une lettre et un chiffre.</>}</div><Error value={error} /><Primary onClick={changePassword} disabled={loading || !valid || newPassword !== confirmPassword}>{loading ? 'Enregistrement…' : 'Enregistrer et continuer'}</Primary></section>;
 }
 
-function Enrollment({ enrollment, code, setCode, error, loading, verifyTotp }) {
-  return <section className="space-y-5"><Header icon={ShieldCheck} title="Activez Authenticator" text="Scannez le QR avec Google Authenticator, Microsoft Authenticator ou une application compatible." />{enrollment.qr && <div className="flex justify-center"><img src={enrollment.qr} alt="QR d’activation Authenticator" className="w-52 h-52 rounded-xl border border-slate-200" /></div>}<details className="text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Impossible de scanner ?</summary><code className="mt-2 block break-all rounded-lg bg-slate-100 p-3 select-all">{enrollment.secret}</code></details><Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code à 6 chiffres" /><Error value={error} /><Primary onClick={verifyTotp} disabled={loading || !/^\d{6}$/.test(code)}>{loading ? 'Vérification…' : 'Activer la double authentification'}</Primary></section>;
+export function Enrollment({ enrollment, code, setCode, error, loading, verifyTotp }) {
+  return <section className="space-y-5"><Header icon={ShieldCheck} title="Activez Authenticator" text="Sur ce téléphone, copiez la clé ci-dessous, puis ouvrez votre application Authenticator. Revenez ensuite dans NOVA pour saisir le code généré." />
+    <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-slate-700">
+      <ol className="list-decimal pl-5 space-y-2"><li>Copiez la clé de configuration.</li><li>Dans Google Authenticator, touchez + puis « Saisir une clé de configuration ». Dans une autre application compatible, choisissez l’ajout manuel.</li><li>Nommez le compte « NOVA », collez la clé et choisissez un code basé sur le temps (TOTP).</li><li>Revenez ici et entrez le code à 6 chiffres affiché pour NOVA.</li></ol>
+      {enrollment.secret && <><code className="mt-3 block break-all rounded-lg bg-white p-3 select-all">{enrollment.secret}</code><CopyCodes text={enrollment.secret} label="Copier la clé" /></>}
+      <p className="mt-3 text-xs">Gardez cette clé privée. L’activation n’est terminée qu’après validation du code. Cette étape expire après 10 minutes ; utilisez « Recommencer » si nécessaire.</p>
+    </div>
+    {enrollment.qr && <details className="text-sm text-slate-600"><summary className="min-h-11 cursor-pointer font-semibold">Scanner depuis un autre appareil</summary><img src={enrollment.qr} alt="QR d’activation Authenticator" className="mx-auto w-52 h-52 max-w-full rounded-xl border border-slate-200" /></details>}
+    <Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code à 6 chiffres" /><Error value={error} /><p className="text-xs text-slate-600">Code refusé ? Vérifiez le compte NOVA choisi et l’heure automatique du téléphone, puis attendez le prochain code. Ne multipliez pas les essais : un blocage temporaire peut s’appliquer.</p><Primary onClick={verifyTotp} disabled={loading || !/^\d{6}$/.test(code)}>{loading ? 'Vérification…' : 'Activer la double authentification'}</Primary></section>;
 }
 
-function Verification({ code, setCode, error, loading, verifyTotp }) { return <section className="space-y-5"><Header icon={ShieldCheck} title="Double authentification" text="Entrez le code de votre application ou un code de récupération." /><Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code Authenticator ou récupération" recovery /><Error value={error} /><Primary onClick={verifyTotp} disabled={loading || code.trim().length < 6}>{loading ? 'Vérification…' : 'Se connecter'}</Primary></section>; }
+export function Verification({ code, setCode, error, loading, verifyTotp }) { return <section className="space-y-5"><Header icon={ShieldCheck} title="Double authentification" text="Entrez le code du compte NOVA dans Authenticator, ou un code de récupération sauvegardé lors de l’activation (à usage unique). Votre mot de passe reste nécessaire." /><Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code Authenticator ou récupération" recovery /><p className="text-xs text-slate-600">Téléphone perdu : utilisez un code de récupération inutilisé. Sans application ni code, contactez l’administrateur ou l’assistance. Aucun code SMS ne remplace cette étape. Code refusé : vérifiez le compte NOVA, l’heure automatique ou attendez le prochain code. Demande expirée : choisissez « Recommencer » et ressaisissez votre mot de passe.</p><Error value={error} /><Primary onClick={verifyTotp} disabled={loading || code.trim().length < 6}>{loading ? 'Vérification…' : 'Se connecter'}</Primary></section>; }
 
-function Recovery({ codes, copy, finish }) { return <section className="space-y-5"><Header icon={CheckCircle2} title="Compte sécurisé" text="Sauvegardez ces codes. Chacun ne fonctionne qu’une seule fois." /><div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-950 p-4 text-center font-mono text-sm text-white">{codes.map((item) => <span key={item} className="rounded bg-white/10 p-2">{item}</span>)}</div><button type="button" onClick={copy} className="w-full min-h-11 border border-slate-300 rounded-xl flex items-center justify-center gap-2 font-semibold hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-red-500"><Copy className="w-4 h-4" /> Copier les codes</button><Primary onClick={finish}>J’ai sauvegardé mes codes</Primary></section>; }
+export function Recovery({ codes, finish }) { return <section className="space-y-5"><Header icon={CheckCircle2} title="Compte sécurisé" text="Sauvegardez ces codes. Chacun ne fonctionne qu’une seule fois." /><div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-950 p-4 text-center font-mono text-sm text-white select-all">{codes.map((item) => <span key={item} className="rounded bg-white/10 p-2">{item}</span>)}</div><CopyCodes text={codes.join('\n')} label="Copier les codes" /><Primary onClick={finish}>J’ai sauvegardé mes codes</Primary></section>; }
 
 function Brand({ light = false }) { return <div className="flex items-center gap-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${light ? 'bg-white/20' : 'bg-red-600'}`}><HeartPulse className="w-7 h-7 text-white" /></div><div><h2 className={`text-2xl font-bold ${light ? 'text-white' : 'text-slate-900'}`}>NOVA</h2><p className={`text-xs ${light ? 'text-red-100' : 'text-slate-500'}`}>Carnet Santé Ivoirien</p></div></div>; }
 function Header({ icon: Icon, title, text }) { return <div>{Icon && <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center mb-4"><Icon className="w-7 h-7 text-red-600" /></div>}<h2 className="text-3xl font-bold text-slate-900">{title}</h2><p className="text-slate-500 mt-2">{text}</p></div>; }
@@ -179,3 +191,16 @@ function Code({ value, setValue, onEnter, label, recovery = false }) { return <F
 function Primary({ children, ...props }) { return <button type="button" {...props} className="w-full min-h-12 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-500">{children}</button>; }
 function Back({ onClick }) { return <button type="button" onClick={onClick} className="mb-6 min-h-11 flex items-center gap-1 text-sm text-slate-600 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500 rounded-lg px-2"><ChevronLeft className="w-4 h-4" /> Recommencer</button>; }
 function Error({ value }) { return value ? <p role="alert" className="text-sm text-red-600 flex items-center gap-1"><AlertCircle className="w-4 h-4" /> {value}</p> : null; }
+
+export function CopyCodes({ text, label }) {
+  const [status, setStatus] = useState('');
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('Copie effectuée. Conservez ces informations en lieu sûr.');
+    } catch {
+      setStatus('Copie impossible. Sélectionnez le texte affiché et copiez-le manuellement, ou recopiez-le en lieu sûr.');
+    }
+  };
+  return <div className="space-y-2"><button type="button" onClick={copy} className="w-full min-h-11 border border-slate-300 rounded-xl flex items-center justify-center gap-2 font-semibold hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-red-500"><Copy className="w-4 h-4" />{label}</button>{status && <p role="status" className="text-xs text-slate-600">{status}</p>}</div>;
+}

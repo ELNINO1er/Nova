@@ -176,6 +176,12 @@ describe('Commandes d’ordonnance en pharmacie', () => {
     expect(part.json.status).toBe('partial');
     let mine = (await call('B', 'GET', '/api/patient/me/pharmacy-orders')).json.find((x) => x.id === o.json.id);
     expect(mine.status).toBe('pending');
+    expect(mine.lastDispenseStatus).toBe('partial');
+    expect(new Date(mine.lastDispensedAt).getTime()).toBeGreaterThan(0);
+    expect(new Date(mine.updatedAt).getTime()).toBeGreaterThan(0);
+    const pharmacyOrder = (await call('PH1', 'GET', '/api/pharmacy/me/orders')).json.find(x => x.id === o.json.id);
+    expect(pharmacyOrder.lastDispenseStatus).toBe('partial');
+    expect(pharmacyOrder.prescription.items[0].remaining).toBe(3);
     const refuse = await call('PH1', 'POST', '/api/pharmacy/me/dispense', { prescriptionId: rx, qrToken: qr.json.token, requestKey: randomUUID(), status: 'refused', items: [], notes: 'Ordonnance illisible' });
     expect(refuse.status).toBe(201);
     mine = (await call('B', 'GET', '/api/patient/me/pharmacy-orders')).json.find((x) => x.id === o.json.id);

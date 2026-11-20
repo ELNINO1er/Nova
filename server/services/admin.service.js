@@ -1,4 +1,5 @@
 import { pool } from '../db/database.js';
+import { getReliability } from './reliability.service.js';
 import { paginatedResponse } from '../middleware/paginate.js';
 import bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -208,6 +209,7 @@ export async function getAdminSystem() {
   );
 
   return {
+    reliability: await getReliability(),
     api: {
       uptimeSeconds: Math.round(process.uptime()),
       nodeEnv: process.env.NODE_ENV || 'development',

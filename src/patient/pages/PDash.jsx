@@ -25,7 +25,7 @@ const VITALS = [
 const TABLES = [['labs', 'Analyses'], ['rx', 'Ordonnances'], ['meds', 'Prises du jour'], ['history', 'Historique']];
 const list = (r) => (Array.isArray(r) ? r : r?.data || []);
 
-const VITAL_STATUS = { normal: ['Normal', 'neutral'], watch: ['À surveiller', 'watch'], critical: ['Critique', 'alert'] };
+const VITAL_STATUS = { unknown: ['Contexte requis', 'neutral'], normal: ['Dans les repères', 'neutral'], watch: ['À surveiller', 'watch'], critical: ['Évaluation rapide', 'alert'] };
 
 
 
@@ -199,6 +199,7 @@ export default function PDash({ data, loading, onRefresh, setPage, setShowQR, se
               <div className="flex items-baseline gap-2 mt-4 mb-3">
                 <span className="text-2xl font-bold tabular-nums">{current ? current.value : '—'}</span>
                 <span className={`text-sm ${sub}`}>{current?.unit}</span>
+                {current?.assessment?.message && <p className="text-xs text-slate-500">{current.assessment.message}</p>}
                 {current && VITAL_STATUS[current.status] && <Chip tone={VITAL_STATUS[current.status][1]}>{VITAL_STATUS[current.status][0]}</Chip>}
               </div>
               <VitalBars points={points} unit={current?.unit || ''} darkMode={darkMode} sub={sub} />

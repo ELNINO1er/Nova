@@ -3,6 +3,7 @@ import { CheckCircle2, Clock, Inbox, Pill, ScanLine, XCircle } from 'lucide-reac
 import { pharmacyApi } from '../api/pharmacyApi.js';
 import { promptDialog } from '../components/dialogs.jsx';
 import { useRealtime } from '../realtime/socket.js';
+import { orderIsPartial, pharmacyOrderLabel, pharmacyOrderTime } from '../utils/pharmacyOrder.js';
 
 // Ordonnances envoyées par les patients : préparer, répondre « prête » ou « indisponible ».
 // La remise se fait au comptoir en scannant le QR présenté par le patient (la commande se clôt alors seule).
@@ -11,7 +12,7 @@ const STATUS = {
   ready: { label: 'Prête · en attente du patient', cls: 'bg-emerald-100 text-emerald-800' },
   unavailable: { label: 'Indisponible', cls: 'bg-amber-100 text-amber-800' },
   dispensed: { label: 'Délivrée', cls: 'bg-slate-100 text-slate-600' },
-  cancelled: { label: 'Annulée par le patient', cls: 'bg-slate-100 text-slate-500' },
+  cancelled: { label: 'Annulée', cls: 'bg-slate-100 text-slate-500' },
 };
 const GROUPS = [
   ['pending', 'À préparer'],
@@ -60,6 +61,7 @@ export default function PhOrders({ notify, setPage, onCountChange }) {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-red-700">{error} <button type="button" onClick={load} className="underline">Réessayer</button></p>}
       <p className="text-sm text-slate-600 group-data-[theme=dark]:text-slate-400">
         Préparez l’ordonnance puis prévenez le patient. À son passage, <button type="button" onClick={() => setPage('scan')} className="font-semibold text-red-700 underline underline-offset-2">scannez le QR</button> qu’il présente pour délivrer : la commande se clôt automatiquement.
       </p>
@@ -73,8 +75,11 @@ export default function PhOrders({ notify, setPage, onCountChange }) {
                   <p className="font-semibold">{o.patientName}</p>
                   <p className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" />Reçue le {when(o.createdAt)}{o.prescription ? ` · prescrite par ${o.prescription.doctorName}` : ''}</p>
                 </div>
-                <span className={`text-xs font-semibold rounded-full px-3 py-1 ${STATUS[o.status]?.cls || ''}`}>{STATUS[o.status]?.label || o.status}</span>
+                <span className={`text-xs font-semibold rounded-full px-3 py-1 ${STATUS[o.status]?.cls || ''}`}>{orderIsPartial(o) ? pharmacyOrderLabel(o) : STATUS[o.status]?.label || o.status}</span>
               </div>
+              <p className="mt-1 text-xs text-slate-500">Dernière mise à jour : {pharmacyOrderTime(o.updatedAt)}</p>
+              {o.lastDispensedAt && <p className="text-xs text-slate-500">Délivrance enregistrée : {pharmacyOrderTime(o.lastDispensedAt)}</p>}
+              {orderIsPartial(o) && <p className="mt-2 text-sm font-semibold">Délivrance partielle enregistrée : préparez uniquement les quantités restantes ci-dessous. Le complément nécessite à nouveau le QR du patient au comptoir.</p>}
               {o.notes && <p className="mt-3 text-sm rounded-lg bg-slate-50 px-3 py-2 group-data-[theme=dark]:bg-slate-800"><span className="font-semibold">Message du patient : </span>{o.notes}</p>}
               {o.prescription && (
                 <ul className="mt-3 divide-y divide-red-50 group-data-[theme=dark]:divide-slate-800">

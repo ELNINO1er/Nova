@@ -1,5 +1,27 @@
 # Déploiement des correctifs du 16/11/2026 sur Hostinger
 
+## Mise à jour des parcours du 20 novembre 2026
+
+Les migrations `20261120_22`, `20261120_23` et `20261120_24` ajoutent le contexte des mesures,
+les échéances de suivi par médecin, les contrôles de récupération et les motifs d’annulation des ordonnances.
+Elles conservent les lignes existantes. Une mesure ancienne sans contexte glycémique est affichée comme indéterminée.
+Les repères adultes doivent être interprétés avec le contexte clinique et les objectifs individuels.
+
+Après déploiement, vérifier la première connexion sur téléphone, un accord de partage, une échéance de suivi,
+une ordonnance fictive puis son annulation, et les états de préparation pharmacie.
+Dans Système, enregistrer une sauvegarde ou une restauration uniquement après vérification réelle.
+Les mentions « Contrôle enregistré » sont des déclarations tracées, distinctes du contrôle de disponibilité public.
+
+La surveillance GitHub `availability.yml` vérifie HTTP, MySQL, écriture et stockage externe toutes les quinze minutes
+quand le workflow est présent sur la branche par défaut et GitHub Actions autorisé. Les alertes reposent sur les
+notifications d’échec GitHub du responsable. La réponse publique ne prouve pas la restaurabilité des sauvegardes.
+Le contrôle ne restaure jamais la production automatiquement.
+
+Une annulation conserve l’ordonnance, son motif et les prises déjà enregistrées. Elle bloque les nouvelles
+délivrances et arrête les rappels correspondants. Un retour à une version antérieure au 20 novembre ne doit pas
+réactiver ces rappels : suspendre le job de rappels pendant l’intervention et conserver la logique d’exclusion des
+ordonnances annulées avant de le relancer. Vérifier le comportement en préproduction avant ce retour arrière.
+
 **Hébergement :** Hostinger Cloud Startup, application Node.js gérée (Express, Node 22.x), site `nova.mhtechconsulting.com`.
 **Mise en ligne :** déploiement automatique (« Auto-deployment ») de la branche `feat/stabilite-connexion-pilote` à chaque push.
 **En ligne au 16/11/2026 :** `09f873e`, déployé le 14/11/2026 17:31 (capture hPanel du tableau de bord).

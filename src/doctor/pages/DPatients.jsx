@@ -7,7 +7,7 @@ import ActivationNotice from '../../components/ActivationNotice.jsx';
 import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
 import { consultationStatusLabel } from '../../utils/statusLabels.js';
 import DReferrals from './DReferrals.jsx';
-import { VITAL_NORMS, vitalLevel, vitalNumber } from '../../utils/vitalNorms.js';
+import { VITAL_NORMS, vitalLevel, vitalNumber, vitalAssessment } from '../../utils/vitalNorms.js';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
   const [search,   setSearch]   = useState('');
@@ -244,10 +244,11 @@ function PatientTabConstantes({ pat, card, sub, border, darkMode }) {
   const labels = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].label]));
   const colors = { blood_pressure: '#dc2626', blood_glucose: '#2563eb', heart_rate: '#16a34a', temperature: '#d97706' };
   const units  = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].unit]));
-  const LEVEL = { normal: ['Normal', 'bg-emerald-100 text-emerald-800'], watch: ['À surveiller', 'bg-amber-100 text-amber-800'], critical: ['Hors normes', 'bg-red-100 text-red-800'] };
+  const LEVEL = { unknown: ['Contexte requis', 'bg-slate-100 text-slate-700'], normal: ['Dans les repères', 'bg-emerald-100 text-emerald-800'], watch: ['À surveiller', 'bg-amber-100 text-amber-800'], critical: ['Évaluation rapide', 'bg-red-100 text-red-800'] };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="sm:col-span-2"><DoctorVitalInput patientId={pat.id} /></div>
       {types.map(type => {
         const data = (pat.vitals || []).filter(v => v.type === type).slice(0, 12).reverse();
         const last = data[data.length - 1];
@@ -263,7 +264,8 @@ function PatientTabConstantes({ pat, card, sub, border, darkMode }) {
             <p className="text-2xl font-bold mb-1" style={{ color: colors[type] }}>
               {last?.value ? String(last.value).replace('.', ',') : '—'} <span className={`text-xs font-normal ${sub}`}>{units[type]}</span>
             </p>
-            {last && <p className="mb-2 flex items-center gap-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${LEVEL[vitalLevel(type, last.value)][1]}`}>{LEVEL[vitalLevel(type, last.value)][0]}</span><span className={`text-[10px] ${sub}`}>Repère : {VITAL_NORMS[type].normal} · {last.sourceRole === 'doctor' ? 'saisie médecin' : last.sourceRole === 'patient' ? 'saisie patient' : 'mesure'}</span></p>}
+            {last && <p className="mb-2 flex items-center gap-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${LEVEL[vitalLevel(type, last.value, last.context)][1]}`}>{LEVEL[vitalLevel(type, last.value, last.context)][0]}</span><span className={`text-[10px] ${sub}`}>Repère : {VITAL_NORMS[type].normal} · {last.sourceRole === 'doctor' ? 'saisie médecin' : last.sourceRole === 'patient' ? 'saisie patient' : 'mesure'}</span></p>}
+            {last && <p className={`text-xs mb-2 ${sub}`}>{vitalAssessment(type, last.value, last.context).message}</p>}
             {vals.length > 1 && (
               <div className="h-24">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
@@ -382,3 +384,30 @@ function PatientTabLabo({ pat, card, sub, border, darkMode }) {
 /* ════════════════════════════════════════════════════════════════
    AGENDA
    ════════════════════════════════════════════════════════════════ */
+
+function DoctorVitalInput({ patientId }) {
+  const [type, setType] = useState('blood_pressure');
+  const [value, setValue] = useState('');
+  const [timing, setTiming] = useState('unknown');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  async function submit(e) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      const result = await doctorApi.addPatientVital(patientId, { type, value, context: type === 'blood_glucose' ? { glucoseTiming: timing } : {} });
+      setMessage(`Mesure enregistrée. ${result.assessment.message} Rouvrez le dossier pour actualiser l’historique.`); setValue('');
+    } catch (e) { setMessage(e.message || 'Enregistrement impossible.'); }
+    finally { setSaving(false); }
+  }
+  return <form onSubmit={submit} className="border rounded-xl p-3 space-y-3">
+    <p className="text-xs">Repères adultes au repos, hors grossesse. Ni diagnostic ni validation clinique. Les symptômes priment sur le classement.</p>
+    <div className="flex flex-wrap gap-3 items-end">
+      <label className="text-xs">Constante<select className="block border rounded p-2 bg-transparent min-h-11" value={type} onChange={e => { setType(e.target.value); setValue(''); setMessage(''); }}>{Object.entries(VITAL_NORMS).map(([key, n]) => <option key={key} value={key}>{n.label}</option>)}</select></label>
+      <label className="text-xs">Valeur ({VITAL_NORMS[type].unit})<input required maxLength={20} inputMode={type === 'blood_pressure' ? 'text' : 'decimal'} className="block border rounded p-2 bg-transparent min-h-11" placeholder={VITAL_NORMS[type].example} value={value} onChange={e => setValue(e.target.value)} /></label>
+      {type === 'blood_glucose' && <label className="text-xs">Contexte glycémique<select className="block border rounded p-2 bg-transparent min-h-11" value={timing} onChange={e => setTiming(e.target.value)}><option value="unknown">Non précisé</option><option value="fasting">À jeun depuis au moins 8 h</option><option value="post_meal">Après repas</option><option value="random">Aléatoire</option></select></label>}
+      <button disabled={saving} className="min-h-11 rounded-lg bg-red-600 text-white px-3 disabled:opacity-50">{saving ? 'Enregistrement…' : 'Ajouter la mesure'}</button>
+    </div>
+    <p className="text-xs">{VITAL_NORMS[type].normal}. Tension : 120/80 mmHg ou 12/8 cmHg. Glycémie : g/L uniquement.</p>
+    {message && <p role="status" className="text-sm">{message}</p>}
+  </form>;
+}

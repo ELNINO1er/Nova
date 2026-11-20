@@ -10,6 +10,7 @@ import {
 import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import { useLocation } from 'react-router-dom';
 import { useEscape } from '../../utils/useEscape.js';
+import { pharmacyOrderLabel, pharmacyOrderTime } from '../../utils/pharmacyOrder.js';
 
 /*
  * Ordonnances : registre (liste à gauche) + document de l'ordonnance sélectionnée (à droite).
@@ -37,7 +38,7 @@ const FIELDS = (p) => [
 
 function refOf(p) { return `ORD-${String(p.id || '').replace(/-/g, '').slice(0, 6).toUpperCase()}`; }
 const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
-const daysLeft = (validUntil) => (validUntil ? Math.ceil((new Date(validUntil) - Date.now()) / 86400000) : null);
+const daysLeft = (validUntil) => (validUntil ? Math.round((Date.parse(String(validUntil).slice(0, 10)) - Date.parse(new Date().toISOString().slice(0, 10))) / 86400000) : null);
 const patientName = () => { try { return JSON.parse(localStorage.getItem('nova_user') || 'null')?.name || ''; } catch { return ''; } };
 
 /* Validité : part écoulée entre l'émission et la date limite. */
@@ -51,7 +52,7 @@ function Validity({ p }) {
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className={left <= 0 ? 'text-slate-500' : soon ? 'font-semibold text-red-700' : 'text-slate-600'}>
-          {left <= 0 ? 'Validité dépassée' : `${left} jour${left > 1 ? 's' : ''} restant${left > 1 ? 's' : ''}`}
+          {left < 0 ? 'Validité dépassée' : left === 0 ? 'Valable aujourd’hui' : `${left} jour${left > 1 ? 's' : ''} restant${left > 1 ? 's' : ''}`}
         </span>
         <span className="font-mono tabular-nums text-slate-400">{fmt(p.validUntil)}</span>
       </div>
@@ -61,7 +62,7 @@ function Validity({ p }) {
 }
 
 /* Document d'ordonnance (écran et impression). */
-function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
+export function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
   const [label, tone] = STATUS[p.status] || [p.status, 'neutral'];
   const line = darkMode && !print ? 'border-slate-800' : 'border-slate-200';
   return (
@@ -85,17 +86,24 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
         <div className="col-span-2 min-w-0"><Label>Validité</Label><div className="mt-1"><Validity p={p} /></div></div>
       </dl>
 
+      {p.status === 'cancelled' && <section className="mx-5 mt-4 rounded-xl border border-red-300 p-3 text-sm" aria-label="Annulation de l’ordonnance">
+        <p className="font-bold">Ordonnance annulée — ne plus présenter pour délivrance</p>
+        <p className="mt-1 whitespace-pre-wrap">Motif : {p.cancellation?.reason || 'Consultez le détail ou contactez votre médecin pour connaître le motif.'}</p>
+        {p.cancellation?.createdAt && <p>Annulée le : {pharmacyOrderTime(p.cancellation.createdAt)}</p>}
+        <p className="mt-1">Contactez le médecin prescripteur pour faire le point sur votre traitement et obtenir, si nécessaire, une nouvelle ordonnance. Les délivrances déjà enregistrées restent conservées.</p>
+      </section>}
+
       <div className="px-5 py-4">
         <Label>Prescription · {p.items.length} ligne{p.items.length > 1 ? 's' : ''}</Label>
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="mt-2 overflow-x-auto print:overflow-visible">
+          <table className="w-full text-sm print:table-fixed print:break-words">
             <thead>
               <tr className={`text-left text-[11px] uppercase tracking-wide text-slate-400 border-b ${line}`}>
                 <th className="py-2 pr-3 font-semibold w-8">N°</th>
                 <th className="py-2 pr-3 font-semibold">Médicament</th>
                 <th className="py-2 pr-3 font-semibold">Posologie</th>
                 <th className="py-2 pr-3 font-semibold">Durée</th>
-                <th className="py-2 font-semibold text-right">Prescrit / restant</th>
+                <th className="py-2 font-semibold text-right">Prescrit / délivré / restant</th>
               </tr>
             </thead>
             <tbody>
@@ -103,10 +111,10 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
                 <React.Fragment key={it.id}>
                   <tr className={`align-top ${it.instructions ? '' : `border-b ${line}`}`}>
                     <td className="py-2.5 pr-3 font-mono text-xs text-slate-400 tabular-nums">{String(i + 1).padStart(2, '0')}</td>
-                    <td className="py-2.5 pr-3 min-w-[9rem]"><span className="font-semibold"><Highlight text={it.name} query={query} /></span>{it.dosage && <span className="text-slate-500"> · <Highlight text={it.dosage} query={query} /></span>}</td>
-                    <td className="py-2.5 pr-3 min-w-[8rem] text-slate-600"><Highlight text={it.frequency || '—'} query={query} /></td>
-                    <td className="py-2.5 pr-3 whitespace-nowrap text-slate-600">{it.duration || '—'}</td>
-                    <td className="py-2.5 text-right whitespace-nowrap font-mono tabular-nums text-slate-600">{it.quantityPrescribed == null ? '—' : `${it.quantityPrescribed} / ${it.remaining ?? '—'} ${it.quantityUnit || ''}`}</td>
+                    <td className="py-2.5 pr-3 min-w-[9rem] print:min-w-0"><span className="font-semibold"><Highlight text={it.name} query={query} /></span>{it.dosage && <span className="text-slate-500"> · <Highlight text={it.dosage} query={query} /></span>}</td>
+                    <td className="py-2.5 pr-3 min-w-[8rem] print:min-w-0 text-slate-600"><Highlight text={it.frequency || '—'} query={query} /></td>
+                    <td className="py-2.5 pr-3 whitespace-nowrap print:whitespace-normal text-slate-600">{it.duration || '—'}</td>
+                    <td className="py-2.5 text-right whitespace-nowrap print:whitespace-normal font-mono tabular-nums text-slate-600">{it.quantityPrescribed == null ? '—' : `${it.quantityPrescribed} / ${it.quantityDispensed ?? '—'} / ${it.remaining ?? '—'} ${it.quantityUnit || ''}`}</td>
                   </tr>
                   {it.instructions && (
                     <tr className={`border-b ${line}`}><td /><td colSpan={4} className="pb-2.5 text-xs text-red-700"><span className="inline-flex gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /><Highlight text={it.instructions} query={query} /></span></td></tr>
@@ -126,8 +134,9 @@ function PrescriptionDocument({ p, query = '', darkMode, print = false }) {
 
       <footer className={`flex items-center gap-2 px-5 py-3 border-t text-[11px] text-slate-500 ${line}`}>
         <ShieldCheck className="w-3.5 h-3.5 text-red-600 shrink-0" />
-        Ordonnance numérique signée · authenticité vérifiable en pharmacie par QR code
+        Ordonnance numérique · référence et statut vérifiables en pharmacie avec le QR présenté par le patient
       </footer>
+      <p className="px-5 pb-3 text-[11px] text-slate-500 break-all">Identifiant de l’ordonnance : {p.id}</p>
     </article>
   );
 }
@@ -151,6 +160,8 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
   useEscape(Boolean(qrModal), () => setQrModal(null));
   const [qrLoading, setQrLoading] = useState('');
   const [qrError, setQrError] = useState('');
+  const [cancelledDetail, setCancelledDetail] = useState(null);
+  const [cancellationError, setCancellationError] = useState('');
 
   const [query, setQuery] = useUrlQuery();
   const prescriptions = useMemo(() => data ?? [], [data]);
@@ -158,7 +169,16 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
   const filtered = filter === 'all' ? results : results.filter((p) => p.status === filter);
   const count = (s) => results.filter((p) => p.status === s).length;
   const activeCount = prescriptions.filter((p) => p.status === 'active').length;
-  const selected = filtered.find((p) => p.id === selectedId) || filtered[0] || null;
+  const selectedBase = filtered.find((p) => p.id === selectedId) || filtered[0] || null;
+  const selected = selectedBase?.status === 'cancelled' && cancelledDetail?.id === selectedBase.id ? { ...selectedBase, cancellation: cancelledDetail.cancellation } : selectedBase;
+  useEffect(() => {
+    let disposed = false;
+    setCancelledDetail(null); setCancellationError('');
+    if (selectedBase?.status === 'cancelled' && !selectedBase.cancellation) {
+      patientApi.prescription(selectedBase.id).then(rx => { if (!disposed) setCancelledDetail(rx); }).catch(e => { if (!disposed) setCancellationError(e.message || 'Motif indisponible. Contactez votre médecin.'); });
+    }
+    return () => { disposed = true; };
+  }, [selectedBase?.id, selectedBase?.status, selectedBase?.cancellation]);
 
   // La sélection suit le premier résultat quand la recherche ou le filtre l'écarte.
   useEffect(() => { if (selectedId && !filtered.some((p) => p.id === selectedId)) setSelectedId(null); }, [filtered, selectedId]);
@@ -259,10 +279,11 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
           {selected && (
             <div className="space-y-3 lg:sticky lg:top-20">
               <PrescriptionDocument p={selected} query={query} darkMode={darkMode} />
+              {cancellationError && <p role="alert" className="text-sm text-red-700">{cancellationError}</p>}
               <div className="flex flex-wrap gap-2 justify-end">
                 <Button variant="secondary" darkMode={darkMode} Icon={Printer} onClick={() => handlePrint(selected)}>Imprimer</Button>
                 {isSendable(selected) && !openOrderFor(selected.id) && <Button variant="secondary" darkMode={darkMode} Icon={Send} onClick={() => setSendFor(selected.id)}>Envoyer à une pharmacie</Button>}
-                <Button Icon={QrCode} onClick={() => showQr(selected)} disabled={qrLoading === selected.id}>{qrLoading === selected.id ? 'Génération…' : 'QR pour la pharmacie'}</Button>
+                {selected.status !== 'cancelled' && <Button Icon={QrCode} onClick={() => showQr(selected)} disabled={qrLoading === selected.id}>{qrLoading === selected.id ? 'Génération…' : 'QR pour la pharmacie'}</Button>}
               </div>
               {!openOrderFor(selected.id) && unavailableFor(selected.id) && (
                 <p className={`rounded-xl border px-4 py-3 text-sm ${darkMode ? 'border-amber-900 bg-amber-950/30 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
@@ -271,12 +292,12 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
               )}
               {openOrderFor(selected.id) && (() => {
                 const o = openOrderFor(selected.id);
-                const label = { pending: 'envoyée, en attente de préparation', ready: 'prête à retirer', unavailable: 'indisponible' }[o.status];
+                const label = pharmacyOrderLabel(o);
                 return (
                   <button type="button" onClick={() => setPage?.('pharmacy')} className={`w-full text-left rounded-xl border px-4 py-3 text-sm ${o.status === 'ready' ? 'border-red-300 bg-red-50 text-red-800' : darkMode ? 'border-slate-700' : 'border-slate-200 bg-white'}`}>
-                    <span className="font-semibold">{o.pharmacyName}</span> : ordonnance {label}.
+                    <span className="font-semibold">{o.pharmacyName}</span> : {label}.
                     {o.pharmacistMessage && <span className="block text-xs mt-0.5">« {o.pharmacistMessage} »</span>}
-                    <span className="block text-xs mt-0.5 underline">Suivre la demande</span>
+                    <span className="block text-xs mt-0.5">Mise à jour : {pharmacyOrderTime(o.updatedAt)}</span><span className="block text-xs mt-0.5 underline">Suivre la demande</span>
                   </button>
                 );
               })()}

@@ -8,7 +8,7 @@ import { searchableDate, useSearch, useUrlQuery } from '../../utils/search.js';
 import {
   Button, Card, CardTitle, EmptyState, Highlight, IconBadge, NoResults, PageHeader, Pills, SearchInput, StatTile, inputClass,
 } from '../../components/patient/ui.jsx';
-import { VITAL_NORMS, vitalNumber } from '../../utils/vitalNorms.js';
+import { VITAL_NORMS, vitalNumber, vitalAssessment } from '../../utils/vitalNorms.js';
 
 const byDate = (a, b) => new Date(a.measuredAt) - new Date(b.measuredAt);
 // Normes partagées avec le serveur (src/utils/vitalNorms.js) : mêmes seuils sur toutes les pages.
@@ -87,9 +87,10 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
     if (!addForm.value.trim()) return;
     setSaving(true);
     try {
-      await patientApi.addVital({ type: addForm.type, value: addForm.value });
+      await patientApi.addVital({ type: addForm.type, value: addForm.value, context: addForm.type === 'blood_glucose' ? { glucoseTiming: addForm.glucoseTiming || 'unknown' } : {} });
       const fresh = await patientApi.vitals();
       onAddVital?.(fresh);
+      setActiveType(addForm.type);
       notify?.('Mesure enregistrée');
       setShowAdd(false);
       setAddForm({ type: 'blood_pressure', value: '' });
@@ -119,6 +120,8 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
         subtitle={`${typeVitals.length} mesure${typeVitals.length > 1 ? 's' : ''} · ${cfg.label}`}
         actions={<Button Icon={Plus} onClick={() => setShowAdd(true)}>Ajouter une mesure</Button>} />
 
+      <p className={`text-xs ${sub}`}>Repères adultes au repos, hors grossesse, à interpréter avec un soignant. Ces indications ne constituent ni un diagnostic ni une validation clinique. Ne modifiez pas votre traitement sur cette seule base. Les symptômes priment sur les chiffres.</p>
+      <p className="text-sm text-red-700">En cas de douleur thoracique, essoufflement, malaise, confusion ou trouble neurologique, contactez immédiatement les urgences locales, quelle que soit la mesure affichée.</p>
       {showAdd && (
         <PatientModal title="Nouvelle mesure" onClose={() => setShowAdd(false)} card={card} darkMode={darkMode} maxWidth="max-w-sm">
           <div className="space-y-4">
@@ -136,6 +139,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
                 className={`mt-1 ${inputClass(darkMode)}`} />
               <span className={`block text-xs ${sub} mt-1.5`}>Exemple : {typeConfig[addForm.type].example} {typeConfig[addForm.type].unit}{addForm.type === 'blood_pressure' ? ' (12/8 est converti en 120/80)' : ''}</span>
             </label>
+            {addForm.type === 'blood_glucose' && <label className="block"><span className="text-xs font-medium">Contexte glycémique</span><NovaSelect darkMode={darkMode} value={addForm.glucoseTiming || 'unknown'} onChange={e => setAddForm(f => ({ ...f, glucoseTiming: e.target.value }))} className={`mt-1 ${inputClass(darkMode)}`}><option value="unknown">Non précisé</option><option value="fasting">À jeun depuis au moins 8 h</option><option value="post_meal">Après repas</option><option value="random">Aléatoire</option></NovaSelect></label>}
             <div className="flex gap-2 pt-1">
               <Button variant="secondary" darkMode={darkMode} className="flex-1" onClick={() => setShowAdd(false)}>Annuler</Button>
               <Button className="flex-1" onClick={saveVital} disabled={saving || !addForm.value.trim()}>
@@ -169,7 +173,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
               {trend === 'up'   && <TrendingUp className="w-4 h-4 text-red-600 self-center" aria-label="En hausse" />}
               {trend === 'down' && <TrendingDown className="w-4 h-4 text-slate-500 self-center" aria-label="En baisse" />}
             </div>
-            {latest && <p className={`text-xs ${sub} mt-0.5`}>{formatDate(latest.measuredAt)}</p>}
+            {latest && <><p className={`text-xs ${sub} mt-0.5`}>{formatDate(latest.measuredAt)}</p><p role="status" className={`text-xs mt-2 ${sub}`}>{vitalAssessment(activeType, latest.value, latest.context).message}</p></>}
           </div>
           <Pills darkMode={darkMode} value={range} onChange={setRange}
             options={[[7, '7 dernières'], [14, '14 dernières'], [30, '30 dernières']]} />
@@ -200,7 +204,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
         )}
 
         <dl className={`mt-4 pt-4 border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'} grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm`}>
-          <div><dt className="text-xs text-slate-500">Valeurs normales</dt><dd className="font-semibold mt-0.5">{cfg.ref} {cfg.unit}</dd></div>
+          <div><dt className="text-xs text-slate-500">Repères indicatifs</dt><dd className="font-semibold mt-0.5">{cfg.ref} {cfg.unit}</dd></div>
           <div><dt className="text-xs text-slate-500">Minimum</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(Math.min(...nums)) : '—'}</dd></div>
           <div><dt className="text-xs text-slate-500">Maximum</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(Math.max(...nums)) : '—'}</dd></div>
           <div><dt className="text-xs text-slate-500">Moyenne</dt><dd className="font-semibold mt-0.5 tabular-nums">{nums.length ? fr(nums.reduce((a, b) => a + b, 0) / nums.length) : '—'}</dd></div>
@@ -242,7 +246,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
               {historyRows.map((v, i) => {
                 const c = typeConfig[v.type] || { label: v.type, unit: '', icon: Activity };
                 return (
-                  <li key={v.id ?? `${v.type}-${v.measuredAt}-${i}`} className="px-5 py-3 flex sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem] items-center gap-3 sm:gap-4">
+                  <li key={v.id ?? `${v.type}-${v.measuredAt}-${i}`} className="px-5 py-3 flex flex-wrap sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem] items-center gap-3 sm:gap-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <IconBadge Icon={c.icon} size="sm" solid={i === 0 && !query} />
                       <div className="min-w-0">
@@ -254,7 +258,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
                     <span className={`text-sm font-semibold tabular-nums text-right whitespace-nowrap ${darkMode ? 'text-white' : 'text-slate-900'}`}>
                       <Highlight text={show(v.value, v.type)} query={query} /> <span className="font-normal text-slate-500">{c.unit}</span>
                     </span>
-                  </li>
+                  <p className={`basis-full sm:col-span-3 text-xs ${sub}`}>{vitalAssessment(v.type, v.value, v.context).message}</p></li>
                 );
               })}
             </ul>

@@ -1,20 +1,35 @@
+import { doctorApi } from '../../api/doctorApi.js';
 import React, { useState } from 'react';
 import { patientMeta } from '../../utils/format.js';
 import { Activity, AlertCircle, CheckCircle2, Clock, Heart, HeartPulse, Phone, Plus } from 'lucide-react';
 
 export default function DSuiviChroniques({ data, loading, onReload, notify, setPage, card, sub, border, darkMode }) {
+  const [saving, setSaving] = useState(null);
+  const [dates, setDates] = useState({});
+  const [error, setError] = useState('');
+  async function save(pat, clear = false) {
+    setSaving(pat.id); setError('');
+    try {
+      await doctorApi.setChronicFollowup(pat.id, clear ? null : (dates[pat.id] ?? pat.nextFollowupDate ?? '') || null);
+      await onReload();
+      notify?.('Échéance de suivi enregistrée.', 'success');
+    } catch (e) { setError(e.message || 'Enregistrement impossible.'); }
+    finally { setSaving(null); }
+  }
   const [filter, setFilter] = useState('all'); // high | medium | low | all
   const patients = Array.isArray(data) ? data : [];
 
-  const filtered = filter === 'all' ? patients : patients.filter(p => p.risk === filter);
+  const category = p => !p.nextFollowupDate ? 'unscheduled' : p.followupStatus === 'overdue' ? 'high' : p.followupStatus === 'due_soon' ? 'medium' : 'low';
+  const filtered = filter === 'all' ? patients : patients.filter(p => category(p) === filter);
 
   const riskCfg = {
+    unscheduled: { label: 'Échéance à définir', cls: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500', bar: 'bg-slate-500' },
     high:   { label: 'Suivi en retard', cls: 'bg-red-100 text-red-800',         dot: 'bg-red-600',     bar: 'bg-red-600' },
     medium: { label: 'À revoir bientôt', cls: 'bg-amber-100 text-amber-800',    dot: 'bg-amber-500',   bar: 'bg-amber-500' },
-    low:    { label: 'Suivi à jour',    cls: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
+    low:    { label: 'Échéance planifiée',    cls: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
   };
 
-  const counts = { high: patients.filter(p => p.risk === 'high').length, medium: patients.filter(p => p.risk === 'medium').length, low: patients.filter(p => p.risk === 'low').length };
+  const counts = { high: patients.filter(p => category(p) === 'high').length, medium: patients.filter(p => category(p) === 'medium').length, low: patients.filter(p => category(p) === 'low').length, unscheduled: patients.filter(p => category(p) === 'unscheduled').length };
 
   return (
     <div className="space-y-4">
@@ -22,16 +37,18 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold">Suivi des maladies chroniques</h2>
-          <p className={`text-sm ${sub}`}>{patients.length} patient{patients.length > 1 ? 's' : ''} avec une maladie chronique · classés selon la date de votre dernière consultation</p>
+          <p className={`text-sm ${sub}`}>{patients.length} patient{patients.length > 1 ? 's' : ''} avec une maladie chronique · classés selon l’échéance définie par le médecin</p>
         </div>
         <button onClick={onReload} className={`px-4 py-2 rounded-xl border text-sm font-semibold flex items-center gap-2 ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
           <Activity className="w-4 h-4" /> Actualiser
         </button>
       </div>
 
+      {error && <p role="alert" className="text-red-700">{error}</p>}
+      <p className={`text-xs ${sub}`}>Échéance individualisée, sans intervalle clinique imposé. Ce suivi ne réserve pas de rendez-vous et ne renseigne pas la stabilité clinique.</p>
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-3">
-        {[{ k: 'high', l: 'Suivi en retard (> 6 mois ou jamais vu)', I: AlertCircle }, { k: 'medium', l: 'À revoir bientôt (> 3 mois)', I: Clock }, { k: 'low', l: 'Suivi à jour (< 3 mois)', I: CheckCircle2 }].map(({ k, l, I }) => (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[{ k: 'high', l: 'Échéance dépassée', I: AlertCircle }, { k: 'medium', l: 'Aujourd’hui ou sous 7 jours', I: Clock }, { k: 'low', l: 'Échéance planifiée', I: CheckCircle2 }, { k: 'unscheduled', l: 'Échéance à définir', I: Clock }].map(({ k, l, I }) => (
           <button key={k} onClick={() => setFilter(filter === k ? 'all' : k)}
             className={`${card} border rounded-2xl p-4 text-left transition-all ${filter === k ? 'ring-2 ring-red-500' : ''}`}>
             <div className={`w-8 h-8 rounded-lg mb-2 flex items-center justify-center ${k === 'high' ? 'bg-red-100' : k === 'medium' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
@@ -52,7 +69,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
           <p className={`text-sm ${sub}`}>Aucun patient dans cette catégorie</p>
         </div>
       ) : filtered.map(pat => {
-        const rc = riskCfg[pat.risk] || riskCfg.low;
+        const rc = riskCfg[category(pat)] || riskCfg.low;
         return (
           <div key={pat.id} className={`${card} border rounded-2xl p-4`}>
             <div className="flex items-start gap-4">
@@ -96,16 +113,16 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            {/* Barre de risque */}
-            {pat.daysSince !== null && (
-              <div className="mt-3">
-                <div className={`h-1.5 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'} overflow-hidden`}>
-                  <div className={`h-full rounded-full ${rc.bar} transition-all`}
-                    style={{ width: `${Math.min((pat.daysSince / 180) * 100, 100)}%` }} />
-                </div>
-                <p className={`text-[10px] ${sub} mt-0.5`}>Délai depuis dernière visite ({pat.daysSince}j / 180j recommandés)</p>
-              </div>
-            )}
+            <form onSubmit={e => { e.preventDefault(); save(pat); }} className="mt-3 flex flex-wrap items-end gap-2">
+              <label className={`text-xs ${sub}`} htmlFor={`followup-${pat.id}`}>Prochain suivi
+                <input id={`followup-${pat.id}`} type="date" value={dates[pat.id] ?? pat.nextFollowupDate ?? ''}
+                  onChange={e => setDates(d => ({ ...d, [pat.id]: e.target.value }))}
+                  className={`block mt-1 rounded-lg border p-2 min-h-11 ${darkMode ? 'bg-slate-800' : 'bg-white'}`} />
+              </label>
+              <button disabled={saving !== null} className="min-h-11 px-3 rounded-lg bg-red-600 text-white disabled:opacity-50">{saving === pat.id ? 'Enregistrement…' : 'Enregistrer'}</button>
+              {pat.nextFollowupDate && <button type="button" disabled={saving !== null} onClick={() => { setDates(d => ({ ...d, [pat.id]: '' })); save(pat, true); }} className="min-h-11 px-3 rounded-lg border">Effacer l’échéance</button>}
+              <span className={`text-xs ${sub}`}>{pat.nextFollowupDate ? `Échéance : ${pat.nextFollowupDate.split('-').reverse().join('/')}` : 'Aucune échéance définie'}</span>
+            </form>
           </div>
         );
       })}

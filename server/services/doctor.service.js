@@ -1,3 +1,5 @@
+import { validFollowupDate, followupStatus } from './chronic-followup.js';
+import { VITAL_NORMS, normalizeVital, vitalAssessment, parseVitalContext, validateVitalContext } from './vital-norms.js';
 import {persistMessage,listMessages,emitConversationRead} from './messaging.service.js';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
@@ -108,7 +110,7 @@ export async function getDoctorPatient(doctorId, patientId) {
   return {
     ...mapPatientFull(patient),
     medicalProfile: mpData,
-    vitals: vitals.map(v => ({ id: v.id, type: v.type, label: v.label, value: v.value, unit: v.unit, measuredAt: v.measured_at,sourceRole:v.source_role||'legacy',authorId:v.author_id })),
+    vitals: vitals.map(v => ({ id: v.id, type: v.type, label: v.label, value: v.value, unit: v.unit, measuredAt: v.measured_at,context: parseVitalContext(v.measurement_context),sourceRole:v.source_role||'legacy',authorId:v.author_id })),
     consultations: consultations.map(c => ({
       id: c.id, motif: c.motif, diagnosisMain: c.diagnosis_main, notes: c.notes,
       recommendations: c.recommendations, status: c.status, startedAt: c.started_at,
@@ -565,15 +567,20 @@ export async function getDoctorPrescriptions(doctorId) {
 
 export async function getDoctorPrescription(doctorId, prescriptionId) {
   const [[row]] = await pool.execute(
-    `SELECT p.*, pat.first_name, pat.last_name, pat.cmu_number
+    `SELECT p.*, pat.first_name, pat.last_name, pat.cmu_number,
+            pc.reason AS cancellation_reason, pc.created_at AS cancelled_at
      FROM nova_prescriptions p JOIN nova_patients pat ON pat.id = p.patient_id
+     LEFT JOIN nova_prescription_cancellations pc ON pc.prescription_id = p.id
      WHERE p.id = ? AND p.doctor_id = ? AND p.deleted_at IS NULL`,
     [prescriptionId, doctorId]
   );
   if (!row) return null;
   await assertDoctorPatientAccess(doctorId, row.patient_id);
   const [items] = await pool.execute(
-    `SELECT * FROM nova_prescription_items WHERE prescription_id = ?`, [prescriptionId]
+    `SELECT i.*, COALESCE((SELECT SUM(di.quantity_dispensed)
+       FROM nova_dispense_items di JOIN nova_dispenses d ON d.id = di.dispense_id
+       WHERE di.prescription_item_id = i.id AND d.status <> 'refused'), 0) AS quantity_dispensed
+     FROM nova_prescription_items i WHERE i.prescription_id = ?`, [prescriptionId]
   );
   return {
     id:              row.id,
@@ -582,17 +589,27 @@ export async function getDoctorPrescription(doctorId, prescriptionId) {
     cmuNumber:       row.cmu_number,
     doctorName:      row.doctor_name,
     doctorSpecialty: row.doctor_specialty,
+    cancellation: row.cancellation_reason ? { reason: row.cancellation_reason, createdAt: row.cancelled_at } : null,
     issuedAt:        row.issued_at,
     validUntil:      validUntilOf(row),
     status:          prescriptionStatus(row),
     notes:           row.notes,
-    items: items.map(i => ({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions, quantityPrescribed:i.quantity_prescribed, quantityUnit:i.quantity_unit })),
+    items: items.map(i => ({ id: i.id, name: i.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, instructions: i.instructions, quantityPrescribed:i.quantity_prescribed, quantityUnit:i.quantity_unit, quantityDispensed: Number(i.quantity_dispensed), remaining: i.quantity_prescribed == null ? null : Math.max(0, Number(i.quantity_prescribed) - Number(i.quantity_dispensed)) })),
   };
 }
 
 export async function createDoctorPrescription(doctorId, payload) {
   await verifyDoctorPatientRelation(doctorId, payload.patientId);
   if (!payload.items?.length || payload.items.some(i=>!Number.isInteger(i.quantityPrescribed)||i.quantityPrescribed<=0)) throw Object.assign(new Error('Quantité prescrite obligatoire pour chaque ligne.'),{status:422});
+  payload = { ...payload, items: payload.items.map(item => {
+    const normalized = { ...item, quantityUnit: item.quantityUnit === undefined ? 'unité' : item.quantityUnit };
+    for (const key of ['name', 'quantityUnit', 'dosage', 'frequency', 'duration']) {
+      if (normalized[key] === undefined && !['name', 'quantityUnit'].includes(key)) continue;
+      if (typeof normalized[key] !== 'string' || !normalized[key].trim()) throw Object.assign(new Error('Les champs médicament, unité et posologie renseignés ne peuvent pas être vides.'), { status: 422 });
+      normalized[key] = normalized[key].trim();
+    }
+    return normalized;
+  }) };
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -681,15 +698,16 @@ export async function getChronicPatients(doctorId) {
   // Patients avec maladies chroniques, limités aux dossiers accessibles
   const chronicAccess = doctorAccessClause(doctorId, 'p.id');
   const [rows] = await pool.execute(
-    `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies,
+    `SELECT DISTINCT p.*, mp.chronic_diseases, mp.allergies, cf.next_followup_date,
             (SELECT c.started_at FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? AND c.deleted_at IS NULL ORDER BY c.started_at DESC LIMIT 1) AS last_consult,
             (SELECT c.diagnosis_main FROM nova_consultations c WHERE c.patient_id = p.id AND c.doctor_id = ? AND c.deleted_at IS NULL ORDER BY c.started_at DESC LIMIT 1) AS last_diagnosis
      FROM nova_patients p
      LEFT JOIN nova_medical_profile mp ON mp.patient_id = p.id
+     LEFT JOIN nova_chronic_followups cf ON cf.patient_id = p.id AND cf.doctor_id = ?
      WHERE p.deleted_at IS NULL AND ${chronicAccess.sql}
        AND mp.chronic_diseases IS NOT NULL AND JSON_LENGTH(mp.chronic_diseases) > 0
      ORDER BY last_consult ASC`,
-    [doctorId, doctorId, ...chronicAccess.params]
+    [doctorId, doctorId, doctorId, ...chronicAccess.params]
   );
   return rows.filter(r => medicalList(r.chronic_diseases).length).map(r => {
   const age   = ageFrom(r.birth_date);
@@ -715,8 +733,23 @@ export async function getChronicPatients(doctorId) {
       lastDiagnosis:r.last_diagnosis || null,
       daysSince,
       risk,
+      nextFollowupDate: r.next_followup_date || null,
+      ...followupStatus(r.next_followup_date),
     };
+  }).sort((a, b) => {
+    const priority = { overdue: 0, due_soon: 1, unscheduled: 2, scheduled: 3 };
+    return priority[a.followupStatus] - priority[b.followupStatus] || (a.nextFollowupDate || '').localeCompare(b.nextFollowupDate || '');
   });
+}
+
+export async function setChronicFollowup(doctorId, patientId, date) {
+  await verifyDoctorPatientRelation(doctorId, patientId);
+  if (date !== null && !validFollowupDate(date)) throw Object.assign(new Error('Date de suivi invalide (AAAA-MM-JJ).'), { status: 422 });
+  const [[profile]] = await pool.execute('SELECT chronic_diseases FROM nova_medical_profile WHERE patient_id = ?', [patientId]);
+  if (!medicalList(profile?.chronic_diseases).length) throw Object.assign(new Error('Aucune maladie chronique renseignée.'), { status: 422 });
+  await pool.execute(`INSERT INTO nova_chronic_followups (doctor_id, patient_id, next_followup_date) VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE next_followup_date = VALUES(next_followup_date), updated_at = CURRENT_TIMESTAMP(3)`, [doctorId, patientId, date]);
+  return { patientId, nextFollowupDate: date, ...followupStatus(date) };
 }
 
 /* ─── Alertes docteur ────────────────────────────────────────── */
@@ -1066,14 +1099,18 @@ export async function respondReferral(doctorId, referralId, accept) {
 export async function addVitalByDoctor(doctorId, patientId, payload) {
   await verifyDoctorPatientRelation(doctorId, patientId);
 
+  const norm = VITAL_NORMS[payload.type];
+  const value = normalizeVital(payload.type, payload.value);
+  if (!norm || value === null) throw Object.assign(new Error('Constante invalide.'), { status: 422 });
+  const context = validateVitalContext(payload.context);
   const id = randomUUID();
   const now = payload.measuredAt || new Date().toISOString();
   await pool.execute(
-    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, patientId, payload.type, payload.label || payload.type, String(payload.value), payload.unit || '', now, 'doctor', doctorId]
+    `INSERT INTO nova_vitals (id, patient_id, type, label, value, unit, measured_at, source_role, author_id, measurement_context)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, patientId, payload.type, norm.label, value, norm.unit, now, 'doctor', doctorId, JSON.stringify(context)]
   );
-  return { id, patientId, type: payload.type, value: payload.value, unit: payload.unit, measuredAt: now };
+  return { id, patientId, type: payload.type, value, unit: norm.unit, measuredAt: now, context, assessment: vitalAssessment(payload.type, value, context) };
 }
 
 // ── Doctor Conversations ──────────────────────────

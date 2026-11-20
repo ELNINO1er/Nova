@@ -1,7 +1,9 @@
+import { validFollowupDate } from '../services/chronic-followup.js';
 import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,conversationPatientId,ATTACHMENT_TYPES} from '../services/messaging.service.js';
 import {updateProfessionalProfile,professionalSlots,addProfessionalSlot,removeProfessionalSlot} from '../services/professional.service.js';
 import { recordLabResult } from '../services/clinical.service.js';
 import { Router } from 'express';
+import { cancelDoctorPrescription } from '../services/prescription-cancellation.service.js';
 import { z } from 'zod';
 import { phoneSchema } from '../services/phone.js';
 import { requireDoctor, requirePermission } from '../middleware/auth.js';
@@ -22,6 +24,7 @@ import {
   getDoctorLabRequests,
   createDoctorLabRequest,
   getChronicPatients,
+  setChronicFollowup,
   getDoctorAlerts,
   createDoctorAlert,
   resolveDoctorAlert,
@@ -220,20 +223,32 @@ router.post('/prescriptions', requirePermission('doctor.prescriptions'), validat
   patientId: z.string().min(1),
   consultationId:z.string().optional(),
   items:     z.array(z.object({
-    name:         z.string().min(1),
+    name:         z.string().trim().min(1),
     quantityPrescribed:z.number().int().positive().max(100000),
-    quantityUnit:z.string().min(1).max(40).default('unité'),
+    quantityUnit:z.string().trim().min(1).max(40).default('unité'),
     scheduleTimes:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(12).optional(),
     durationDays:z.number().int().min(1).max(365).optional(),
-    dosage:       z.string().optional(),
-    frequency:    z.string().optional(),
-    duration:     z.string().optional(),
+    dosage:       z.string().trim().min(1).optional(),
+    frequency:    z.string().trim().min(1).optional(),
+    duration:     z.string().trim().min(1).optional(),
     instructions: z.string().optional(),
   })).min(1),
   notes:     z.string().optional(),
   validDays: z.number().int().min(1).max(365).optional(),
 })), auditLog('prescription.create', 'prescription'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
+}));
+
+router.post('/prescriptions/:id/cancel', requirePermission('doctor.prescriptions'), validateBody(z.object({
+  reason: z.string().trim().min(5).max(1000),
+})), auditLog('prescription.cancel', 'prescription'), wrap(async (req, res) => {
+  res.json(await cancelDoctorPrescription(req.user.doctorId, req.params.id, req.body.reason));
+}));
+
+router.patch('/patients/:id/chronic-followup', requirePermission('doctor.patients'), validateBody(z.object({
+  nextFollowupDate: z.string().refine(validFollowupDate, 'Date invalide (AAAA-MM-JJ).').nullable(),
+})), auditLog('chronic_followup.update', 'patient'), wrap(async (req, res) => {
+  res.json(await setChronicFollowup(req.user.doctorId, req.params.id, req.body.nextFollowupDate));
 }));
 
 /* ─── Suivi chroniques ──────────────────────────────────────── */
@@ -462,6 +477,7 @@ router.post('/referrals/:id/decline', auditLog('referral.decline', 'referral'), 
 router.post('/patients/:id/vitals', requirePermission('doctor.patients'), validateBody(z.object({
   type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature']),
   value:      z.string().min(1).max(20),
+  context: z.object({ glucoseTiming: z.enum(['fasting', 'post_meal', 'random', 'unknown']).optional() }).strict().optional(),
   measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), auditLog('vital.create', 'vital'), wrap(async (req, res) => {
   // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.

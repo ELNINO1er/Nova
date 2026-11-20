@@ -1,4 +1,5 @@
 import NovaSelect from '../components/NovaSelect.jsx';
+import ReliabilityPanel from './ReliabilityPanel.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
@@ -845,7 +846,7 @@ function ASystem({ data, card, sub, darkMode }) {
   const line = `flex items-center justify-between py-2.5 border-b last:border-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`;
   // Mesures réellement en place dans le code (pas de certification revendiquée).
   const measures = [
-    'Mots de passe chiffrés (bcrypt), jamais stockés en clair',
+    'Mots de passe protégés par un hachage bcrypt',
     'Double authentification des médecins (application Authenticator)',
     'Blocage du compte 15 minutes après 5 essais',
     'Mot de passe provisoire à changer à la première connexion',
@@ -883,10 +884,11 @@ function ASystem({ data, card, sub, darkMode }) {
           ))}
           <p className={`text-xs mt-4 flex items-start gap-2 ${sub}`}>
             <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-            Sauvegardes et HTTPS dépendent du déploiement (services « backup » et « caddy » de docker-compose). Démarche ARTCI à engager avant toute donnée réelle.
+            Les sauvegardes doivent couvrir la base et les documents du stockage externe. Vérifiez leur restauration et les exigences applicables aux données de santé avec le responsable de la plateforme.
           </p>
         </div>
       </div>
+      <ReliabilityPanel initial={data.reliability} card={card} sub={sub} darkMode={darkMode} />
     </div>
   );
 }
