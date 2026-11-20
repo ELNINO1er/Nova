@@ -807,7 +807,10 @@ export async function getEmergencyCard(patientId) {
     `SELECT s.name, s.dosage, t.diagnosis FROM nova_medication_schedules s
      LEFT JOIN nova_medications m ON m.id = s.medication_id
      LEFT JOIN nova_treatments t ON t.id = m.treatment_id
-     WHERE s.patient_id = ? AND (s.ends_on IS NULL OR s.ends_on >= ?) AND (s.starts_on IS NULL OR s.starts_on <= ?)`,
+     WHERE s.patient_id = ? AND (s.ends_on IS NULL OR s.ends_on >= ?) AND (s.starts_on IS NULL OR s.starts_on <= ?)
+       AND NOT EXISTS (SELECT 1 FROM nova_prescription_items pi
+         JOIN nova_prescription_cancellations pc ON pc.prescription_id = pi.prescription_id
+         WHERE pi.id = s.prescription_item_id)`,
     [patientId, today, today]
   );
   const [unscheduled] = await pool.execute(

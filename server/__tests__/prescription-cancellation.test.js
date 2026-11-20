@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { initDb, pool } from '../db/database.js';
 import { createDoctorPrescription, getDoctorPrescription } from '../services/doctor.service.js';
 import { cancelDoctorPrescription } from '../services/prescription-cancellation.service.js';
-import { getPrescriptionQR, getMedicationToday, createMedicationIntake } from '../services/patient.service.js';
+import { getPrescriptionQR, getMedicationToday, createMedicationIntake, getEmergencyCard } from '../services/patient.service.js';
 import { createPharmacyOrder } from '../services/pharmacy-order.service.js';
 import { verifyPrescriptionQR } from '../services/pharmacy.service.js';
 
@@ -93,5 +93,17 @@ describe('Annulation tracée des ordonnances', () => {
     expect(results[1].status).toBe('fulfilled');
     const [[row]] = await pool.execute("SELECT COUNT(*) AS n FROM nova_pharmacy_orders WHERE prescription_id = ? AND status IN ('pending','ready','unavailable')", [rx.id]);
     expect(Number(row.n)).toBe(0);
+  });
+
+  it('retire le médicament annulé de la fiche urgence sans modifier son planning', async () => {
+    const rx = await prescription(true);
+    const name = `Médicament urgence ${rx.id}`;
+    await pool.execute('UPDATE nova_medication_schedules SET name = ? WHERE prescription_item_id IN (SELECT id FROM nova_prescription_items WHERE prescription_id = ?)', [name, rx.id]);
+    const [before] = await pool.execute('SELECT id, starts_on, ends_on FROM nova_medication_schedules WHERE prescription_item_id IN (SELECT id FROM nova_prescription_items WHERE prescription_id = ?)', [rx.id]);
+    expect((await getEmergencyCard(patientId)).currentMedications.some(m => m.name === name)).toBe(true);
+    await cancelDoctorPrescription(doctorId, rx.id, 'Arrêt du médicament figurant sur la fiche urgence');
+    expect((await getEmergencyCard(patientId)).currentMedications.some(m => m.name === name)).toBe(false);
+    const [after] = await pool.execute('SELECT id, starts_on, ends_on FROM nova_medication_schedules WHERE prescription_item_id IN (SELECT id FROM nova_prescription_items WHERE prescription_id = ?)', [rx.id]);
+    expect(after).toEqual(before);
   });
 });

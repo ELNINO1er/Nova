@@ -136,8 +136,9 @@ export async function updateOrderStatus(pharmacyId, orderId, { status, message }
       throw err(409, 'Cette ordonnance est expirée ou déjà délivrée : elle ne peut pas être préparée. Indiquez-la indisponible.', 'prescription_closed');
   }
   // Compare-and-set: a patient cancellation or counter dispense must never be undone
-  // by a pharmacist responding to a stale screen.
-  const [changed] = await pool.execute('UPDATE nova_pharmacy_orders SET status = ?, pharmacist_message = ?, updated_at = ? WHERE id = ? AND pharmacy_id = ? AND status = ?', [status, message?.trim() || null, new Date(), orderId, pharmacyId, o.status]);
+  // by a pharmacist responding to a stale screen. A partial dispense can leave
+  // status pending, but always changes dispense_id; compare that snapshot too.
+  const [changed] = await pool.execute('UPDATE nova_pharmacy_orders SET status = ?, pharmacist_message = ?, updated_at = ? WHERE id = ? AND pharmacy_id = ? AND status = ? AND dispense_id <=> ?', [status, message?.trim() || null, new Date(), orderId, pharmacyId, o.status, o.dispense_id ?? null]);
   if (!changed.affectedRows) throw err(409, 'Cette commande a changé. Rechargez la liste avant de répondre.', 'order_changed');
   const [[ph]] = await pool.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
   await createNotification({

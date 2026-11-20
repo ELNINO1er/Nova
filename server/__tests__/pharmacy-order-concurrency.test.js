@@ -17,7 +17,29 @@ describe('pharmacy order race protection', () => {
     await expect(updateOrderStatus('ph', 'order', { status, message: 'Rupture' })).rejects.toMatchObject({ status: 409, code: 'order_changed' });
     const [sql, args] = execute.mock.calls.at(-1);
     expect(sql).toContain('AND pharmacy_id = ? AND status = ?');
-    expect(args.slice(-3)).toEqual(['order', 'ph', 'pending']);
+    expect(args.slice(-4)).toEqual(['order', 'ph', 'pending', null]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+  it.each([null, 'prior-dispense'])('rejects a preparation response crossing a partial dispense (previous %s)', async previousDispense => {
+    const stored = { id: 'order', pharmacy_id: 'ph', patient_id: 'patient', prescription_id: 'rx', status: 'pending', dispense_id: previousDispense };
+    execute.mockImplementation(async (sql, args) => {
+      if (sql.startsWith('SELECT * FROM nova_pharmacy_orders')) return [[{ ...stored }]];
+      if (sql.startsWith('SELECT status, valid_until')) {
+        // A counter dispense commits after the order snapshot was read, leaving pending unchanged.
+        stored.dispense_id = 'new-partial-dispense';
+        return [[{ status: 'partial', valid_until: '2099-01-01' }]];
+      }
+      if (sql.startsWith('UPDATE nova_pharmacy_orders')) {
+        const matches = stored.status === args[5]
+          && (!sql.includes('dispense_id <=> ?') || stored.dispense_id === args[6]);
+        if (matches) stored.status = args[0];
+        return [{ affectedRows: matches ? 1 : 0 }];
+      }
+      return [[]];
+    });
+    await expect(updateOrderStatus('ph', 'order', { status: 'ready' })).rejects.toMatchObject({ status: 409, code: 'order_changed' });
+    expect(stored.status).toBe('pending');
+    expect(stored.dispense_id).toBe('new-partial-dispense');
     expect(notify).not.toHaveBeenCalled();
   });
   it('does not expose prescription detail for a closed order', async () => {
