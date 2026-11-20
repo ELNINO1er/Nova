@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, Share, Smartphone, X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useDialogFocus } from './useDialogFocus.js';
 import { INSTALL_DISMISSED_KEY, INSTALL_KNOWN_KEY, forgetInstallationChoice, installationHidden, isAppleMobile, isPhoneOrTablet, isStandalone, rememberInstallationChoice } from '../utils/pwa.js';
 
 export default function InstallPrompt() {
+  const { pathname } = useLocation();
   const [promptEvent, setPromptEvent] = useState(null);
   const [installed, setInstalled] = useState(() => isStandalone() || installationHidden(INSTALL_KNOWN_KEY));
   const [dismissed, setDismissed] = useState(() => installationHidden(INSTALL_DISMISSED_KEY));
@@ -15,6 +17,14 @@ export default function InstallPrompt() {
   const panel = useRef(null);
   const apple = isAppleMobile();
   useDialogFocus(instructions, panel, () => setInstructions(false));
+
+  useEffect(() => {
+    // Le retrait du formulaire de connexion ne déclenche pas toujours focusout.
+    const frame = window.requestAnimationFrame(() => {
+      setEditing(/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || ''));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname]);
 
   useEffect(() => {
     const mode = window.matchMedia('(display-mode: standalone)');
