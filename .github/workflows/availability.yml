@@ -1,0 +1,30 @@
+name: Vérification de disponibilité NOVA
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  public-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      NOVA_HEALTH_URL: ${{ vars.NOVA_HEALTH_URL || 'https://nova.mhtechconsulting.com/api/health' }}
+    steps:
+      - name: Contrôler la base et le stockage persistant
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            if curl --fail --silent --show-error --max-time 15 "$NOVA_HEALTH_URL" -o /tmp/nova-health.json &&
+              jq -e '.ok == true and .database == "up" and .uploads == "writable" and .uploadsStorage == "external"' /tmp/nova-health.json >/dev/null; then
+              echo 'NOVA répond et son stockage externe est inscriptible.'
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then sleep 8; fi
+          done
+          echo '::error::NOVA indisponible ou stockage non persistant. Consulter hPanel et les journaux sans restaurer la production automatiquement.'
+          exit 1
