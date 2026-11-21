@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useMemo, useState } from 'react';
 import { Pill, HeartPulse, CalendarClock, Stethoscope } from 'lucide-react';
 import { formatDate, capitalize } from '../../utils/format.js';
@@ -30,12 +31,7 @@ export default function PTreatments({ data, card, sub, darkMode }) {
   const visible = filter === 'all' ? results : results.filter((t) => (filter === 'planned' ? t.planned : !t.planned));
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Mes traitements" sub={sub} />
-        {[0, 1].map((i) => <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-36 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} /></Card>)}
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   return (

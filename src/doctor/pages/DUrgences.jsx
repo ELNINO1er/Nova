@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, AlertTriangle, Bell, Check, CheckCircle2, ChevronRight, Clock, Phone, Plus, Save, Search, ShieldAlert, X } from 'lucide-react';
@@ -150,7 +151,7 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
 
       {/* Alertes ouvertes */}
       {loading ? (
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : open.length === 0 && !showForm ? (
         <div className={`${card} border rounded-2xl p-8 flex flex-col items-center gap-2`}>
           <CheckCircle2 className="w-10 h-10 text-red-500" />

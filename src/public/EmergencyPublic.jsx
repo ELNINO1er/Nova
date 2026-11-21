@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertTriangle, Droplet, HeartPulse, Phone, Pill, ShieldAlert, User } from 'lucide-react';
@@ -45,7 +46,7 @@ export default function EmergencyPublic() {
           <Phone className="w-5 h-5" /> Appeler le SAMU (185)
         </a>
 
-        {!card && !error && <div className="h-40 rounded-2xl bg-white animate-pulse" role="status" aria-label="Chargement" />}
+        {!card && !error && <HeartLoader compact />}
         {error && (
           <div role="alert" className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
             <AlertTriangle className="w-8 h-8 mx-auto text-amber-500" />

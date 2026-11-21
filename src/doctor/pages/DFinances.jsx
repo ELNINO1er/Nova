@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React from 'react';
 import { AlertCircle, BarChart3, FileDown, TrendingUp, Wallet, Banknote } from 'lucide-react';
 
@@ -7,14 +8,7 @@ const monthLabel = (ym) => {
 };
 
 export default function DFinances({ data, loading, card, sub, darkMode, setPage }) {
-  if (loading || !data) return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-28 rounded-2xl`} />)}
-      </div>
-      <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />
-    </div>
-  );
+  if (loading || !data) return <HeartLoader darkMode={darkMode} />;
 
   const { consultationFee, totalConsultations, monthConsultations, estimatedMonthRevenue, estimatedTotalRevenue, activePrescriptions, paidTotal = 0, paidCount = 0, monthlyData = [] } = data;
   const hasFee = Number(consultationFee) > 0;

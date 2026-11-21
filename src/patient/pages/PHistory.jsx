@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { patientApi } from '../../api/patientApi.js';
 import { ClipboardList, FilePenLine } from 'lucide-react';
@@ -112,12 +113,7 @@ export default function PHistory({ data, sub, darkMode }) {
   const found = useSearch(entries, query, FIELDS);
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Historique médical" sub={sub} />
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-5">{[0, 1].map((i) => <div key={i} className={`animate-pulse h-72 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}</div>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   const reportCount = entries.filter((e) => e.report).length;

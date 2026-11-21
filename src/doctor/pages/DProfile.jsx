@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import {useUnsaved} from '../../unsaved.js';
 import React,{useEffect,useState} from 'react';
 import {doctorApi} from '../../api/doctorApi.js';
@@ -6,7 +7,7 @@ import { initials } from '../../utils/format.js';
 
 export default function DProfile({ data, loading, card, sub, border, darkMode, notify, onSaved }) {
   if (loading || !data) {
-    return <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />;
+    return <HeartLoader darkMode={darkMode} />;
   }
   const colorMap = { red: 'from-red-600 to-red-800', emerald: 'from-red-600 to-red-800', blue: 'from-red-600 to-red-800', indigo: 'from-red-600 to-red-800' };
   const grad = colorMap[data.avatarColor] || colorMap.red;

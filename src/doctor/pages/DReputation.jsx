@@ -1,12 +1,9 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React from 'react';
 import { Award, Star, TrendingUp, Users } from 'lucide-react';
 
 export default function DReputation({ data, loading, card, sub, border, darkMode }) {
-  if (loading || !data) return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {[0,1].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />)}
-    </div>
-  );
+  if (loading || !data) return <HeartLoader darkMode={darkMode} />;
 
   const { avgRating, total, distribution, ratings = [] } = data;
   const maxDist = Math.max(...distribution.map(d => d.count), 1);

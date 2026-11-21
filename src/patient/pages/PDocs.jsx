@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useRef } from 'react';
 import { FileText, Plus, Trash2, Download, Upload, AlertTriangle, CheckCircle2, ClipboardList, FileDown, HardDrive, Microscope, Lock } from 'lucide-react';
@@ -91,14 +92,7 @@ export default function PDocs({ data, onReload, notify, card, sub, border, darkM
   };
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Mes documents" sub={sub} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {[0, 1, 2, 3].map(i => <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-32 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>)}
-        </div>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   const closeForm = () => { setShowForm(false); setPickedFile(null); };

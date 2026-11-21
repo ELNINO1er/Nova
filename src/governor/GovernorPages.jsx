@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useEffect, useState } from 'react';
 import { Activity, BarChart3, Building2, ClipboardList, FlaskConical, Pill, RefreshCw, Stethoscope, Users } from 'lucide-react';
@@ -31,7 +32,7 @@ function GovernorDashboard({ card, sub, darkMode }) {
 
   if (error && !data) return <PageError message={error} onRetry={load} card={card} sub={sub} />;
   if (!data) {
-    return <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">{[0, 1, 2, 3].map((i) => <div key={i} className={`h-32 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />)}</div>;
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   const k = data.kpis;

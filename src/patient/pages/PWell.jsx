@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useState } from 'react';
 import { Target, Plus, Minus, Activity, Droplet, Moon as MoonIcon, Heart, HeartPulse, CheckCircle2, Sun, X, Footprints, Scale, Apple } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -136,12 +137,7 @@ export default function PWell({ data, profile: profileProp, onReload, notify, ca
   const avgProgress = goals.length ? Math.round(goals.reduce((s, g) => s + (Number(g.progress) || 0), 0) / goals.length) : 0;
   const step = (goal) => Math.max(1, goal.target * 0.05);
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Bien-être & Prévention" sub={sub} />
-      <Card darkMode={darkMode}><div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const showBmi = Boolean(bmi && bmiCategory);
   const firstName = profile?.firstName;

@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+.nova-heart-loader { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.25rem; min-height: 16rem; padding: 2rem 1rem; text-align: center; }
+.nova-heart-loader--full { min-height: 100svh; }
+.nova-heart-loader--compact { min-height: 6rem; padding: 1rem; gap: .75rem; }
+.nova-heart-loader__halo { display: grid; place-items: center; width: 6rem; height: 6rem; border-radius: 50%; background: rgb(220 38 38 / .07); }
+.nova-heart-loader__logo { display: block; border-radius: 1rem; animation: nova-heartbeat 1.8s ease-in-out infinite; }
+.nova-heart-loader--compact .nova-heart-loader__halo { width: 3.5rem; height: 3.5rem; }
+.nova-heart-loader--compact .nova-heart-loader__logo { width: 40px; height: 40px; border-radius: .7rem; }
+@keyframes nova-heartbeat { 0%, 55%, 100% { transform: scale(1); } 15% { transform: scale(1.08); } 30% { transform: scale(1); } 40% { transform: scale(1.045); } }
+@media (prefers-reduced-motion: reduce) { .nova-heart-loader__logo { animation: none; } }
+
 html {
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;

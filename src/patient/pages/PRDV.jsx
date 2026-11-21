@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import { useLocation } from 'react-router-dom';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -224,12 +225,7 @@ export default function PRDV({ data, onReload, notify, card, sub, darkMode, setS
   const label = `block text-xs font-medium mb-1.5 ${sub}`;
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Mes rendez-vous" sub={sub} />
-        {[0, 1, 2].map((i) => <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} /></Card>)}
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   return (

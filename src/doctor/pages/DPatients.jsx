@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import LabResultDetails from './LabResultDetails.jsx';
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
             {search && <button type="button" onClick={() => setSearch('')} aria-label="Effacer la recherche"><X className={`w-3 h-3 ${sub}`} aria-hidden="true" /></button>}
           </div>
           {loading ? (
-            <div className="space-y-2">{[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-12 rounded-xl`} />)}</div>
+            <div className="space-y-2"><HeartLoader darkMode={darkMode} compact /></div>
           ) : filtered.length === 0 ? (
             <p className={`text-xs ${sub} text-center py-4`}>Aucun patient trouvé</p>
           ) : (
@@ -93,7 +94,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
           </div>
         ) : patLoading ? (
           <div className={`${card} border rounded-2xl p-6 space-y-3`}>
-            {[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-16 rounded-xl`} />)}
+            <HeartLoader darkMode={darkMode} compact />
           </div>
         ) : patFile ? (
           <div className="space-y-4">

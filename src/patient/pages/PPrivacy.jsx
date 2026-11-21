@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useState, useEffect } from 'react';
 import { Shield, Eye, Lock, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { confirmDialog } from '../../components/dialogs.jsx';
@@ -91,14 +92,7 @@ export default function PPrivacy({ data, onReload, notify, card, sub, darkMode }
   };
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Accès au dossier" sub={sub} />
-        {[0, 1, 2].map(i => (
-          <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-        ))}
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   // Révoquer / autoriser un médecin : la décision la plus récente fait foi côté serveur.

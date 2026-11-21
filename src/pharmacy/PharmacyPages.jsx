@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import NovaSelect from '../components/NovaSelect.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -570,17 +571,7 @@ function StatusBadge({ ok, label, darkMode }) {
   );
 }
 
-function PhSkeleton({ darkMode, card }) {
-  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
-  return (
-    <div className="space-y-4 animate-pulse">
-      <div className={`h-32 rounded-2xl ${darkMode ? 'bg-red-900' : 'bg-red-100'}`}></div>
-      <div className="grid grid-cols-3 gap-4">
-        {[0,1,2].map(i => <div key={i} className={`${card} border rounded-2xl p-5 h-28`}><div className={`${block} h-10 w-10 rounded-lg mb-3`}></div><div className={`${block} h-4 w-16`}></div></div>)}
-      </div>
-    </div>
-  );
-}
+function PhSkeleton({ darkMode, card }) { return <HeartLoader darkMode={darkMode} />; }
 
 /* Lecture du QR par la caméra (API BarcodeDetector du navigateur, sans bibliothèque externe). */
 function CameraScanner({ onResult, onClose, notify }) {

@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useMemo, useState } from 'react';
 import { Bell, CheckCheck, Calendar, Pill, Microscope, MessageCircle, Syringe, FileText, Stethoscope, ShieldCheck, Share2, ChevronRight } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -73,14 +74,7 @@ export default function PNotifications({ data, onReload, notify, setPage, card, 
     } catch(e) {notify?.(e.message,'error');}
   };
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Notifications" sub={sub} />
-      <Card darkMode={darkMode}>
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}</div>
-      </Card>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const line = darkMode ? 'divide-slate-800' : 'divide-slate-100';
 

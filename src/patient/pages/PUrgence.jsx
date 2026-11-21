@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import { createPortal } from 'react-dom';
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Shield, Siren, Printer, PhoneCall, Pill, QrCode, ShieldAlert, HeartPulse, Phone, UserRound } from 'lucide-react';
@@ -52,14 +53,7 @@ export default function PUrgence({ data, card, sub, border, darkMode }) {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
   }, [printing]);
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="SOS Urgence" sub={sub} />
-      <Card darkMode={darkMode}>
-        <div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />
-      </Card>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const age = ageFrom(data.birthDate);
 

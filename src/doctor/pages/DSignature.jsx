@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useState, useRef, useEffect } from 'react';
 import { AlertCircle, CheckCircle2, Edit3, Save, Shield, Trash2, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
@@ -102,7 +103,7 @@ export default function DSignature({ data, loading, onSave, notify, doctorName, 
     }
   };
 
-  if (loading) return <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />;
+  if (loading) return <HeartLoader darkMode={darkMode} />;
 
   return (
     <div className="space-y-4">

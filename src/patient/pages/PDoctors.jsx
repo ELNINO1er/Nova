@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Star, MapPin, PhoneCall, Users, Wallet, X, ShieldCheck, Briefcase, Stethoscope, CalendarDays, Phone } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -121,14 +122,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
   const resetFilters = () => { setQ(''); setSpec('all'); setCmu(false); };
   const shortCity = (doc) => (doc.city || '').split(' - ')[1] || doc.city;
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Trouver un médecin" sub={sub} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-        {[0, 1, 2, 3].map(i => <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} /></Card>)}
-      </div>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   return (
     <div className="space-y-5">
@@ -264,7 +258,7 @@ export default function PDoctors({ data, onBooked, notify, card, sub, border, da
               <div className="p-5">
                 <p className="font-semibold text-sm mb-3">Créneaux disponibles</p>
                 {loadingSlots ? (
-                  <div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />
+                  <HeartLoader darkMode={darkMode} compact />
                 ) : Object.keys(slotsByDate).length === 0 ? (
                   slotsError
                     ? <div className="text-center py-6"><p className="text-sm text-red-700">{slotsError}</p><button type="button" onClick={() => openDoctor(selected)} className="mt-2 text-sm font-semibold text-red-700 underline">Réessayer</button></div>

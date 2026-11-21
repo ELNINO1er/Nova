@@ -1,3 +1,4 @@
+import HeartLoader from './components/HeartLoader.jsx';
 import { clearPatientSearch } from './utils/search.js';
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertCircle, BarChart3, Bell, Bot, ChevronDown, HeartPulse, Lock, LogOut, Menu, Moon, Pill, Settings, Shield, Siren, Stethoscope, Sun, User, X } from 'lucide-react';
@@ -98,18 +99,7 @@ function AccountMenu({ user, roleLabel, photoSrc, links, onNavigate, onLogout, l
   );
 }
 
-function PageFallback({ darkMode }) {
-  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
-  return (
-    <div className="space-y-4 animate-pulse">
-      <div className={`h-36 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-100'}`}></div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className={`h-32 rounded-xl ${block}`}></div>
-        <div className={`h-32 rounded-xl ${block}`}></div>
-      </div>
-    </div>
-  );
-}
+function PageFallback({ darkMode, fullPage = false }) { return <HeartLoader darkMode={darkMode} fullPage={fullPage} />; }
 
 export default function App() {
   const [user, setUser] = useState(() => {
@@ -282,7 +272,7 @@ export default function App() {
     if(auth==='ok' && (parts[0]!==pageRole || !ROLE_PAGES[pageRole]?.includes(parts[1])))navigate(`/${pageRole}/dashboard`,{replace:true});
   },[auth,location.pathname,pageRole]);
 
-  if (auth === 'checking') return <PageFallback darkMode={darkMode} />;
+  if (auth === 'checking') return <PageFallback darkMode={darkMode} fullPage />;
   if (auth !== 'ok') return <Login auth={auth} setAuth={setAuth} onLogin={onLogin} />;
   if (idleLocked) return (
     <main className="grid min-h-screen place-items-center bg-red-50 p-4 text-slate-900">

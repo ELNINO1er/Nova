@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Syringe, Clock, Printer, ShieldCheck, AlertTriangle } from 'lucide-react';
@@ -56,15 +57,7 @@ export default function PVax({ data, card, sub, border, darkMode }) {
   const found = useSearch(vaccines, query, FIELDS);
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Carnet vaccinal" sub={sub} />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-          {[0, 1, 2].map(i => <div key={i} className={`animate-pulse h-32 rounded-3xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
-        </div>
-        <Card darkMode={darkMode}><div className={`animate-pulse h-40 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
   const vs = vaccines;
   const upToDateCount = vs.filter((v) => !v.due).length;

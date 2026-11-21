@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { Users, Plus, Edit3, Trash2, X, UserPlus, Calendar, Smartphone, Mail } from 'lucide-react';
@@ -92,16 +93,7 @@ export default function PFamily({ data, onReload, notify, card, sub, darkMode })
   const labelCls = 'block text-xs font-medium text-slate-500 space-y-1';
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Famille" sub={sub} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {[0, 1].map(i => (
-            <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-20 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   return (

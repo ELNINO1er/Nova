@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, CalendarDays, ChevronRight, ClipboardList, Clock3, Mail, Search, Stethoscope, UserRound, Users } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
@@ -180,11 +181,7 @@ export default function DDash({ data, loading, setPage, onCP, sub, darkMode }) {
     }
   }
 
-  if (!data && loading !== false) return (
-    <div role="status" aria-label="Chargement du tableau de bord" className="grid gap-3 sm:grid-cols-3">
-      {[0, 1, 2, 3, 4, 5].map(i => <div key={i} className={`h-28 animate-pulse rounded-xl ${surface}`} />)}
-    </div>
-  );
+  if (!data && loading !== false) return <HeartLoader darkMode={darkMode} />;
 
   return (
     <div data-theme={darkMode ? 'dark' : 'light'} className="group space-y-4">

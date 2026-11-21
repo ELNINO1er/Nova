@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useState, useEffect } from 'react';
 import { StickyNote, Plus, Trash2, Save, Pencil, Star } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -98,15 +99,7 @@ export default function PNotes({ data, onReload, notify, card, sub, border, dark
   };
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Mes notes" sub={sub} />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <Card darkMode={darkMode} className="space-y-3">{[0, 1, 2].map(i => <div key={i} className={`animate-pulse h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}</Card>
-          <Card darkMode={darkMode} className="lg:col-span-2"><div className={`animate-pulse h-72 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-        </div>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   // Recherche puis filtre ; sans requête, les notes épinglées restent en tête (la recherche trie par pertinence).

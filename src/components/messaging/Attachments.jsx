@@ -1,3 +1,4 @@
+import HeartLoader from '../HeartLoader.jsx';
 import React, { useEffect, useState } from 'react';
 import { ClipboardList, Download, FileText, FlaskConical, HeartPulse, Pill, X } from 'lucide-react';
 
@@ -55,7 +56,7 @@ export function AttachmentPicker({ load, onPick, onClose, darkMode }) {
         })}
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p>
-        : !data ? <div className={`animate-pulse h-24 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />
+        : !data ? <HeartLoader darkMode={darkMode} compact />
         : items.length === 0 ? <p className="text-sm text-slate-500 py-6 text-center">Aucun élément dans cette rubrique.</p>
         : (
           <ul className="space-y-2">
@@ -135,7 +136,7 @@ export function AttachmentViewer({ load, loadFile, onClose, darkMode }) {
         </button>
       )}>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {!d && !error && <div className={`animate-pulse h-32 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />}
+      {!d && !error && <HeartLoader darkMode={darkMode} compact />}
       {d?.type === 'prescription' && (
         <div className="space-y-1">
           <Row label="Prescripteur" value={[d.doctorName, d.doctorSpecialty].filter(Boolean).join(' · ')} />

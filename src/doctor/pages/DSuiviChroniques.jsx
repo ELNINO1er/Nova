@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import { doctorApi } from '../../api/doctorApi.js';
 import React, { useState } from 'react';
 import { patientMeta } from '../../utils/format.js';
@@ -62,7 +63,7 @@ export default function DSuiviChroniques({ data, loading, onReload, notify, setP
 
       {/* Liste */}
       {loading ? (
-        <div className="space-y-3">{[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-24 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : filtered.length === 0 ? (
         <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2`}>
           <HeartPulse className={`w-10 h-10 ${sub}`} />

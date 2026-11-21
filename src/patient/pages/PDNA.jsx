@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, HeartPulse, Plus, Stethoscope, Users, X } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -72,12 +73,7 @@ export default function PDNA({ data, profile: profileProp, onReload, notify, sub
       inRecord ? 'Votre déclaration est retirée ; l’élément reste inscrit au dossier par votre médecin.' : 'Élément retiré.');
   };
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Infos médicales" sub={sub} />
-      {[0, 1].map((i) => <div key={i} className={`animate-pulse h-40 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const line = darkMode ? 'border-slate-800' : 'border-slate-200';
   const age = ageOf(profile?.birthDate);

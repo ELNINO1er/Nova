@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Calendar, Microscope, MessageCircle, Pill, Syringe } from 'lucide-react';
 import { patientApi } from '../api/patientApi.js';
@@ -72,7 +73,7 @@ export default function NotificationBell({ count = 0, onCount, setPage, darkMode
           </div>
           <div className="max-h-96 overflow-y-auto p-1.5">
             {error && <p role="alert" className="px-3 py-4 text-sm text-red-600">{error}</p>}
-            {!error && !items && [0, 1, 2].map((i) => <div key={i} className={`animate-pulse h-14 m-1.5 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
+            {!error && !items && [0, 1, 2].map((i) => <HeartLoader darkMode={darkMode} compact />)}
             {!error && items?.length === 0 && <p className={`px-3 py-8 text-center text-sm ${sub}`}>Aucune notification.</p>}
             {items?.map((n) => {
               const Icon = iconOf(n);

@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import { useLocation } from 'react-router-dom';
 import {useDialogFocus} from '../../components/useDialogFocus.js';
@@ -183,7 +184,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
 
       {/* Liste */}
       {loading ? (
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-24 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : consultations.length === 0 ? (
         <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2`}>
           <ClipboardList className={`w-10 h-10 ${sub}`} />

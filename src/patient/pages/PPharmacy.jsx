@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useState } from 'react';
 import { MapPin, Phone, Pill, ClipboardList, Siren, X, Clock } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -132,7 +133,7 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify, s
           {ordersError && <div role="alert" className="text-sm text-red-700">{ordersError} <button type="button" onClick={loadOrders} className="underline">Réessayer</button></div>}
           {!orders && !ordersError ? (
             <Card darkMode={darkMode}>
-              <div className={`animate-pulse h-28 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />
+              <HeartLoader darkMode={darkMode} compact />
             </Card>
           ) : !orders ? null : orders.length === 0 ? (
             <EmptyState Icon={ClipboardList} title="Aucune ordonnance envoyée" darkMode={darkMode}

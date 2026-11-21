@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Send, ChevronLeft, ChevronUp, ChevronDown, CheckCheck, Plus, Paperclip, X } from 'lucide-react';
@@ -197,14 +198,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
 
   const line = darkMode ? 'border-slate-800' : 'border-slate-100';
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Messages" sub={sub} />
-      <Card darkMode={darkMode}>
-        <div className={`animate-pulse h-96 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`}></div>
-      </Card>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const activeConv = convList.find(c => c.id === selId);
   const unreadTotal = convList.reduce((s, c) => s + c.unreadCount, 0);
@@ -341,9 +335,7 @@ export default function PMsg({ data, onConversationsChange, card, sub, border, d
                 {/* Messages */}
                 <div className={`flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-1 ${darkMode ? 'bg-slate-950/40' : 'bg-white'}`}>
                   {convLoading ? (
-                    <div className="flex items-center justify-center h-full" role="status" aria-label="Chargement">
-                      <div className="animate-spin w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full" />
-                    </div>
+                    <HeartLoader darkMode={darkMode} compact />
                   ) : convError ? (
                     <div className="flex flex-col items-center justify-center h-full text-center gap-3">
                       <p className={`text-sm ${sub}`}>{convError}</p>

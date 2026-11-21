@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, FileText, Printer, QrCode, Send, ShieldCheck } from 'lucide-react';
@@ -200,14 +201,7 @@ export default function POrdonnances({ data, sub, darkMode, notify, setPage }) {
     finally { setQrLoading(''); }
   };
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Ordonnances" sub={sub} />
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-5">
-        {[0, 1].map((i) => <div key={i} className={`animate-pulse h-72 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />)}
-      </div>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const line = darkMode ? 'border-slate-800' : 'border-slate-100';
 

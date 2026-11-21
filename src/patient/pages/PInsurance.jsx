@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useState } from 'react';
 import { Shield, FileText, CheckCircle2, Stethoscope, Percent, CalendarClock, Plus, Edit3, Trash2 } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -46,16 +47,7 @@ export default function PInsurance({ data, onReload, notify, card, sub, border, 
   };
   const results = useSearch(data, query, INSURANCE_FIELDS);
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Assurance" sub={sub} />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {[0, 1].map(i => (
-          <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-40 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-        ))}
-      </div>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const totalRate = data.length ? Math.round(data.reduce((s, i) => s + (Number(i.reimbursementRate) || 0), 0) / data.length) : 0;
   const activeCount = data.filter((i) => i.status === 'active').length;

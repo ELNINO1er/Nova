@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import NovaSelect from '../components/NovaSelect.jsx';
 import ReliabilityPanel from './ReliabilityPanel.jsx';
 import React, { useEffect, useRef, useState } from 'react';
@@ -72,13 +73,7 @@ export default function AdminPages({ page, setPage, card, sub, border, darkMode 
   );
 }
 
-function Skeleton({ darkMode }) {
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-      {[0, 1, 2, 3].map((i) => <div key={i} className={`h-28 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />)}
-    </div>
-  );
-}
+function Skeleton({ darkMode }) { return <HeartLoader darkMode={darkMode} />; }
 
 function StatCard({ label, value, hint, Icon, card, sub }) {
   return <KpiCard label={label} value={Number(value || 0).toLocaleString('fr-FR')} hint={hint} Icon={Icon} card={card} sub={sub} />;

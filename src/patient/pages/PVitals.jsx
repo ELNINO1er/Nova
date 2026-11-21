@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useMemo, useState } from 'react';
 import { Heart, HeartPulse, Droplet, Thermometer, TrendingUp, TrendingDown, Plus, Activity } from 'lucide-react';
@@ -101,15 +102,7 @@ export default function PVitals({ data, onAddVital, notify, card, sub, border, d
     }
   };
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Mes constantes" sub={sub} />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        {[0, 1, 2, 3].map(i => <div key={i} className={`animate-pulse h-32 rounded-3xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} />)}
-      </div>
-      <Card darkMode={darkMode}><div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const axis = darkMode ? '#94a3b8' : '#64748b';
   const grid = darkMode ? '#1e293b' : '#fee2e2';

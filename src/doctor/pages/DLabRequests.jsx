@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import LabResultDetails from './LabResultDetails.jsx';
 import {useUnsaved} from '../../unsaved.js';
@@ -108,7 +109,7 @@ export default function DLabRequests({ data, loading, onReload, patientsData, lo
       )}
 
       {loading ? (
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : requests.length === 0 ? (
         <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2`}>
           <Microscope className={`w-10 h-10 ${sub}`} />

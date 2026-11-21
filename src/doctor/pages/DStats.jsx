@@ -1,13 +1,10 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React from 'react';
 import { Star, Stethoscope } from 'lucide-react';
 
 export default function DStats({ data, loading, card, sub, border, darkMode }) {
   if (loading || !data) {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {[0,1].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />)}
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   const { totalPatients = 0, totalConsultations = 0, avgRating = '—', ratingCount = 0, diagnoses = [], ratings = [] } = data;

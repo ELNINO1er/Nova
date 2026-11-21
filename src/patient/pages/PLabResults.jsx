@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useState } from 'react';
 import { Microscope, ChevronDown, AlertTriangle, Clock, CalendarDays } from 'lucide-react';
 import { formatDate } from '../../utils/format.js';
@@ -43,12 +44,7 @@ export default function PLabResults({ data, card, sub, border, darkMode }) {
   const [query, setQuery] = useUrlQuery();
   const found = useSearch(data || EMPTY, query, FIELDS);
 
-  if (!data) return (
-    <div className="space-y-5">
-      <PageHeader title="Résultats de laboratoire" sub={sub} />
-      <div className="space-y-3">{[0, 1, 2].map(i => <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-12 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>)}</div>
-    </div>
-  );
+  if (!data) return <HeartLoader darkMode={darkMode} />;
 
   const totalAbnormal = data.filter(isAbnormal).length;
   const totalPending = data.filter(r => r.status === 'pending').length;

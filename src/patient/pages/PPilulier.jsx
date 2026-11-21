@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pill, Check, Clock, X, AlertTriangle, Bell, Moon, Sun, FileText } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -67,16 +68,7 @@ export default function PPilulier({ data, onReload, notify, pills, setPills, car
   const ring = darkMode ? 'border border-slate-700 hover:bg-slate-800' : 'border border-slate-200 bg-white hover:bg-red-50';
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Prises prévues" sub={sub} />
-        <Card darkMode={darkMode}>
-          <div className="animate-pulse space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className={`h-16 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50/60'}`} />)}
-          </div>
-        </Card>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   return (

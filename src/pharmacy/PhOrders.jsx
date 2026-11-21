@@ -1,3 +1,4 @@
+import HeartLoader from '../components/HeartLoader.jsx';
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, Inbox, Pill, ScanLine, XCircle } from 'lucide-react';
 import { pharmacyApi } from '../api/pharmacyApi.js';
@@ -48,7 +49,7 @@ export default function PhOrders({ notify, setPage, onCountChange }) {
   };
 
   if (error && !orders) return <p role="alert" className="text-sm text-red-700">{error}</p>;
-  if (!orders) return <div className="h-40 rounded-xl bg-red-50 animate-pulse" role="status" aria-label="Chargement" />;
+  if (!orders) return <HeartLoader />;
 
   const groups = GROUPS.map(([key, title]) => [key, title, orders.filter((o) => (key === 'done' ? ['dispensed', 'cancelled'].includes(o.status) : o.status === key))]);
   if (!orders.length) return (

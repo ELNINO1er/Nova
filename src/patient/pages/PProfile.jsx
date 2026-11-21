@@ -1,3 +1,4 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { User, Calendar, Smartphone, Mail, MapPin, Heart, Edit3, Save, X, Siren, FileDown, Camera, Trash2, IdCard } from 'lucide-react';
@@ -114,16 +115,7 @@ export default function PProfile({ data, onSaved, card, sub, border, darkMode })
   };
 
   if (!data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader title="Mon profil" sub={sub} />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {[0, 1, 2].map(i => (
-            <Card key={i} darkMode={darkMode}><div className={`animate-pulse h-48 rounded-2xl ${darkMode ? 'bg-slate-800' : 'bg-red-50'}`} /></Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <HeartLoader darkMode={darkMode} />;
   }
 
   /* Ligne libellé / valeur, ou champ de saisie en mode édition. */

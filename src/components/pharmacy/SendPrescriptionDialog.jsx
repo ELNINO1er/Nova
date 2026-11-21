@@ -1,3 +1,4 @@
+import HeartLoader from '../HeartLoader.jsx';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, MapPin, Search, Send, Siren, X } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
@@ -69,7 +70,7 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           <div>
             <p className="text-sm font-semibold mb-2">1. Ordonnance</p>
-            {!prescriptions ? <div className="h-12 rounded-xl bg-red-50 animate-pulse" />
+            {!prescriptions ? <HeartLoader darkMode={darkMode} compact />
               : prescriptions.length === 0 ? <p className={`text-sm ${muted}`}>Aucune ordonnance active à faire préparer.</p>
               : (
                 <div className="space-y-2">
@@ -93,7 +94,7 @@ export default function SendPrescriptionDialog({ prescriptionId: initialRx, phar
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom, quartier, ville, « de garde »…" aria-label="Rechercher une pharmacie" className="flex-1 min-w-0 bg-transparent text-sm outline-none" />
             </label>
             <div className="mt-2 max-h-56 overflow-y-auto space-y-2 pr-1">
-              {!pharmacies ? <div className="h-12 rounded-xl bg-red-50 animate-pulse" />
+              {!pharmacies ? <HeartLoader darkMode={darkMode} compact />
                 : shown.length === 0 ? <p className={`text-sm ${muted} py-3`}>Aucune pharmacie trouvée.</p>
                 : shown.map((p) => (
                   <label key={p.id} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer ${phId === p.id ? 'border-red-400 bg-red-50/60 text-slate-900' : line}`}>
