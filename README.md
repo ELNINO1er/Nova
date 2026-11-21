@@ -105,7 +105,7 @@ L'interface change intégralement selon le rôle connecté (chargée à la deman
 
 - **Connexion téléphone + OTP** (code 4 chiffres, tentatives limitées, expiration).
   Les médecins ont en plus un login **email + mot de passe** (bcrypt) suivi d'un OTP.
-- **JWT** : access token (1 h) + refresh token (7 j) avec **rotation** & blacklist, cookies `httpOnly`.
+- **JWT** : access token (30 min) + refresh token (7 j) avec rotation, révocation persistante et cookies `httpOnly`.
 - **RBAC** — rôles & permissions granulaires (`nova_roles`, `nova_permissions`) ; chaque route vérifie
   une permission précise (ex. `doctor.prescriptions`, `pharmacy.dispense`).
 - **Consentements** — un médecin demande l'accès au dossier ; le patient accorde/révoque.
@@ -123,7 +123,7 @@ Application **full-stack JavaScript** en deux parties découplées.
 |--------|-------------|
 | **Frontend** (port `5174`) | React 19, Vite, Tailwind CSS 3, Lucide, lazy loading par rôle, dark mode persistant, `ErrorBoundary`, PWA |
 | **Backend / API** (port `4001`) | Node.js, Express 4, architecture **routes → services → DB**, validation **Zod**, middlewares compression / cache / pagination / audit |
-| **Base de données** | MySQL 8 (`sika_sante`), ~40 tables préfixées `nova_*`, migrations idempotentes au démarrage, données de démo auto-injectées |
+| **Base de données** | MySQL 8 (`nova`), ~40 tables préfixées `nova_*`, migrations idempotentes au démarrage, données de démo optionnelles |
 | **Qualité & Ops** | **Swagger/OpenAPI** (`/api/docs`), tests **Vitest**, **Docker** + **CI/CD** (GitHub Actions) |
 
 ---
@@ -132,7 +132,7 @@ Application **full-stack JavaScript** en deux parties découplées.
 
 ### Prérequis
 - **Node.js** ≥ 18
-- **MySQL 8** (via WAMP ou natif) — une base `sika_sante` accessible
+- **MySQL 8** (via WAMP ou natif) — une base `nova` accessible
 
 ### 1. Cloner & installer
 ```bash
@@ -150,9 +150,9 @@ VITE_API_BASE_URL=http://localhost:4001/api
 
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=sika_sante
+DB_USER=nova_app
+DB_PASSWORD=change-me-to-a-strong-app-database-password
+DB_NAME=nova
 
 JWT_SECRET=change-me-to-a-random-string   # ⚠️ obligatoire
 ```
@@ -229,7 +229,7 @@ Nova/
 
 ## 🗄️ Base de données
 
-MySQL 8, base `sika_sante`, ~40 tables préfixées `nova_*`. Principaux domaines :
+MySQL 8, base `nova`, ~40 tables préfixées `nova_*`. Principaux domaines :
 
 - **Patient** : `patients`, `vitals`, `treatments`, `medications`, `medication_schedules`,
   `medication_intakes`, `appointments`, `vaccinations`, `documents`, `lab_results`,

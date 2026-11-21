@@ -1,7 +1,18 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
+import NovaSelect from '../../components/NovaSelect.jsx';
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, AlertTriangle, Bell, Check, CheckCircle2, ChevronRight, Clock, Phone, Plus, Save, Search, ShieldAlert, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
 import { formatDate, initials } from '../../utils/format.js';
+import { EMERGENCY_NUMBERS, telHref } from '../../utils/emergency.js';
+
+// Classes Tailwind écrites en entier : les noms construits dynamiquement sont supprimés au build.
+const EMERGENCY_STYLES = {
+  samu: { box: 'bg-red-50 border-red-200 hover:bg-red-100', icon: 'text-red-600', label: 'text-red-700', number: 'text-red-600' },
+  pompiers: { box: 'bg-orange-50 border-orange-200 hover:bg-orange-100', icon: 'text-orange-600', label: 'text-orange-700', number: 'text-orange-600' },
+  police: { box: 'bg-blue-50 border-blue-200 hover:bg-blue-100', icon: 'text-blue-600', label: 'text-blue-700', number: 'text-blue-600' },
+  gendarmerie: { box: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100', icon: 'text-emerald-600', label: 'text-emerald-700', number: 'text-emerald-600' },
+};
 
 export default function DUrgences({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
   const [showForm, setShowForm]   = useState(false);
@@ -42,8 +53,8 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
 
   const levelCfg = {
     critical: { label: 'Critique',  cls: 'bg-red-100 text-red-700',     border: 'border-red-200' },
-    warning:  { label: 'Attention', cls: 'bg-amber-100 text-amber-700', border: 'border-amber-200' },
-    info:     { label: 'Info',      cls: 'bg-blue-100 text-blue-700',   border: 'border-blue-200' },
+    warning:  { label: 'Attention', cls: 'bg-red-100 text-red-700', border: 'border-red-200' },
+    info:     { label: 'Info',      cls: 'bg-red-100 text-red-700',   border: 'border-red-200' },
   };
 
   const typeLabels = { urgent: 'Urgence', chronic: 'Suivi chronique', followup: 'Relance', lab: 'Résultat labo', other: 'Autre' };
@@ -68,14 +79,17 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
       <div className={`${card} border rounded-2xl p-4`}>
         <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Phone className="w-4 h-4 text-red-600" /> Contacts urgence rapides</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[{ l: 'SAMU', n: '15', c: 'red' }, { l: 'Pompiers', n: '18', c: 'orange' }, { l: 'Police', n: '17', c: 'blue' }, { l: 'Urgences CHU', n: '05 20 33 34 00', c: 'emerald' }].map(({ l, n, c }) => (
-            <a key={l} href={`tel:${n}`}
-              className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all bg-${c}-50 border-${c}-200 hover:bg-${c}-100`}>
-              <Phone className={`w-4 h-4 text-${c}-600`} />
-              <p className={`text-xs font-bold text-${c}-700`}>{l}</p>
-              <p className={`text-sm font-black text-${c}-600`}>{n}</p>
-            </a>
-          ))}
+          {EMERGENCY_NUMBERS.map(({ id, label, number }) => {
+            const st = EMERGENCY_STYLES[id] || EMERGENCY_STYLES.samu;
+            return (
+              <a key={id} href={telHref(number)} aria-label={`Appeler ${label} au ${number}`}
+                className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all ${st.box}`}>
+                <Phone className={`w-4 h-4 ${st.icon}`} />
+                <p className={`text-xs font-bold ${st.label}`}>{label}</p>
+                <p className={`text-sm font-black ${st.number}`}>{number}</p>
+              </a>
+            );
+          })}
         </div>
       </div>
 
@@ -89,30 +103,30 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
-              <select value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))} className={inp}>
+              <NovaSelect darkMode={darkMode} value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))} className={inp}>
                 <option value="">Sélectionner...</option>
                 {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-              </select>
+              </NovaSelect>
             </div>
             <div>
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Niveau *</label>
-              <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className={inp}>
+              <NovaSelect darkMode={darkMode} value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className={inp}>
                 <option value="critical">🔴 Critique</option>
                 <option value="warning">🟡 Attention</option>
                 <option value="info">🔵 Information</option>
-              </select>
+              </NovaSelect>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Type</label>
-              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className={inp}>
+              <NovaSelect darkMode={darkMode} value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className={inp}>
                 <option value="urgent">Urgence</option>
                 <option value="chronic">Suivi chronique</option>
                 <option value="followup">Relance</option>
                 <option value="lab">Résultat labo</option>
                 <option value="other">Autre</option>
-              </select>
+              </NovaSelect>
             </div>
             <div>
               <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Titre *</label>
@@ -137,11 +151,11 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
 
       {/* Alertes ouvertes */}
       {loading ? (
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-20 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : open.length === 0 && !showForm ? (
         <div className={`${card} border rounded-2xl p-8 flex flex-col items-center gap-2`}>
-          <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-          <p className="font-semibold text-emerald-600">Aucune alerte ouverte</p>
+          <CheckCircle2 className="w-10 h-10 text-red-500" />
+          <p className="font-semibold text-red-600">Aucune alerte ouverte</p>
           <p className={`text-xs ${sub}`}>Tous vos patients sont à jour</p>
         </div>
       ) : (
@@ -150,7 +164,7 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
             const lc = levelCfg[a.level] || levelCfg.warning;
             return (
               <div key={a.id} className={`${card} border-l-4 ${lc.border} rounded-2xl p-4 flex items-start gap-4`}>
-                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${a.level === 'critical' ? 'bg-red-500 animate-pulse' : a.level === 'warning' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${a.level === 'critical' ? 'bg-red-500 animate-pulse' : a.level === 'warning' ? 'bg-red-500' : 'bg-red-500'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-0.5">
                     <p className="font-bold text-sm">{a.title}</p>
@@ -164,7 +178,7 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
                   <p className={`text-[10px] ${sub} mt-1`}>{new Date(a.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
                 </div>
                 <button onClick={() => handleResolve(a.id)} disabled={resolving === a.id}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1">
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 flex items-center gap-1">
                   <Check className="w-3 h-3" /> Résoudre
                 </button>
               </div>
@@ -180,7 +194,7 @@ export default function DUrgences({ data, loading, onReload, patientsData, loadP
           <div className="space-y-2">
             {resolved.slice(0, 5).map(a => (
               <div key={a.id} className={`flex items-center gap-3 p-2 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-50'} opacity-60`}>
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-red-500 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold truncate">{a.title}</p>
                   <p className={`text-[10px] ${sub}`}>{a.patientName}</p>

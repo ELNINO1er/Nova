@@ -1,0 +1,3 @@
+# Scripts exécutés sous Linux (Docker) : fins de ligne LF obligatoires.
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf

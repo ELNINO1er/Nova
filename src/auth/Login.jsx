@@ -1,251 +1,206 @@
-import React, { useRef, useState } from 'react';
-import {
-  AlertCircle,
-  ArrowRight,
-  ChevronLeft,
-  HeartPulse,
-  KeyRound,
-  Mail,
-  ShieldCheck,
-  Smartphone,
-  Sparkles,
-  Stethoscope,
-  User,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, ArrowRight, CheckCircle2, ChevronLeft, Copy, HeartPulse, KeyRound, ShieldCheck, Smartphone } from 'lucide-react';
+import PasswordInput from '../components/PasswordInput.jsx';
 import { authApi } from '../api/authApi.js';
 
-export default function Login({ auth, setAuth, onLogin }) {
-  const [mode, setMode] = useState('phone');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '']);
-  const [doctorOtpId, setDoctorOtpId] = useState('');
-  const [maskedPhone, setMaskedPhone] = useState('');
-  const [devCode, setDevCode] = useState('');
-  const [err, setErr] = useState('');
-  const [load, setLoad] = useState(false);
-  const refs = [useRef(), useRef(), useRef(), useRef()];
+const strongPassword = (value) => value.length >= 12 && /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
+const simplePassword = (value) => value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value);
+// Mêmes règles que le serveur (auth.service.js > passwordPolicyError).
+const isStrongRole = (role) => ['doctor', 'admin', 'governor', 'pharmacist'].includes(role);
 
-  const cleaned = phone.replace(/\s/g, '');
-  const fmt = (v) => v.replace(/\D/g, '').slice(0, 10).replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+export default function Login({ setAuth, onLogin }) {
+  const [step, setStep] = useState('login');
+  const [identifier, setIdentifier] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [accountRole, setAccountRole] = useState('doctor'); // rôle du compte qui change son mot de passe
+  const [code, setCode] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [enrollment, setEnrollment] = useState({});
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(false);
+  const cleanedPhone = phone.replace(/\s/g, '');
+  const formatPhone = (value) => value.replace(/\D/g, '').slice(0, 10).replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+
+  const useNextAction = (result) => {
+    setChallengeId(result.challengeId || '');
+    setEnrollment({ qr: result.qrCodeDataUrl, secret: result.secret });
+    setCode('');
+    setNotice('');
+    setStep(result.nextAction || 'verify_totp');
+  };
+
+  const loginValue = identifier.trim();
+  const validLogin = /^(?:\d[\d\s]{8,}\d|[^\s@]+@[^\s@]+\.[^\s@]+)$/.test(loginValue) && (loginValue.includes('@') || loginValue.replace(/\s/g, '').length === 10);
 
   const submit = async () => {
-    setErr('');
-    if (mode === 'phone' && cleaned.length !== 10) return setErr('Numéro invalide.');
-    if (mode === 'doctor' && (!email || password.length < 4)) return setErr('Email ou mot de passe invalide.');
-
-    setLoad(true);
+    setError('');
+    if (!validLogin) return setError('Saisissez un numéro à 10 chiffres ou une adresse e-mail administrateur.');
+    if (!password) return setError('Mot de passe requis.');
+    setLoading(true);
     try {
-      const result = mode === 'doctor'
-        ? await authApi.startDoctorPasswordLogin(email, password)
-        : await authApi.sendOtp(cleaned);
-      setDevCode(result.devCode || '');
-      setDoctorOtpId(result.otpId || '');
-      setMaskedPhone(result.maskedPhone || '');
-      setAuth('otp');
-    } catch (error) {
-      setErr(error.message || 'Identifiants non reconnus.');
+      // Même formulaire pour tous ; le médecin enchaîne ensuite avec Authenticator.
+      const result = await authApi.loginWithPassword(loginValue, password);
+      if (result.user) return onLogin(result.user);
+      setAccountRole(result.role || 'patient');
+      useNextAction(result); // change_password, enroll_totp ou verify_totp
+    } catch (err) { setError(err.message || 'Connexion impossible.'); }
+    finally { setLoading(false); }
+  };
+
+  const changePassword = async () => {
+    setError('');
+    const valid = isStrongRole(accountRole) ? strongPassword(newPassword) : simplePassword(newPassword);
+    if (!valid) return setError('Le mot de passe ne respecte pas tous les critères.');
+    if (newPassword !== confirmPassword) return setError('Les mots de passe ne correspondent pas.');
+    setLoading(true);
+    try {
+      if (accountRole === 'doctor') {
+        useNextAction(await authApi.changeDoctorPassword(challengeId, newPassword));
+        setPassword(newPassword);
+        setNewPassword(''); setConfirmPassword('');
+      } else {
+        const result = await authApi.changeInitialPassword(challengeId, newPassword);
+        if (result.user) onLogin(result.user);
+        else useNextAction(result);
+        setNewPassword(''); setConfirmPassword('');
+      }
+    } catch (err) { setError(err.message || 'Modification impossible.'); }
+    finally { setLoading(false); }
+  };
+
+  const verifyTotp = async () => {
+    setError('');
+    if (loading || (step === 'enroll_totp' ? !/^\d{6}$/.test(code.trim()) : code.trim().length < 6)) return;
+    setLoading(true);
+    try {
+      const result = step === 'enroll_totp'
+        ? await authApi.verifyDoctorTotpEnrollment(challengeId, code.trim())
+        : await authApi.verifyDoctorTotp(challengeId, code.trim());
+      if (result.recoveryCodes?.length) {
+        setPendingUser(result.user); setRecoveryCodes(result.recoveryCodes); setStep('recovery_codes');
+      } else onLogin(result.user);
+    } catch (err) { setError(err.message || 'Code incorrect.'); }
+    finally { setLoading(false); }
+  };
+
+  const recoverPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!simplePassword(newPassword) || newPassword !== confirmPassword) {
+      return setError('Vérifiez les règles du nouveau mot de passe et sa confirmation.');
+    }
+    setLoading(true);
+    try {
+      await authApi.recoverPatientPassword(cleanedPhone, code, newPassword);
+      reset();
+      setNotice('Mot de passe modifié. Connectez-vous avec le nouveau.');
+    } catch (err) {
+      setError(err.message || 'Récupération impossible.');
     } finally {
-      setLoad(false);
+      setLoading(false);
     }
   };
 
-  const verify = async (code) => {
-    setLoad(true);
-    setErr('');
-    try {
-      const data = mode === 'doctor'
-        ? await authApi.verifyDoctorOtp(doctorOtpId, code)
-        : await authApi.verifyOtp(cleaned, code);
-      onLogin(data.user);
-    } catch (error) {
-      setErr(error.message || 'Code incorrect.');
-      setLoad(false);
-    }
+  const reset = () => {
+    setStep('login'); setAuth('login'); setPassword(''); setNewPassword(''); setConfirmPassword(''); setCode(''); setChallengeId(''); setEnrollment({}); setRecoveryCodes([]); setPendingUser(null); setNotice(''); setError(''); setLoading(false);
   };
 
-  const onOtp = (i, v) => {
-    if (!/^\d?$/.test(v)) return;
-    const next = [...otp];
-    next[i] = v;
-    setOtp(next);
-    if (v && i < 3) refs[i + 1].current?.focus();
-    if (next.every(Boolean)) verify(next.join(''));
-  };
+  return <div className="min-h-screen flex bg-white">
+    <aside className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-red-600 via-red-700 to-red-900 text-white p-12">
+      <div className="flex flex-col justify-between w-full"><Brand light /><div><span className="px-3 py-1 rounded-full bg-white/20 text-xs font-bold">Plateforme Santé sécurisée</span><h1 className="text-5xl font-bold leading-tight mt-5">Votre santé,<br /><span className="text-amber-300">en toute sérénité.</span></h1><p className="text-red-100 mt-4 text-lg max-w-md">Accès professionnel protégé par mot de passe et application Authenticator.</p></div><p className="flex items-center gap-2 text-xs text-red-100"><ShieldCheck className="w-4 h-4" /> Accès contrôlés, audit et sessions sécurisées</p></div>
+    </aside>
+    <main className="flex-1 flex items-center justify-center p-6 sm:p-12"><div className="w-full max-w-md"><div className="lg:hidden flex justify-center mb-8"><Brand /></div>
+      {!['login', 'recovery_codes'].includes(step) && <Back onClick={reset} />}
+      {step === 'login' && <>
+        {notice && <p role="status" className="mb-4 text-sm text-red-700">{notice}</p>}
+        <LoginForm {...{ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }} />
+        <button type="button" className="mt-4 text-sm font-semibold text-red-700 underline"
+          onClick={() => { setNotice(''); setError(''); setStep('recover_patient'); }}>Mot de passe patient oublié</button>
+        <details className="mt-4 text-sm text-slate-600"><summary className="min-h-11 cursor-pointer font-semibold">Besoin d’aide pour vous connecter ?</summary><p>Patient : le lien ci-dessus utilise uniquement votre code de secours patient. Il ne s’agit pas d’un code SMS ni d’un code Authenticator.</p><p className="mt-2">Professionnel : si vous avez encore votre mot de passe, utilisez Authenticator ou un code de récupération sur l’écran suivant. Si vous avez perdu votre mot de passe ou tous vos codes, contactez l’administrateur ou l’assistance pour la procédure adaptée à votre rôle. La récupération patient ne réinitialise pas un compte professionnel ni sa double authentification.</p></details>
+      </>}
+      {step === 'recover_patient' && (
+        <form className="space-y-4" onSubmit={recoverPassword}>
+          <Header title="Récupérer mon compte patient" text="Utilisez le code de secours patient créé et sauvegardé auparavant dans vos paramètres. Ce code est à usage unique : après récupération, créez-en un nouveau dans vos paramètres." />
+          <label className="block text-sm">Numéro de téléphone
+            <input type="tel" autoComplete="username" value={phone} onChange={e => setPhone(formatPhone(e.target.value))}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Code de secours
+            <input value={code} onChange={e => setCode(e.target.value)} autoComplete="off" maxLength={48}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Nouveau mot de passe
+            <PasswordInput autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <label className="block text-sm">Confirmer le mot de passe
+            <PasswordInput autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+              className="mt-1 block w-full rounded-xl border p-3" required />
+          </label>
+          <p className="text-xs text-slate-600">Au moins 8 caractères, dont une lettre et un chiffre.</p>
+          <p className="text-xs text-slate-600">Sans ce code, cette récupération est impossible. Contactez votre médecin ou l’assistance pour connaître la procédure de vérification d’identité ; aucun accès automatique ne peut être promis.</p>
+          <Error value={error} />
+          <button type="submit" disabled={loading || cleanedPhone.length !== 10}
+            className="w-full rounded-xl bg-red-700 px-4 py-3 font-semibold text-white disabled:opacity-50">
+            {loading ? 'Vérification…' : 'Réinitialiser mon mot de passe'}
+          </button>
+        </form>
+      )}
+      {step === 'change_password' && <PasswordForm {...{ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong: isStrongRole(accountRole) }} />}
+      {step === 'enroll_totp' && <Enrollment {...{ enrollment, code, setCode, error, loading, verifyTotp }} />}
+      {step === 'verify_totp' && <Verification {...{ code, setCode, error, loading, verifyTotp }} />}
+      {step === 'recovery_codes' && <Recovery codes={recoveryCodes} finish={() => onLogin(pendingUser)} />}
+    </div></main>
+  </div>;
+}
 
-  const resetOtp = () => {
-    setAuth('login');
-    setOtp(['', '', '', '']);
-    setErr('');
-    setLoad(false);
-  };
+function LoginForm({ identifier, setIdentifier, password, setPassword, error, loading, submit, validLogin }) {
+  return <section className="space-y-6"><Header title="Bienvenue" text="Connectez-vous avec votre téléphone ou votre e-mail administrateur." /><div className="space-y-4"><Field label="Téléphone ou e-mail administrateur"><input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="07 00 00 00 00" className="flex-1 outline-none font-mono" autoComplete="username" autoFocus /><Smartphone className="w-5 h-5 text-slate-400" /></Field><Field label="Mot de passe"><PasswordInput inline value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="flex-1 min-w-0 outline-none" autoComplete="current-password" /></Field></div><Error value={error} /><Primary onClick={submit} disabled={loading || !password || !validLogin}>{loading ? 'Connexion…' : <>Se connecter <ArrowRight className="w-4 h-4" /></>}</Primary><p className="text-[11px] text-slate-500 text-center">Première connexion : utilisez votre téléphone et le mot de passe provisoire qui vous a été remis, puis choisissez votre mot de passe personnel. Médecins et administrateurs : Authenticator est obligatoire. Pour les autres professionnels, il peut être demandé selon la configuration.</p></section>;
+}
 
-  return (
-    <div className="min-h-screen flex bg-white">
-      <aside className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-red-600 via-red-700 to-red-900 text-white p-12">
-        <div className="flex flex-col justify-between w-full">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shadow-xl">
-              <HeartPulse className="w-7 h-7" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">NOVA</h1>
-              <p className="text-xs text-red-100">Carnet Santé Ivoirien</p>
-            </div>
-          </div>
-          <div>
-            <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-bold">Plateforme Santé sécurisée</span>
-            <h2 className="text-5xl font-bold leading-tight mt-5">Votre santé,<br /><span className="text-amber-300">en toute sérénité.</span></h2>
-            <p className="text-red-100 mt-4 text-lg max-w-md">Accès patient, médecin, pharmacie et administration avec OTP.</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-red-100">
-            <ShieldCheck className="w-4 h-4" /> RBAC, audit et sessions sécurisées
-          </div>
-        </div>
-      </aside>
+function PasswordForm({ newPassword, setNewPassword, confirmPassword, setConfirmPassword, error, loading, changePassword, strong }) {
+  const valid = strong ? strongPassword(newPassword) : simplePassword(newPassword);
+  return <section className="space-y-5"><Header icon={KeyRound} title="Sécurisez votre compte" text="Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire." /><Field label="Nouveau mot de passe"><PasswordInput inline value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex-1 min-w-0 outline-none" autoComplete="new-password" autoFocus /></Field><Field label="Confirmation"><PasswordInput inline value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && changePassword()} className="flex-1 min-w-0 outline-none" autoComplete="new-password" /></Field><div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-600">{strong ? <><strong>12 caractères minimum</strong>, avec majuscule, minuscule, chiffre et caractère spécial.</> : <><strong>8 caractères minimum</strong>, avec au moins une lettre et un chiffre.</>}</div><Error value={error} /><Primary onClick={changePassword} disabled={loading || !valid || newPassword !== confirmPassword}>{loading ? 'Enregistrement…' : 'Enregistrer et continuer'}</Primary></section>;
+}
 
-      <main className="flex-1 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-red-600 flex items-center justify-center shadow-lg">
-              <HeartPulse className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">NOVA</h1>
-              <p className="text-xs text-slate-500">Carnet Santé Ivoirien</p>
-            </div>
-          </div>
-
-          {auth === 'login' ? (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-3xl font-bold text-slate-900">Bienvenue</h3>
-                <p className="text-slate-500 mt-2">Choisissez votre mode de connexion.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => { setMode('phone'); setErr(''); }}
-                  className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'phone' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}
-                >
-                  <User className="w-4 h-4" /> Téléphone
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMode('doctor'); setErr(''); }}
-                  className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'doctor' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}
-                >
-                  <Stethoscope className="w-4 h-4" /> Médecin
-                </button>
-              </div>
-
-              {mode === 'phone' ? (
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 uppercase">Numéro de téléphone</label>
-                  <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus-within:border-red-500`}>
-                    <span className="text-sm font-semibold text-slate-900">+225</span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => { setPhone(fmt(e.target.value)); setErr(''); }}
-                      onKeyDown={(e) => e.key === 'Enter' && submit()}
-                      placeholder="07 89 45 23 11"
-                      className="flex-1 outline-none text-slate-900 font-mono"
-                      autoFocus
-                    />
-                    <Smartphone className="w-5 h-5 text-slate-400" />
-                  </div>
-                  <p className="mt-2 text-[11px] text-slate-500">Patients, pharmaciens et administrateurs : connexion par téléphone.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 uppercase">Email médecin</label>
-                    <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus-within:border-red-500`}>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => { setEmail(e.target.value); setErr(''); }}
-                        onKeyDown={(e) => e.key === 'Enter' && submit()}
-                        placeholder="aicha.toure@nova.ci"
-                        className="flex-1 outline-none text-slate-900"
-                      />
-                      <Mail className="w-5 h-5 text-slate-400" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 uppercase">Mot de passe</label>
-                    <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus-within:border-red-500`}>
-                      <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => { setPassword(e.target.value); setErr(''); }}
-                        onKeyDown={(e) => e.key === 'Enter' && submit()}
-                        placeholder="Mot de passe"
-                        className="flex-1 outline-none text-slate-900"
-                      />
-                      <KeyRound className="w-5 h-5 text-slate-400" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {err && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {err}</p>}
-              <button
-                onClick={submit}
-                disabled={load || (mode === 'phone' ? cleaned.length !== 10 : !email || password.length < 4)}
-                className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {load ? 'Envoi...' : <>Recevoir le code <ArrowRight className="w-4 h-4" /></>}
-              </button>
-              <p className="text-[11px] text-slate-500 text-center">Un code à 4 chiffres sera envoyé par SMS.</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <button onClick={resetOtp} className="flex items-center gap-1 text-sm text-slate-600 hover:text-red-600">
-                <ChevronLeft className="w-4 h-4" /> Retour
-              </button>
-              <div>
-                <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center mb-4">
-                  <KeyRound className="w-7 h-7 text-red-600" />
-                </div>
-                <h3 className="text-3xl font-bold text-slate-900">Vérification</h3>
-                <p className="text-slate-500 mt-2">
-                  Code envoyé au <span className="font-semibold text-slate-900">{mode === 'doctor' ? maskedPhone : `+225 ${phone}`}</span>
-                </p>
-              </div>
-
-              <div className="flex gap-3 justify-center">
-                {otp.map((d, i) => (
-                  <input
-                    key={i}
-                    ref={refs[i]}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={d}
-                    onChange={(e) => onOtp(i, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) refs[i - 1].current?.focus(); }}
-                    autoFocus={i === 0}
-                    className={`w-16 h-16 text-center text-2xl font-bold rounded-xl border-2 ${err ? 'border-red-300' : 'border-slate-200'} focus:border-red-500 outline-none text-slate-900`}
-                  />
-                ))}
-              </div>
-
-              {err && <p className="text-sm text-red-600 text-center flex items-center justify-center gap-1"><AlertCircle className="w-4 h-4" /> {err}</p>}
-              {load && <div className="text-center text-sm text-slate-600">Vérification...</div>}
-              {devCode && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-900"><strong>Code de démonstration :</strong> <strong className="font-mono">{devCode}</strong></p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </main>
+export function Enrollment({ enrollment, code, setCode, error, loading, verifyTotp }) {
+  return <section className="space-y-5"><Header icon={ShieldCheck} title="Activez Authenticator" text="Sur ce téléphone, copiez la clé ci-dessous, puis ouvrez votre application Authenticator. Revenez ensuite dans NOVA pour saisir le code généré." />
+    <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-slate-700">
+      <ol className="list-decimal pl-5 space-y-2"><li>Copiez la clé de configuration.</li><li>Dans Google Authenticator, touchez + puis « Saisir une clé de configuration ». Dans une autre application compatible, choisissez l’ajout manuel.</li><li>Nommez le compte « NOVA », collez la clé et choisissez un code basé sur le temps (TOTP).</li><li>Revenez ici et entrez le code à 6 chiffres affiché pour NOVA.</li></ol>
+      {enrollment.secret && <><code className="mt-3 block break-all rounded-lg bg-white p-3 select-all">{enrollment.secret}</code><CopyCodes text={enrollment.secret} label="Copier la clé" /></>}
+      <p className="mt-3 text-xs">Gardez cette clé privée. L’activation n’est terminée qu’après validation du code. Cette étape expire après 10 minutes ; utilisez « Recommencer » si nécessaire.</p>
     </div>
-  );
+    {enrollment.qr && <details className="text-sm text-slate-600"><summary className="min-h-11 cursor-pointer font-semibold">Scanner depuis un autre appareil</summary><img src={enrollment.qr} alt="QR d’activation Authenticator" className="mx-auto w-52 h-52 max-w-full rounded-xl border border-slate-200" /></details>}
+    <Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code à 6 chiffres" /><Error value={error} /><p className="text-xs text-slate-600">Code refusé ? Vérifiez le compte NOVA choisi et l’heure automatique du téléphone, puis attendez le prochain code. Ne multipliez pas les essais : un blocage temporaire peut s’appliquer.</p><Primary onClick={verifyTotp} disabled={loading || !/^\d{6}$/.test(code)}>{loading ? 'Vérification…' : 'Activer la double authentification'}</Primary></section>;
+}
+
+export function Verification({ code, setCode, error, loading, verifyTotp }) { return <section className="space-y-5"><Header icon={ShieldCheck} title="Double authentification" text="Entrez le code du compte NOVA dans Authenticator, ou un code de récupération sauvegardé lors de l’activation (à usage unique). Votre mot de passe reste nécessaire." /><Code value={code} setValue={setCode} onEnter={verifyTotp} label="Code Authenticator ou récupération" recovery /><p className="text-xs text-slate-600">Téléphone perdu : utilisez un code de récupération inutilisé. Sans application ni code, contactez l’administrateur ou l’assistance. Aucun code SMS ne remplace cette étape. Code refusé : vérifiez le compte NOVA, l’heure automatique ou attendez le prochain code. Demande expirée : choisissez « Recommencer » et ressaisissez votre mot de passe.</p><Error value={error} /><Primary onClick={verifyTotp} disabled={loading || code.trim().length < 6}>{loading ? 'Vérification…' : 'Se connecter'}</Primary></section>; }
+
+export function Recovery({ codes, finish }) { return <section className="space-y-5"><Header icon={CheckCircle2} title="Compte sécurisé" text="Sauvegardez ces codes. Chacun ne fonctionne qu’une seule fois." /><div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-950 p-4 text-center font-mono text-sm text-white select-all">{codes.map((item) => <span key={item} className="rounded bg-white/10 p-2">{item}</span>)}</div><CopyCodes text={codes.join('\n')} label="Copier les codes" /><Primary onClick={finish}>J’ai sauvegardé mes codes</Primary></section>; }
+
+function Brand({ light = false }) { return <div className="flex items-center gap-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${light ? 'bg-white/20' : 'bg-red-600'}`}><HeartPulse className="w-7 h-7 text-white" /></div><div><h2 className={`text-2xl font-bold ${light ? 'text-white' : 'text-slate-900'}`}>NOVA</h2><p className={`text-xs ${light ? 'text-red-100' : 'text-slate-500'}`}>Carnet Santé Ivoirien</p></div></div>; }
+function Header({ icon: Icon, title, text }) { return <div>{Icon && <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center mb-4"><Icon className="w-7 h-7 text-red-600" /></div>}<h2 className="text-3xl font-bold text-slate-900">{title}</h2><p className="text-slate-500 mt-2">{text}</p></div>; }
+function Field({ label, children }) { return <label className="block text-xs font-semibold text-slate-700 uppercase">{label}<span className="field-wrap mt-2 min-h-12 flex items-center gap-2 p-3 rounded-xl border-2 border-slate-200 focus-within:border-red-500 focus-within:ring-4 focus-within:ring-red-500/10 normal-case text-base font-normal">{children}</span></label>; }
+function Code({ value, setValue, onEnter, label, recovery = false }) { return <Field label={label}><input type="text" inputMode={recovery ? 'text' : 'numeric'} value={value} onChange={(e) => setValue(recovery ? e.target.value.toUpperCase().slice(0, 16) : e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && onEnter()} placeholder={recovery ? '123456 ou XXXX-XXXX' : '123456'} className="w-full text-center text-xl tracking-widest font-mono outline-none" autoComplete="one-time-code" autoFocus /></Field>; }
+function Primary({ children, ...props }) { return <button type="button" {...props} className="w-full min-h-12 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-500">{children}</button>; }
+function Back({ onClick }) { return <button type="button" onClick={onClick} className="mb-6 min-h-11 flex items-center gap-1 text-sm text-slate-600 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500 rounded-lg px-2"><ChevronLeft className="w-4 h-4" /> Recommencer</button>; }
+function Error({ value }) { return value ? <p role="alert" className="text-sm text-red-600 flex items-center gap-1"><AlertCircle className="w-4 h-4" /> {value}</p> : null; }
+
+export function CopyCodes({ text, label }) {
+  const [status, setStatus] = useState('');
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('Copie effectuée. Conservez ces informations en lieu sûr.');
+    } catch {
+      setStatus('Copie impossible. Sélectionnez le texte affiché et copiez-le manuellement, ou recopiez-le en lieu sûr.');
+    }
+  };
+  return <div className="space-y-2"><button type="button" onClick={copy} className="w-full min-h-11 border border-slate-300 rounded-xl flex items-center justify-center gap-2 font-semibold hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-red-500"><Copy className="w-4 h-4" />{label}</button>{status && <p role="status" className="text-xs text-slate-600">{status}</p>}</div>;
 }

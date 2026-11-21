@@ -15,8 +15,11 @@ export async function listPatientPayments(patientId) {
 }
 
 export async function createPatientPayment(patientId, payload) {
+  if(['mobile_money','insurance'].includes(payload.method))throw Object.assign(new Error('Service de paiement externe non intégré.'),{status:503});
+  // Toujours rattaché à un rendez-vous du patient : jamais de paiement vers un médecin quelconque.
+  if(!payload.appointmentId)throw Object.assign(new Error('Indiquez le rendez-vous concerné.'),{status:422});
   const id = randomUUID();
-  let doctorId = payload.doctorId || null;
+  let doctorId = null;
   let appointmentId = payload.appointmentId || null;
   let amount = Number(payload.amount || 0);
 
@@ -57,7 +60,7 @@ export async function createPatientPayment(patientId, payload) {
       amount,
       payload.currency || 'XOF',
       payload.method || 'offline',
-      payload.method === 'cash' ? 'paid' : 'pending',
+      'pending',
       payload.reference || null,
       JSON.stringify({ note: payload.note || null, source: 'nova' }),
     ]
@@ -81,13 +84,16 @@ export async function listDoctorPayments(doctorId) {
 }
 
 export async function markDoctorPaymentPaid(doctorId, paymentId, reference = null) {
-  const [result] = await pool.execute(
+  const [[current]] = await pool.execute('SELECT status FROM nova_payments WHERE id = ? AND doctor_id = ?', [paymentId, doctorId]);
+  if (!current) return null;
+  // Remboursé, échoué ou déjà encaissé : l'état ne revient pas à « payé ».
+  if (current.status !== 'pending') throw Object.assign(new Error('Seul un paiement en attente peut être marqué comme encaissé.'), { status: 409 });
+  await pool.execute(
     `UPDATE nova_payments
      SET status = 'paid', reference = COALESCE(?, reference)
-     WHERE id = ? AND doctor_id = ?`,
+     WHERE id = ? AND doctor_id = ? AND status = 'pending'`,
     [reference, paymentId, doctorId]
   );
-  if (!result.affectedRows) return null;
   const [[row]] = await pool.execute('SELECT * FROM nova_payments WHERE id = ?', [paymentId]);
   return mapPayment(row);
 }

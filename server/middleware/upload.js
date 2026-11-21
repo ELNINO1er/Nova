@@ -6,7 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-export const uploadDir = path.join(__dirname, '..', '..', 'data', 'uploads');
+// Dossier des documents. UPLOAD_DIR (chemin absolu) le place HORS du dossier de l'application, pour qu'il
+// survive aux redéploiements (hébergement géré qui remplace le code). Par défaut : <application>/data/uploads.
+export const appUploadDir = path.join(__dirname, '..', '..', 'data', 'uploads');
+export const uploadDir = path.resolve(process.env.UPLOAD_DIR || appUploadDir);
+export const uploadDirIsExternal = Boolean(process.env.UPLOAD_DIR)
+  && !path.resolve(process.env.UPLOAD_DIR).startsWith(path.resolve(__dirname, '..', '..') + path.sep);
 mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -61,7 +66,7 @@ export const upload = multer({
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (ALLOWED_MIMES.includes(file.mimetype) && ALLOWED_EXTS.includes(ext)) cb(null, true);
-    else cb(new Error('Format non autorisé. Acceptés : PDF, JPG, PNG, WEBP'));
+    else cb(Object.assign(new Error('Format non autorisé. Acceptés : PDF, JPG, PNG, WEBP'), { status: 415, code: 'unsupported_file_type' }));
   },
 });
 

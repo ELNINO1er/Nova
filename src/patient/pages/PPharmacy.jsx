@@ -1,27 +1,42 @@
-import React, { useState } from 'react';
-import { MapPin, Phone, Clock, Star, Search, Pill, Check, ShoppingCart, ClipboardList, Siren } from 'lucide-react';
+import HeartLoader from '../../components/HeartLoader.jsx';
+import React, { useEffect, useState } from 'react';
+import { MapPin, Phone, Pill, ClipboardList, Siren, X, Clock } from 'lucide-react';
 import { patientApi } from '../../api/patientApi.js';
+import { PageHeader, Card, Pills, Chip, Button, IconButton, IconBadge, StatTile, EmptyState, SearchInput, Highlight, NoResults } from '../../components/patient/ui.jsx';
+import { useSearch, useUrlQuery } from '../../utils/search.js';
+import SendPrescriptionDialog from '../../components/pharmacy/SendPrescriptionDialog.jsx';
+import { confirmDialog } from '../../components/dialogs.jsx';
+import { useRealtime } from '../../realtime/socket.js';
+import { useLocation } from 'react-router-dom';
+import { openNow } from '../../utils/pharmacyHours.js';
+import { orderIsPartial, pharmacyOrderLabel, pharmacyOrderTime } from '../../utils/pharmacyOrder.js';
 
-export default function PPharmacy({ data, card, sub, border, darkMode, notify }) {
-  const [search, setSearch] = useState('');
+/* Champs cherchables : nom, ville, adresse, garde / ouverture, téléphone. */
+const FIELDS = (p) => [p.name, p.city, p.address, p.isDuty ? 'de garde pharmacie de garde' : '', openNow(p) ? 'ouvert ouverte' : 'fermé fermée', p.phone];
+
+export default function PPharmacy({ data, card, sub, border, darkMode, notify, setPage }) {
+  const [search, setSearch] = useUrlQuery();
+  const [scope, setScope] = useState('all'); // 'all' | 'open' | 'duty'
   const [selectedPh, setSelectedPh] = useState(null);
   const [orders, setOrders] = useState(null);
+  const [ordersError, setOrdersError] = useState('');
+  const [cancelling, setCancelling] = useState('');
   const [showOrderModal, setShowOrderModal] = useState(false);
-  const [orderLoading, setOrderLoading] = useState(false);
-  const [tab, setTab] = useState('list'); // 'list' | 'orders'
+  // Arrivée depuis une notification de pharmacie : onglet du suivi directement.
+  const location = useLocation();
+  const [tab, setTab] = useState(location.state?.targetId === 'orders' ? 'orders' : 'list'); // 'list' | 'orders'
 
   const pharmacies = data || [];
 
-  const filtered = pharmacies.filter(p =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.city.toLowerCase().includes(search.toLowerCase())
-  );
+  const results = useSearch(pharmacies, search, FIELDS);
+  const filtered = scope === 'open' ? results.filter(openNow) : scope === 'duty' ? results.filter((p) => p.isDuty) : results;
 
   const loadOrders = async () => {
     try {
       const o = await patientApi.pharmacyOrders();
       setOrders(o);
-    } catch { setOrders([]); }
+      setOrdersError('');
+    } catch (e) { setOrdersError(e.message || 'Suivi indisponible. Réessayez.'); }
   };
 
   const handleTabOrders = () => {
@@ -29,170 +44,138 @@ export default function PPharmacy({ data, card, sub, border, darkMode, notify })
     if (!orders) loadOrders();
   };
 
-  const submitOrder = async (pharmacyId) => {
-    setOrderLoading(true);
-    try {
-      await patientApi.createPharmacyOrder({ pharmacyId });
-      notify('Commande envoyée à la pharmacie !');
-      setShowOrderModal(false);
-      setSelectedPh(null);
-      loadOrders();
-    } catch (e) {
-      notify(e.message || 'Erreur lors de la commande', 'error');
-    } finally {
-      setOrderLoading(false);
-    }
+  // Commandes chargées d'emblée (compteur de l'onglet) puis à chaque réponse d'une pharmacie.
+  useEffect(() => { loadOrders(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useRealtime('pharmacy-order:changed', () => loadOrders());
+
+  const cancelOrder = async (o) => {
+    if (cancelling) return;
+    if (!(await confirmDialog({ title: 'Annuler la demande ?', message: `${o.pharmacyName} ne préparera pas cette ordonnance. Vous pourrez l’envoyer à une autre pharmacie.`, confirmLabel: 'Annuler la demande', cancelLabel: 'Garder', danger: true }))) return;
+    setCancelling(o.id);
+    try { await patientApi.cancelPharmacyOrder(o.id); notify('Demande annulée.'); await loadOrders(); }
+    catch (e) { notify(e.message || 'Annulation impossible.', 'error'); }
+    finally { setCancelling(''); }
   };
 
-  const statusColors = {
-    pending:   'bg-amber-100 text-amber-700',
-    ready:     'bg-emerald-100 text-emerald-700',
-    delivered: 'bg-blue-100 text-blue-700',
-    cancelled: 'bg-red-100 text-red-700',
-  };
-  const statusLabels = {
-    pending:   'En préparation',
-    ready:     'Prêt à récupérer',
-    delivered: 'Livré',
-    cancelled: 'Annulé',
-  };
+  /* Prête à retirer = action attendue (rouge plein) ; envoyée = à suivre. */
+  const statusTone = { pending: 'watch', ready: 'alert', unavailable: 'alert', dispensed: 'neutral', cancelled: 'neutral' };
+  const openOrders = (orders || []).filter((o) => ['pending', 'ready', 'unavailable'].includes(o.status)).length;
+
+  const divider = darkMode ? 'border-slate-800' : 'border-slate-100';
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold">Pharmacie Connectée</h2>
-        <p className={`text-sm ${sub}`}>Trouvez une pharmacie et commandez vos médicaments</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Pharmacies" subtitle="Envoyez une ordonnance à préparer ; stocks et distances non vérifiés" sub={sub} />
 
-      {/* Tabs */}
-      <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-        {[{ id: 'list', label: 'Pharmacies', icon: MapPin }, { id: 'orders', label: 'Mes commandes', icon: ClipboardList }].map(t => (
-          <button key={t.id} onClick={() => t.id === 'orders' ? handleTabOrders() : setTab('list')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${tab === t.id ? 'bg-white shadow text-red-600 ' + (darkMode ? 'bg-slate-700 shadow-slate-900' : '') : sub}`}>
-            <t.icon className="w-3.5 h-3.5" />{t.label}
-          </button>
-        ))}
-      </div>
+      <Pills darkMode={darkMode} value={tab}
+        onChange={(id) => (id === 'orders' ? handleTabOrders() : setTab('list'))}
+        options={[['list', 'Pharmacies', pharmacies.length], ['orders', 'Mes ordonnances envoyées', orders ? openOrders : undefined]]} />
 
       {tab === 'list' && (
         <>
-          {/* Recherche */}
-          <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-            <Search className={`w-4 h-4 ${sub} flex-shrink-0`} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher une pharmacie..."
-              className={`flex-1 bg-transparent outline-none text-sm`} />
-            {search && <button onClick={() => setSearch('')}><X className={`w-4 h-4 ${sub}`} /></button>}
+          <div className="grid grid-cols-3 gap-3 sm:gap-5">
+            <StatTile label="Ouvertes" value={results.filter(openNow).length} Icon={Clock} darkMode={darkMode} onClick={() => setScope('open')} />
+            <StatTile label="De garde" value={results.filter(p => p.isDuty).length} Icon={Siren} highlight darkMode={darkMode} onClick={() => setScope('duty')} />
+            <StatTile label="Total" value={results.length} Icon={MapPin} darkMode={darkMode} onClick={() => setScope('all')} />
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-xl p-4 text-center">
-              <p className="text-2xl font-black">{filtered.filter(p => p.isOpen).length}</p>
-              <p className="text-[11px]">Ouvertes</p>
-            </div>
-            <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-xl p-4 text-center">
-              <p className="text-2xl font-black">{filtered.filter(p => p.isDuty).length}</p>
-              <p className="text-[11px]">De garde</p>
-            </div>
-            <div className={`${card} border rounded-xl p-4 text-center`}>
-              <p className="text-2xl font-black">{filtered.length}</p>
-              <p className={`text-[11px] ${sub}`}>Total</p>
-            </div>
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            <SearchInput value={search} onChange={setSearch} darkMode={darkMode} count={filtered.length} className="flex-1 min-w-0"
+              placeholder="Pharmacie, ville, quartier, « de garde »…" label="Rechercher une pharmacie" />
+            <Pills darkMode={darkMode} value={scope} onChange={setScope}
+              options={[['all', 'Toutes', results.length], ['open', 'Ouvertes', results.filter(openNow).length], ['duty', 'De garde', results.filter(p => p.isDuty).length]]} />
           </div>
 
-          {/* Liste */}
-          <div className="space-y-3">
-            {filtered.length === 0 && (
-              <div className={`${card} border rounded-2xl p-8 flex flex-col items-center gap-2`}>
-                <MapPin className={`w-8 h-8 ${sub}`} />
-                <p className={`text-sm ${sub}`}>Aucune pharmacie trouvée</p>
-              </div>
-            )}
-            {filtered.map(ph => (
-              <div key={ph.id} className={`${card} border rounded-2xl p-4 flex items-start gap-4`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${ph.isDuty ? 'bg-red-100' : ph.isOpen ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                  {ph.isDuty ? <Siren className="w-6 h-6 text-red-600" /> : <MapPin className={`w-6 h-6 ${ph.isOpen ? 'text-emerald-600' : sub}`} />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <p className="font-bold">{ph.name}</p>
-                    {ph.isDuty && <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 text-red-700 animate-pulse">GARDE</span>}
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${ph.isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {ph.isOpen ? `Ouvert · ${ph.opensAt}–${ph.closesAt}` : 'Fermé'}
-                    </span>
+          {filtered.length === 0 ? (
+            search && results.length === 0
+              ? <NoResults query={search} onClear={() => setSearch('')} darkMode={darkMode} />
+              : <EmptyState Icon={MapPin} title="Aucune pharmacie trouvée" darkMode={darkMode}
+                  action={scope !== 'all' ? <Button variant="secondary" darkMode={darkMode} onClick={() => setScope('all')}>Voir toutes les pharmacies</Button> : null}>
+                  {scope !== 'all' ? 'Aucune pharmacie ne correspond à ce filtre.' : 'L’annuaire des pharmacies est vide pour le moment.'}
+                </EmptyState>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5">
+              {filtered.map(ph => (
+                <Card key={ph.id} darkMode={darkMode} className={`flex flex-col ${ph.isDuty ? '!border-red-200' : ''}`}>
+                  <div className="flex items-start gap-4 flex-1">
+                    <IconBadge Icon={ph.isDuty ? Siren : MapPin} solid={ph.isDuty} size="lg" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold break-words"><Highlight text={ph.name} query={search} /></p>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                        {ph.isDuty && <Chip tone="alert">De garde</Chip>}
+                        <Chip tone={openNow(ph) ? 'watch' : 'neutral'}>
+                          <Clock className="w-3 h-3" />{openNow(ph) ? `Ouverte${ph.opensAt && ph.closesAt ? ` · ${ph.opensAt}–${ph.closesAt}` : ''}` : `Fermée${ph.opensAt && ph.closesAt ? ` · ${ph.opensAt}–${ph.closesAt}` : ''}`}
+                        </Chip>
+                      </div>
+                      <p className={`text-xs mt-2 flex items-start gap-1.5 ${sub}`}><MapPin className="w-3 h-3 shrink-0 mt-0.5" /><span className="min-w-0 break-words"><Highlight text={ph.address} query={search} /></span></p>
+                      <p className={`text-xs ${sub}`}><Highlight text={ph.city} query={search} /> · Distance non calculée</p>
+                    </div>
                   </div>
-                  <p className={`text-xs ${sub}`}>{ph.address}</p>
-                  <p className={`text-xs ${sub}`}>{ph.city} · {ph.distanceKm} km</p>
-                  <div className="flex items-center gap-2 mt-3 flex-wrap">
-                    <a href={`tel:${ph.phone}`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700">
-                      <Phone className="w-3 h-3" />{ph.phone}
-                    </a>
-                    <button onClick={() => { setSelectedPh(ph); setShowOrderModal(true); }}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700">
-                      <Pill className="w-3 h-3" /> Commander
+                  <div className={`mt-4 pt-4 border-t ${divider} flex items-center gap-2 flex-wrap`}>
+                    {ph.phone && <a href={`tel:${ph.phone.replace(/\s/g, '')}`} aria-label={`Appeler ${ph.name}`}
+                      className={`h-9 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border transition-colors ${darkMode ? 'border-red-900 text-red-300 hover:bg-red-950/40' : 'border-red-200 bg-white text-red-700 hover:bg-red-50'}`}>
+                      <Phone className="w-3.5 h-3.5" />{ph.phone}
+                    </a>}
+                    <button type="button" onClick={() => { setSelectedPh(ph); setShowOrderModal(true); }}
+                      className="h-9 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-red-600 text-white hover:bg-red-700">
+                      <Pill className="w-3.5 h-3.5" /> Envoyer une ordonnance
                     </button>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </>
       )}
 
       {tab === 'orders' && (
         <div className="space-y-3">
-          {!orders ? (
-            <div className={`${card} border rounded-2xl p-6`}>
-              <div className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-32 rounded-lg`} />
-            </div>
-          ) : orders.length === 0 ? (
-            <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2 text-center`}>
-              <ClipboardList className={`w-10 h-10 ${sub}`} />
-              <p className={`text-sm ${sub}`}>Aucune commande</p>
-              <button onClick={() => setTab('list')} className="mt-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold">
-                Trouver une pharmacie
-              </button>
-            </div>
-          ) : orders.map(o => (
-            <div key={o.id} className={`${card} border rounded-2xl p-4 flex items-center gap-4`}>
-              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
-                <Pill className="w-5 h-5 text-red-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm">{o.pharmacyName}</p>
-                <p className={`text-xs ${sub}`}>{o.pharmacyAddress}</p>
-                <p className={`text-xs ${sub}`}>{new Date(o.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })}</p>
-              </div>
-              <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${statusColors[o.status] || 'bg-slate-100 text-slate-600'}`}>
-                {statusLabels[o.status] || o.status}
-              </span>
-            </div>
-          ))}
+          {ordersError && <div role="alert" className="text-sm text-red-700">{ordersError} <button type="button" onClick={loadOrders} className="underline">Réessayer</button></div>}
+          {!orders && !ordersError ? (
+            <Card darkMode={darkMode}>
+              <HeartLoader darkMode={darkMode} compact />
+            </Card>
+          ) : !orders ? null : orders.length === 0 ? (
+            <EmptyState Icon={ClipboardList} title="Aucune ordonnance envoyée" darkMode={darkMode}
+              action={<Button onClick={() => setTab('list')} Icon={MapPin}>Choisir une pharmacie</Button>}>
+              Envoyez une ordonnance à une pharmacie : elle prépare vos médicaments et vous prévient quand vous pouvez passer.
+            </EmptyState>
+          ) : (
+            <Card darkMode={darkMode} className="!p-0 overflow-hidden">
+              <ul>
+                {orders.map((o, i) => (
+                  <li key={o.id} className={`p-4 sm:px-5 flex items-start gap-4 ${i ? `border-t ${divider}` : ''} ${o.status === 'ready' ? 'border-l-4 border-l-red-600' : ''}`}>
+                    <IconBadge Icon={Pill} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-sm">{o.pharmacyName}</p>
+                        <Chip tone={statusTone[o.status] || 'neutral'}>{pharmacyOrderLabel(o)}</Chip>
+                      </div>
+                      <p className={`text-xs ${sub}`}>Ordonnance du {o.prescriptionDoctor} · {o.itemCount} médicament{o.itemCount > 1 ? 's' : ''} · envoyée le {new Date(o.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long' })}</p>
+                      <p className={`mt-1 text-xs ${sub}`}>Dernière mise à jour : {pharmacyOrderTime(o.updatedAt)}</p>
+                      {o.lastDispensedAt && <p className={`text-xs ${sub}`}>Délivrance enregistrée : {pharmacyOrderTime(o.lastDispensedAt)}</p>}
+                      {orderIsPartial(o) && <p className={`mt-2 text-sm ${sub}`}>Une partie a été délivrée. Consultez l’ordonnance pour les quantités restantes. Vous pouvez annuler cette demande pour faire préparer le complément ailleurs ; les quantités déjà délivrées restent enregistrées.</p>}
+                      {o.pharmacistMessage && <p className={`mt-2 text-sm rounded-xl px-3 py-2 ${darkMode ? 'bg-slate-800' : 'bg-red-50/70'}`}><span className="font-semibold">Message de la pharmacie : </span>{o.pharmacistMessage}</p>}
+                      {o.status === 'ready' && <p className="mt-2 text-xs font-semibold text-red-700">Passez à la pharmacie et présentez le QR code de l’ordonnance au comptoir.</p>}
+                      {o.status === 'pending' && <p className={`mt-2 text-xs ${sub}`}>{orderIsPartial(o) ? 'Le complément reste à préparer ; attendez la confirmation de la pharmacie avant de vous déplacer.' : 'Demande envoyée ; attendez la confirmation de la pharmacie avant de vous déplacer.'}</p>}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {['ready', 'pending'].includes(o.status) && setPage && <Button darkMode={darkMode} onClick={() => setPage('prescriptions', o.prescriptionId)}>Afficher le QR de l’ordonnance</Button>}
+                        {o.pharmacyPhone && ['pending', 'ready', 'unavailable'].includes(o.status) && <a href={`tel:${o.pharmacyPhone}`} className={`h-10 px-4 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border ${darkMode ? 'border-slate-700' : 'border-red-200 text-red-700'}`}><Phone className="w-3.5 h-3.5" />Appeler</a>}
+                        {['pending', 'ready', 'unavailable'].includes(o.status) && <Button variant="secondary" darkMode={darkMode} disabled={Boolean(cancelling)} onClick={() => cancelOrder(o)}>{cancelling === o.id ? 'Annulation…' : 'Annuler la demande'}</Button>}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </div>
       )}
 
-      {/* Modal commande */}
       {showOrderModal && selectedPh && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowOrderModal(false)}>
-          <div className={`${card} border rounded-2xl p-6 w-full max-w-md shadow-2xl`} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">Commander</h3>
-              <button onClick={() => setShowOrderModal(false)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}><X className="w-4 h-4" /></button>
-            </div>
-            <div className={`p-3 rounded-xl mb-4 ${darkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-              <p className="font-semibold">{selectedPh.name}</p>
-              <p className={`text-xs ${sub}`}>{selectedPh.address}</p>
-              <p className={`text-xs ${sub}`}>{selectedPh.distanceKm} km · {selectedPh.phone}</p>
-            </div>
-            <p className={`text-xs ${sub} mb-4`}>La pharmacie recevra votre demande et préparera vos médicaments. Vous serez notifié quand la commande sera prête.</p>
-            <button onClick={() => submitOrder(selectedPh.id)} disabled={orderLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-red-700 text-white font-bold flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-50">
-              {orderLoading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Envoi...</> : <><Pill className="w-4 h-4" /> Confirmer la commande</>}
-            </button>
-          </div>
-        </div>
+        <SendPrescriptionDialog pharmacyId={selectedPh.id} darkMode={darkMode} onClose={() => setShowOrderModal(false)}
+          onSent={(o) => { setShowOrderModal(false); setSelectedPh(null); notify(`Ordonnance envoyée à ${o?.pharmacyName || 'la pharmacie'}.`); loadOrders(); setTab('orders'); }} />
       )}
     </div>
   );
 }
-

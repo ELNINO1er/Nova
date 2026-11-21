@@ -1,6 +1,11 @@
 import { request, toQuery } from './client.js';
 
 export const doctorApi = {
+  photo: () => request('/doctor/me/photo', { responseType: 'blob' }),
+  patientPhoto: (id) => request(`/doctor/me/patients/${encodeURIComponent(id)}/photo`, { responseType: 'blob' }),
+  updatePhoto: (photo) => request('/doctor/me/photo', { method: 'PUT', body: JSON.stringify({ photo }) }),
+  removePhoto: () => request('/doctor/me/photo', { method: 'DELETE' }),
+  recordLabResult:(id,payload)=>request(`/doctor/me/lab-requests/${id}/result`,{method:'POST',body:JSON.stringify(payload)}),
   dashboard:    ()        => request('/doctor/me/dashboard'),
   assistant:    (question, context = {}) => request('/doctor/me/assistant', {
     method: 'POST',
@@ -14,12 +19,19 @@ export const doctorApi = {
   createConsultation: (payload) => request('/doctor/me/consultations', { method: 'POST', body: JSON.stringify(payload) }),
   updateConsultation: (id, payload) => request(`/doctor/me/consultations/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   stats:        ()        => request('/doctor/me/stats'),
+  updateProfile:p=>request('/doctor/me/profile',{method:'PATCH',body:JSON.stringify(p)}),
+  slots:()=>request('/doctor/me/slots'),
+  addSlot:p=>request('/doctor/me/slots',{method:'POST',body:JSON.stringify(p)}),
+  deleteSlot:id=>request(`/doctor/me/slots/${id}`,{method:'DELETE'}),
   profile:      ()        => request('/doctor/me/profile'),
   prescriptions:       ()        => request('/doctor/me/prescriptions'),
   prescription:        (id)      => request(`/doctor/me/prescriptions/${id}`),
   createPrescription:  (payload) => request('/doctor/me/prescriptions', { method: 'POST', body: JSON.stringify(payload) }),
+  cancelPrescription: (id, reason) => request(`/doctor/me/prescriptions/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  labResult:id=>request(`/doctor/me/lab-results/${id}`),
   labRequests:         ()        => request('/doctor/me/lab-requests'),
   createLabRequest:    (payload) => request('/doctor/me/lab-requests', { method: 'POST', body: JSON.stringify(payload) }),
+  setChronicFollowup: (id, nextFollowupDate) => request(`/doctor/me/patients/${id}/chronic-followup`, { method: 'PATCH', body: JSON.stringify({ nextFollowupDate }) }),
   chronicPatients:     ()        => request('/doctor/me/chronic-patients'),
   alerts:              ()        => request('/doctor/me/alerts'),
   createAlert:         (payload) => request('/doctor/me/alerts', { method: 'POST', body: JSON.stringify(payload) }),
@@ -32,6 +44,8 @@ export const doctorApi = {
   saveSignature:       (payload) => request('/doctor/me/signature', { method: 'POST', body: JSON.stringify(payload) }),
   // Création patient
   createPatient:       (payload) => request('/doctor/me/patients', { method: 'POST', body: JSON.stringify(payload) }),
+  pendingActivations: () => request('/doctor/me/patient-activations'),
+  renewPatientActivation: (id) => request(`/doctor/me/patients/${encodeURIComponent(id)}/activation`, { method: 'POST' }),
   // Consentement
   requestConsent:      (patientId, scope) => request(`/doctor/me/consents/${patientId}/request`, { method: 'POST', body: JSON.stringify({ scope }) }),
   // Statut délivrance
@@ -56,21 +70,18 @@ export const doctorApi = {
   markNotificationRead: (id) => request(`/doctor/me/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: () => request('/doctor/me/notifications/read-all', { method: 'PATCH' }),
   // Messages
+  startConversation:p=>request('/doctor/me/conversations',{method:'POST',body:JSON.stringify(p)}),
   conversations: () => request('/doctor/me/conversations'),
   conversation: (id) => request(`/doctor/me/conversations/${id}`),
   sendMessage: (id, payload) => request(`/doctor/me/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(payload) }),
   markConversationRead: (id) => request(`/doctor/me/conversations/${id}/read`, { method: 'PATCH' }),
+  attachables: (id) => request(`/doctor/me/conversations/${id}/attachables`),
+  attachment: (id, messageId) => request(`/doctor/me/conversations/${id}/messages/${messageId}/attachment`),
+  attachmentFile: (id, messageId) => request(`/doctor/me/conversations/${id}/messages/${messageId}/attachment/file`, { responseType: 'blob' }),
   // Documents
   documents: () => request('/doctor/me/documents'),
   deleteDocument: (id) => request(`/doctor/me/documents/${id}`, { method: 'DELETE' }),
-  uploadDocument: async (formData) => {
-    const API = import.meta.env.VITE_API_BASE_URL || '/api';
-    const r = await fetch(`${API}/doctor/me/documents`, {
-      method: 'POST', body: formData, credentials: 'include',
-    });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
-    return r.json();
-  },
+  uploadDocument: (formData) => request('/doctor/me/documents', { method: 'POST', body: formData }),
   // Settings
   settings: () => request('/doctor/me/settings'),
   updateSettings: (payload) => request('/doctor/me/settings', { method: 'PATCH', body: JSON.stringify(payload) }),

@@ -1,7 +1,14 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
+import LabResultDetails from './LabResultDetails.jsx';
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, ClipboardList, FileDown, HeartPulse, Microscope, Phone, Search, ShieldAlert, Stethoscope, User, Users, X } from 'lucide-react';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientMeta, sexLabel } from '../../utils/format.js';
+import ActivationNotice from '../../components/ActivationNotice.jsx';
+import { prescriptionIsOpen, prescriptionStatusLabel } from '../../utils/prescriptionStatus.js';
+import { consultationStatusLabel } from '../../utils/statusLabels.js';
+import DReferrals from './DReferrals.jsx';
+import { VITAL_NORMS, vitalLevel, vitalNumber, vitalAssessment } from '../../utils/vitalNorms.js';
 
 export default function DPatients({ data, loading, onReload, setPage, card, sub, border, darkMode, notify }) {
   const [search,   setSearch]   = useState('');
@@ -43,16 +50,18 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
       {/* Colonne gauche : recherche + liste */}
-      <div className="lg:col-span-1">
+      <div className="lg:col-span-1 space-y-4">
+        <DReferrals card={card} sub={sub} notify={notify} onChanged={onReload} />
+        <PendingActivations card={card} sub={sub} darkMode={darkMode} notify={notify} />
         <div className={`${card} border rounded-2xl p-4 space-y-3`}>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
             <Search className={`w-4 h-4 ${sub} flex-shrink-0`} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nom, téléphone, CMU..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nom, téléphone, CMU…" aria-label="Rechercher un patient"
               className="flex-1 bg-transparent outline-none text-sm" />
-            {search && <button onClick={() => setSearch('')}><X className={`w-3 h-3 ${sub}`} /></button>}
+            {search && <button type="button" onClick={() => setSearch('')} aria-label="Effacer la recherche"><X className={`w-3 h-3 ${sub}`} aria-hidden="true" /></button>}
           </div>
           {loading ? (
-            <div className="space-y-2">{[0,1,2,3].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-12 rounded-xl`} />)}</div>
+            <div className="space-y-2"><HeartLoader darkMode={darkMode} compact /></div>
           ) : filtered.length === 0 ? (
             <p className={`text-xs ${sub} text-center py-4`}>Aucun patient trouvé</p>
           ) : (
@@ -66,7 +75,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{p.firstName || 'Patient'} {p.lastName || ''}</p>
-                    <p className={`text-[10px] ${selected?.id === p.id ? 'text-red-100' : sub} truncate`}>{p.cmuNumber} • {p.age} ans</p>
+                    <p className={`text-[10px] ${selected?.id === p.id ? 'text-red-100' : sub} truncate`}>{patientMeta(p)}</p>
                   </div>
                 </button>
               ))}
@@ -85,7 +94,7 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
           </div>
         ) : patLoading ? (
           <div className={`${card} border rounded-2xl p-6 space-y-3`}>
-            {[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-16 rounded-xl`} />)}
+            <HeartLoader darkMode={darkMode} compact />
           </div>
         ) : patFile ? (
           <div className="space-y-4">
@@ -115,6 +124,60 @@ export default function DPatients({ data, loading, onReload, setPage, card, sub,
   );
 }
 
+// Patients créés par ce médecin qui n'ont pas encore activé leur compte : leur fiche reste fermée
+// tant qu'ils n'ont pas accepté le partage. Seule action : générer un nouveau code d'activation.
+function PendingActivations({ card, sub, darkMode, notify }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(null);
+  const [issued, setIssued] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    doctorApi.pendingActivations().then((list) => { if (active) setRows(Array.isArray(list) ? list : []); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  if (!rows.length) return null;
+  const renew = async (row) => {
+    if (busy) return;
+    setBusy(row.patientId);
+    try {
+      const activation = await doctorApi.renewPatientActivation(row.patientId);
+      setIssued({ ...row, activation });
+      setRows((list) => list.map((r) => (r.patientId === row.patientId ? { ...r, expiresAt: activation.expiresAt, expired: false, channel: activation.channel } : r)));
+    } catch (e) {
+      notify?.(e.message || 'Nouveau code impossible.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section aria-labelledby="pending-activations" className={`${card} border rounded-2xl p-4 space-y-2`}>
+      <h3 id="pending-activations" className="text-xs font-bold">Activations en attente</h3>
+      {rows.map((row) => (
+        <div key={row.patientId} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate">{row.name}</p>
+              <p className={`text-[11px] ${row.expired ? 'text-red-600 font-semibold' : sub}`}>
+                {row.expired ? 'Code expiré' : row.expiresAt ? `Code valable jusqu’au ${formatDate(row.expiresAt)}` : 'Ancien mot de passe provisoire'}
+              </p>
+            </div>
+            <button type="button" onClick={() => renew(row)} disabled={busy === row.patientId}
+              className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-700 text-[11px] font-semibold disabled:opacity-50">
+              {busy === row.patientId ? '…' : 'Nouveau code'}
+            </button>
+          </div>
+          {issued?.patientId === row.patientId && (
+            <ActivationNotice activation={issued.activation} name={row.name} phone={row.phone} darkMode={darkMode}
+              onRenew={() => renew(row)} renewing={busy === row.patientId} />
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function PatientHeader({ pat, card, sub, border, darkMode }) {
   const hasAllergy = pat.medicalProfile?.allergies?.length > 0;
   return (
@@ -136,14 +199,14 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
           <h3 className="text-xl font-bold">{pat.firstName || 'Patient'} {pat.lastName || ''}</h3>
           <p className={`text-xs ${sub}`}>{pat.cmuNumber}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-            <span><strong>{pat.age} ans</strong> • {pat.sex === 'M' ? 'Homme' : 'Femme'}</span>
+            <span><strong>{Number.isInteger(pat.age) ? `${pat.age} ans` : 'Âge non renseigné'}</strong>{sexLabel(pat.sex) ? ` • ${sexLabel(pat.sex)}` : ''}</span>
             <span>Groupe : <strong className="text-red-600">{pat.bloodType || '—'}</strong></span>
             {pat.weightKg && <span>{pat.weightKg} kg • {pat.heightCm} cm</span>}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           {pat.phone && (
-            <a href={`tel:${pat.phone}`} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">
+            <a href={`tel:${pat.phone}`} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-bold">
               <Phone className="w-3 h-3" /> Appeler
             </a>
           )}
@@ -156,11 +219,11 @@ function PatientHeader({ pat, card, sub, border, darkMode }) {
 function PatientTabProfil({ pat, card, sub, border, darkMode }) {
   const fields = [
     { l: 'Date de naissance', v: pat.birthDate ? new Date(pat.birthDate).toLocaleDateString('fr-FR') : '—' },
-    { l: 'Sexe',              v: pat.sex === 'M' ? 'Masculin' : 'Féminin' },
+    { l: 'Sexe',              v: sexLabel(pat.sex) || '—' },
     { l: 'Groupe sanguin',    v: pat.bloodType || '—' },
     { l: 'Téléphone',         v: pat.phone || '—' },
     { l: 'Email',             v: pat.email || '—' },
-    { l: 'Adresse',           v: pat.address ? `${pat.address}, ${pat.city}` : '—' },
+    { l: 'Adresse',           v: [pat.address, pat.city].filter(Boolean).join(', ') || '—' },
     { l: 'Poids',             v: pat.weightKg ? `${pat.weightKg} kg` : '—' },
     { l: 'Taille',            v: pat.heightCm ? `${pat.heightCm} cm` : '—' },
     { l: 'Contact urgence',   v: pat.emergencyName ? `${pat.emergencyName} — ${pat.emergencyPhone}` : '—' },
@@ -179,27 +242,31 @@ function PatientTabProfil({ pat, card, sub, border, darkMode }) {
 
 function PatientTabConstantes({ pat, card, sub, border, darkMode }) {
   const types = ['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature'];
-  const labels = { blood_pressure: 'Tension', blood_glucose: 'Glycémie', heart_rate: 'Fréq. cardiaque', temperature: 'Température' };
+  const labels = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].label]));
   const colors = { blood_pressure: '#dc2626', blood_glucose: '#2563eb', heart_rate: '#16a34a', temperature: '#d97706' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C' };
+  const units  = Object.fromEntries(types.map((t) => [t, VITAL_NORMS[t].unit]));
+  const LEVEL = { unknown: ['Contexte requis', 'bg-slate-100 text-slate-700'], normal: ['Dans les repères', 'bg-emerald-100 text-emerald-800'], watch: ['À surveiller', 'bg-amber-100 text-amber-800'], critical: ['Évaluation rapide', 'bg-red-100 text-red-800'] };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="sm:col-span-2"><DoctorVitalInput patientId={pat.id} /></div>
       {types.map(type => {
         const data = (pat.vitals || []).filter(v => v.type === type).slice(0, 12).reverse();
         const last = data[data.length - 1];
-        const vals = data.map(v => Number(String(v.value).split('/')[0])).filter(Boolean);
+        const vals = data.map(v => vitalNumber(type, v.value)).filter(Number.isFinite);
         const mx = Math.max(...vals, 1), mn = Math.min(...vals);
         const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * 96 + 2},${96 - ((v - mn) / (mx - mn || 1)) * 70 - 10}`).join(' ');
         return (
           <div key={type} className={`${card} border rounded-2xl p-4`}>
             <div className="flex items-center justify-between mb-2">
               <p className="font-bold text-sm">{labels[type]}</p>
-              <span className={`text-xs ${sub}`}>{data.length} mesures</span>
+              <span className={`text-xs ${sub}`}>{data.length} mesure{data.length > 1 ? 's' : ''}</span>
             </div>
-            <p className="text-2xl font-bold mb-2" style={{ color: colors[type] }}>
-              {last?.value || '—'} <span className={`text-xs font-normal ${sub}`}>{units[type]}</span>
+            <p className="text-2xl font-bold mb-1" style={{ color: colors[type] }}>
+              {last?.value ? String(last.value).replace('.', ',') : '—'} <span className={`text-xs font-normal ${sub}`}>{units[type]}</span>
             </p>
+            {last && <p className="mb-2 flex items-center gap-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${LEVEL[vitalLevel(type, last.value, last.context)][1]}`}>{LEVEL[vitalLevel(type, last.value, last.context)][0]}</span><span className={`text-[10px] ${sub}`}>Repère : {VITAL_NORMS[type].normal} · {last.sourceRole === 'doctor' ? 'saisie médecin' : last.sourceRole === 'patient' ? 'saisie patient' : 'mesure'}</span></p>}
+            {last && <p className={`text-xs mb-2 ${sub}`}>{vitalAssessment(type, last.value, last.context).message}</p>}
             {vals.length > 1 && (
               <div className="h-24">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
@@ -266,17 +333,17 @@ function PatientTabConsult({ pat, card, sub, border, darkMode }) {
         <div key={c.id} className={`${card} border rounded-2xl p-4`}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <div className="w-1.5 h-8 rounded-full bg-emerald-500 flex-shrink-0" />
+              <div className="w-1.5 h-8 rounded-full bg-red-500 flex-shrink-0" />
               <div>
                 <p className="font-semibold text-sm">{c.diagnosisMain || 'Consultation'}</p>
                 <p className={`text-xs ${sub}`}>{new Date(c.startedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Terminée</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{consultationStatusLabel(c.status)}</span>
           </div>
           {c.motif && <p className={`text-xs ${sub} mt-2`}><strong>Motif :</strong> {c.motif}</p>}
           {c.notes && <p className={`text-xs ${sub} mt-1`}>{c.notes}</p>}
-          {c.recommendations && <p className={`text-xs mt-1 text-blue-600 font-medium`}>→ {c.recommendations}</p>}
+          {c.recommendations && <p className={`text-xs mt-1 text-red-600 font-medium`}>→ {c.recommendations}</p>}
         </div>
       ))}
     </div>
@@ -287,24 +354,27 @@ function PatientTabLabo({ pat, card, sub, border, darkMode }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div className={`${card} border rounded-2xl p-4`}>
-        <h4 className="font-bold text-sm mb-3 flex items-center gap-2"><Microscope className="w-4 h-4 text-blue-600" /> Résultats labo</h4>
+        <h4 className="font-bold text-sm mb-3 flex items-center gap-2"><Microscope className="w-4 h-4 text-red-600" /> Résultats labo</h4>
         {(pat.labResults || []).length === 0 ? (
           <p className={`text-xs ${sub}`}>Aucun résultat</p>
         ) : (pat.labResults || []).map(r => (
           <div key={r.id} className={`flex items-center justify-between py-2 border-b ${border} last:border-0`}>
-            <p className="text-xs font-semibold">{r.title}</p>
+            <div><p className="text-xs font-semibold">{r.title}</p><LabResultDetails id={r.id}/></div>
             <p className={`text-[10px] ${sub}`}>{new Date(r.performedAt).toLocaleDateString('fr-FR')}</p>
           </div>
         ))}
       </div>
       <div className={`${card} border rounded-2xl p-4`}>
-        <h4 className="font-bold text-sm mb-3 flex items-center gap-2"><FileDown className="w-4 h-4 text-purple-600" /> Ordonnances</h4>
+        <h4 className="font-bold text-sm mb-3 flex items-center gap-2"><FileDown className="w-4 h-4 text-red-600" /> Ordonnances</h4>
         {(pat.prescriptions || []).length === 0 ? (
           <p className={`text-xs ${sub}`}>Aucune ordonnance</p>
         ) : (pat.prescriptions || []).map(r => (
           <div key={r.id} className={`flex items-center justify-between py-2 border-b ${border} last:border-0`}>
-            <p className="text-xs font-semibold">{new Date(r.prescribedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${r.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{r.status === 'active' ? 'Active' : 'Expirée'}</span>
+            <div>
+              <p className="text-xs font-semibold">{r.issuedAt ? new Date(r.issuedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Date inconnue'}</p>
+              {r.validUntil && <p className={`text-[10px] ${sub}`}>Valable jusqu’au {new Date(r.validUntil).toLocaleDateString('fr-FR')}</p>}
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${prescriptionIsOpen(r.status) ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{prescriptionStatusLabel(r.status)}</span>
           </div>
         ))}
       </div>
@@ -315,3 +385,30 @@ function PatientTabLabo({ pat, card, sub, border, darkMode }) {
 /* ════════════════════════════════════════════════════════════════
    AGENDA
    ════════════════════════════════════════════════════════════════ */
+
+function DoctorVitalInput({ patientId }) {
+  const [type, setType] = useState('blood_pressure');
+  const [value, setValue] = useState('');
+  const [timing, setTiming] = useState('unknown');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  async function submit(e) {
+    e.preventDefault(); setSaving(true); setMessage('');
+    try {
+      const result = await doctorApi.addPatientVital(patientId, { type, value, context: type === 'blood_glucose' ? { glucoseTiming: timing } : {} });
+      setMessage(`Mesure enregistrée. ${result.assessment.message} Rouvrez le dossier pour actualiser l’historique.`); setValue('');
+    } catch (e) { setMessage(e.message || 'Enregistrement impossible.'); }
+    finally { setSaving(false); }
+  }
+  return <form onSubmit={submit} className="border rounded-xl p-3 space-y-3">
+    <p className="text-xs">Repères adultes au repos, hors grossesse. Ni diagnostic ni validation clinique. Les symptômes priment sur le classement.</p>
+    <div className="flex flex-wrap gap-3 items-end">
+      <label className="text-xs">Constante<select className="block border rounded p-2 bg-transparent min-h-11" value={type} onChange={e => { setType(e.target.value); setValue(''); setMessage(''); }}>{Object.entries(VITAL_NORMS).map(([key, n]) => <option key={key} value={key}>{n.label}</option>)}</select></label>
+      <label className="text-xs">Valeur ({VITAL_NORMS[type].unit})<input required maxLength={20} inputMode={type === 'blood_pressure' ? 'text' : 'decimal'} className="block border rounded p-2 bg-transparent min-h-11" placeholder={VITAL_NORMS[type].example} value={value} onChange={e => setValue(e.target.value)} /></label>
+      {type === 'blood_glucose' && <label className="text-xs">Contexte glycémique<select className="block border rounded p-2 bg-transparent min-h-11" value={timing} onChange={e => setTiming(e.target.value)}><option value="unknown">Non précisé</option><option value="fasting">À jeun depuis au moins 8 h</option><option value="post_meal">Après repas</option><option value="random">Aléatoire</option></select></label>}
+      <button disabled={saving} className="min-h-11 rounded-lg bg-red-600 text-white px-3 disabled:opacity-50">{saving ? 'Enregistrement…' : 'Ajouter la mesure'}</button>
+    </div>
+    <p className="text-xs">{VITAL_NORMS[type].normal}. Tension : 120/80 mmHg ou 12/8 cmHg. Glycémie : g/L uniquement.</p>
+    {message && <p role="status" className="text-sm">{message}</p>}
+  </form>;
+}

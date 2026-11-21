@@ -6,3 +6,5 @@ data
 *.log
 .git
 .gitignore
+backups
+deploy/keys

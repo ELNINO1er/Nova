@@ -1,0 +1,5 @@
+# HTTPS automatique (Let's Encrypt, gratuit) devant l'API NOVA, qui sert aussi le frontend.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:4001
+}

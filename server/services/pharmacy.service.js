@@ -1,7 +1,13 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/database.js';
 import { notifyPatientDispense, notifyDoctorDispense } from './notification.service.js';
+import { closeOrdersOnDispense, signalOrders } from './pharmacy-order.service.js';
+import { prescriptionQrSecret } from './prescription-qr.js';
+import { validUntilOf, isPrescriptionExpired, prescriptionStatus } from './prescription-status.js';
+
+// Une ordonnance partiellement délivrée doit pouvoir être complétée.
+const DISPENSABLE_STATUSES = ['active', 'partial'];
 
 /* ─── Dashboard pharmacie ─────────────────────────────────────── */
 
@@ -10,14 +16,14 @@ export async function getPharmacyDashboard(pharmacyId) {
     'SELECT * FROM nova_pharmacies WHERE id = ?', [pharmacyId]
   );
 
-  const [[{ todayCount }]] = await pool.execute(
-    `SELECT COUNT(*) AS todayCount FROM nova_dispenses
-     WHERE pharmacy_id = ? AND DATE(dispensed_at) = CURDATE()`,
-    [pharmacyId]
-  );
-
-  const [[{ totalCount }]] = await pool.execute(
-    `SELECT COUNT(*) AS totalCount FROM nova_dispenses WHERE pharmacy_id = ?`,
+  const [[counts]] = await pool.execute(
+    `SELECT COUNT(*) AS total,
+            COUNT(CASE WHEN DATE(dispensed_at) = CURDATE() AND status <> 'refused' THEN 1 END) AS today,
+            COUNT(CASE WHEN status <> 'refused' THEN 1 END) AS delivered,
+            COUNT(CASE WHEN status = 'full' THEN 1 END) AS complete,
+            COUNT(CASE WHEN status = 'partial' THEN 1 END) AS partial,
+            COUNT(CASE WHEN status = 'refused' THEN 1 END) AS refused
+     FROM nova_dispenses WHERE pharmacy_id = ?`,
     [pharmacyId]
   );
 
@@ -25,17 +31,16 @@ export async function getPharmacyDashboard(pharmacyId) {
     `SELECT d.*, p.first_name, p.last_name
      FROM nova_dispenses d
      JOIN nova_patients p ON p.id = d.patient_id
-     WHERE d.pharmacy_id = ?
-     ORDER BY d.dispensed_at DESC LIMIT 10`,
+     WHERE d.pharmacy_id = ? AND d.dispensed_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+     ORDER BY d.dispensed_at DESC LIMIT 300`,
     [pharmacyId]
   );
 
   return {
-    pharmacy: pharmacy ? {
-      id: pharmacy.id, name: pharmacy.name, city: pharmacy.city, phone: pharmacy.phone,
-    } : null,
-    todayDispenses: todayCount,
-    totalDispenses: totalCount,
+    pharmacy: pharmacy ? mapOffice(pharmacy) : null,
+    todayDispenses: Number(counts.today),
+    totalDispenses: Number(counts.delivered),
+    dispenseCounts: { full: Number(counts.complete), partial: Number(counts.partial), refused: Number(counts.refused) },
     recentDispenses: recentDispenses.map(r => ({
       id: r.id,
       patientName: displayName(r.first_name, r.last_name),
@@ -45,65 +50,92 @@ export async function getPharmacyDashboard(pharmacyId) {
   };
 }
 
+const mapOffice = (r) => ({
+  id: r.id, name: r.name, city: r.city, phone: r.phone, address: r.address,
+  opensAt: r.opens_at || null, closesAt: r.closes_at || null, isDuty: Boolean(r.is_duty), isOpen: Boolean(r.is_open),
+});
+
+/**
+ * Le pharmacien tient à jour les informations vues par les patients : coordonnées, horaires, garde.
+ * Le nom de l'officine et son activation restent gérés par l'administrateur.
+ */
+export async function updatePharmacyOffice(pharmacyId, changes) {
+  const fields = { phone: 'phone', address: 'address', city: 'city', opensAt: 'opens_at', closesAt: 'closes_at', isDuty: 'is_duty' };
+  const sets = [], args = [];
+  for (const [key, col] of Object.entries(fields)) {
+    if (changes[key] === undefined) continue;
+    sets.push(`${col} = ?`);
+    args.push(key === 'isDuty' ? (changes[key] ? 1 : 0) : (changes[key] === '' ? null : changes[key]));
+  }
+  if ((changes.opensAt && !changes.closesAt) || (!changes.opensAt && changes.closesAt))
+    throw Object.assign(new Error('Indiquez l’heure d’ouverture et l’heure de fermeture, ou aucune des deux.'), { status: 422 });
+  if (changes.opensAt && changes.opensAt === changes.closesAt)
+    throw Object.assign(new Error('L’heure de fermeture doit être différente de l’heure d’ouverture.'), { status: 422 });
+  if (sets.length) await pool.execute(`UPDATE nova_pharmacies SET ${sets.join(', ')} WHERE id = ?`, [...args, pharmacyId]);
+  const [[row]] = await pool.execute('SELECT * FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
+  if (!row) throw Object.assign(new Error('Officine introuvable.'), { status: 404 });
+  return mapOffice(row);
+}
+
 /* ─── Vérifier ordonnance via QR / ID ─────────────────────────── */
 
-export async function verifyPrescriptionQR(qrToken) {
+/** Décode le QR d'une ordonnance et renvoie son identifiant (lève 422 si invalide ou expiré). */
+export function decodePrescriptionQr(qrToken) {
   let decoded;
   try {
-    decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+    decoded = jwt.verify(qrToken, prescriptionQrSecret());
   } catch {
-    const err = new Error('QR ordonnance invalide ou expiré.');
-    err.status = 401;
-    throw err;
+    // QR générés avant la clé dédiée (signés avec la clé des sessions) : encore acceptés jusqu'à leur expiration.
+    try { decoded = jwt.verify(qrToken, process.env.JWT_SECRET); } catch {
+      throw Object.assign(new Error('QR ordonnance invalide ou expiré.'), { status: 422, code: 'invalid_qr' });
+    }
   }
   if (decoded?.type !== 'prescription' || !decoded.prescriptionId) {
-    const err = new Error('QR ordonnance invalide.');
-    err.status = 422;
-    throw err;
+    throw Object.assign(new Error('QR ordonnance invalide.'), { status: 422, code: 'invalid_qr' });
   }
-  const prescriptionId = decoded.prescriptionId;
+  return decoded.prescriptionId;
+}
 
-  const [[rx]] = await pool.execute(
-    `SELECT p.id, p.patient_id, p.doctor_name, p.doctor_specialty, p.issued_at, p.valid_until, p.status,
-            pat.first_name, pat.last_name, pat.cmu_number
-     FROM nova_prescriptions p
-     JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.id = ?`,
-    [prescriptionId]
-  );
+/** Le pharmacien n'agit sur une ordonnance que s'il présente son QR (remis par le patient). */
+export function assertQrMatches(qrToken, prescriptionId) {
+  if (decodePrescriptionQr(qrToken) !== prescriptionId) {
+    throw Object.assign(new Error('Le QR présenté ne correspond pas à cette ordonnance.'), { status: 422, code: 'invalid_qr' });
+  }
+}
+
+export async function verifyPrescriptionQR(qrToken) {
+  const prescriptionId = decodePrescriptionQr(qrToken);
+  const rx = await getPrescriptionForPharmacy(prescriptionId);
   if (!rx) return null;
+  const dispense = rx.dispenseHistory[0];
+  const isExpired = Boolean(rx.validUntil && String(rx.validUntil).slice(0, 10) < new Date().toISOString().slice(0, 10));
+  const alreadyFull = rx.status === 'dispensed' || rx.dispenseHistory.some(entry => entry.status === 'full');
+  const quantitiesMissing = !rx.items.length || rx.items.some(item => item.remaining == null);
 
-  // Vérifier si déjà délivrée
-  const [[dispense]] = await pool.execute(
-    `SELECT id, status, dispensed_at FROM nova_dispenses WHERE prescription_id = ? ORDER BY dispensed_at DESC LIMIT 1`,
-    [prescriptionId]
-  );
-
-  const isExpired = rx.valid_until && new Date(rx.valid_until) < new Date();
-
-  return {
+  return withPatient({
     id: rx.id,
-    patientName: displayName(rx.first_name, rx.last_name),
-    cmuNumber: maskIdentifier(rx.cmu_number),
-    doctorName: rx.doctor_name,
-    doctorSpecialty: rx.doctor_specialty,
-    issuedAt: rx.issued_at,
-    validUntil: rx.valid_until,
-    status: rx.status,
+    patientName: rx.patientName,
+    cmuNumber: rx.cmuNumber,
+    doctorName: rx.doctorName,
+    doctorSpecialty: rx.doctorSpecialty,
+    issuedAt: rx.issuedAt,
+    validUntil: rx.validUntil,
+    status: prescriptionStatus({ status: rx.status, valid_until: rx.validUntil }),
     isExpired,
-    isAlreadyDispensed: dispense?.status === 'full',
+    isAlreadyDispensed: alreadyFull,
     lastDispense: dispense ? {
       id: dispense.id,
       status: dispense.status,
-      dispensedAt: dispense.dispensed_at,
+      dispensedAt: dispense.dispensedAt,
     } : null,
     verification: {
       authentic: true,
       expired: isExpired,
-      alreadyFull: dispense?.status === 'full',
-      canDispense: !isExpired && dispense?.status !== 'full' && rx.status === 'active',
+      alreadyFull,
+      quantitiesMissing,
+      canDispense: !isExpired && !alreadyFull && !quantitiesMissing && DISPENSABLE_STATUSES.includes(rx.status),
     },
-  };
+  }, patientIdOf(rx));
 }
 
 /* ─── Détail ordonnance (médicaments uniquement, PAS le dossier) ── */
@@ -114,7 +146,7 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
             pat.first_name, pat.last_name, pat.cmu_number
      FROM nova_prescriptions p
      JOIN nova_patients pat ON pat.id = p.patient_id
-     WHERE p.id = ?`,
+     WHERE p.id = ? AND p.deleted_at IS NULL AND pat.deleted_at IS NULL`,
     [prescriptionId]
   );
   if (!rx) return null;
@@ -124,6 +156,8 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
     [prescriptionId]
   );
 
+  const [quantities] = await pool.execute("SELECT i.prescription_item_id,SUM(i.quantity_dispensed) n FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=? AND d.status<>'refused' GROUP BY i.prescription_item_id",[prescriptionId]);
+  const delivered=new Map(quantities.map(q=>[q.prescription_item_id,Number(q.n)]));
   // Vérifier délivrances précédentes
   const [dispenses] = await pool.execute(
     `SELECT d.id, d.status, d.dispensed_at, d.notes, ph.name AS pharmacyName
@@ -134,14 +168,14 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
     [prescriptionId]
   );
 
-  return {
+  return withPatient({
     id: rx.id,
     patientName: displayName(rx.first_name, rx.last_name),
     cmuNumber: maskIdentifier(rx.cmu_number),
     doctorName: rx.doctor_name,
     doctorSpecialty: rx.doctor_specialty,
     issuedAt: rx.issued_at,
-    validUntil: rx.valid_until,
+    validUntil: validUntilOf(rx),
     status: rx.status,
     items: items.map(i => ({
       id: i.id,
@@ -150,6 +184,8 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
       frequency: i.frequency,
       duration: i.duration,
       instructions: i.instructions,
+      quantityPrescribed:i.quantity_prescribed, quantityUnit:i.quantity_unit,
+      quantityDispensed:delivered.get(i.id)||0, remaining:i.quantity_prescribed==null?null:Math.max(0,Number(i.quantity_prescribed)-(delivered.get(i.id)||0)),
     })),
     dispenseHistory: dispenses.map(d => ({
       id: d.id,
@@ -157,85 +193,60 @@ export async function getPrescriptionForPharmacy(prescriptionId) {
       pharmacyName: d.pharmacyName,
       dispensedAt: d.dispensed_at,
     })),
-  };
+  }, rx.patient_id);
 }
 
 /* ─── Délivrer ordonnance ─────────────────────────────────────── */
 
 export async function dispensePrescription(pharmacyId, pharmacistUserId, payload) {
-  // Vérifier que l'ordonnance existe et est dispensable
-  const [[rxStatus]] = await pool.execute(
-    `SELECT p.id, p.valid_until, p.status,
-            (SELECT d.status FROM nova_dispenses d WHERE d.prescription_id = p.id ORDER BY d.dispensed_at DESC LIMIT 1) AS last_dispense_status
-     FROM nova_prescriptions p WHERE p.id = ?`,
-    [payload.prescriptionId]
-  );
-  if (!rxStatus) {
-    const err = new Error('Ordonnance introuvable.');
-    err.status = 404;
-    throw err;
-  }
-  const isExpired = rxStatus.valid_until && new Date(rxStatus.valid_until) < new Date();
-  if (isExpired || rxStatus.last_dispense_status === 'full' || rxStatus.status !== 'active') {
-    const err = new Error(
-      isExpired ? 'Ordonnance expiree.'
-      : rxStatus.last_dispense_status === 'full' ? 'Ordonnance deja entierement delivree.'
-      : 'Ordonnance non dispensable.'
-    );
-    err.status = 422;
-    throw err;
-  }
-
-  const conn = await pool.getConnection();
+  assertQrMatches(payload.qrToken, payload.prescriptionId);
+  if (!payload.requestKey || payload.requestKey.length > 100) throw Object.assign(new Error('Clé de nouvelle tentative requise.'),{status:422});
+  const items=(payload.items||[]).filter(i=>i.quantityDispensed>0).sort((a,b)=>a.prescriptionItemId.localeCompare(b.prescriptionItemId));
+  if(new Set(items.map(i=>i.prescriptionItemId)).size!==items.length) throw Object.assign(new Error('Ligne dupliquée.'),{status:422});
+  const hash=createHash('sha256').update(JSON.stringify({prescriptionId:payload.prescriptionId,status:payload.status,items,notes:payload.notes||null})).digest('hex');
+  const conn=await pool.getConnection();
   try {
     await conn.beginTransaction();
-
-    const dispenseId = randomUUID();
-    const [[rx]] = await conn.execute('SELECT patient_id FROM nova_prescriptions WHERE id = ?', [payload.prescriptionId]);
-
-    await conn.execute(
-      `INSERT INTO nova_dispenses (id, prescription_id, pharmacy_id, pharmacist_user_id, patient_id, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [dispenseId, payload.prescriptionId, pharmacyId, pharmacistUserId, rx.patient_id, payload.status, payload.notes || null]
-    );
-
-    for (const item of payload.items) {
-      await conn.execute(
-        `INSERT INTO nova_dispense_items (id, dispense_id, prescription_item_id, quantity_dispensed, substituted, substitution_name, substitution_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), dispenseId, item.prescriptionItemId, item.quantityDispensed,
-         item.substituted ? 1 : 0, item.substitutionName || null, item.substitutionReason || null]
-      );
+    const [[rx]]=await conn.execute('SELECT * FROM nova_prescriptions WHERE id=? FOR UPDATE',[payload.prescriptionId]);
+    if(!rx||rx.deleted_at) throw Object.assign(new Error('Ordonnance introuvable.'),{status:404});
+    const [[prior]]=await conn.execute('SELECT * FROM nova_dispense_requests WHERE pharmacy_id=? AND request_key=?',[pharmacyId,payload.requestKey]);
+    if(prior) {
+      if(prior.payload_hash!==hash) throw Object.assign(new Error('Cette clé correspond à une autre opération.'),{status:409});
+      await conn.commit(); return typeof prior.response_json==='string'?JSON.parse(prior.response_json):prior.response_json;
     }
-
-    // Mettre à jour le statut de l'ordonnance
-    if (payload.status === 'full') {
-      await conn.execute('UPDATE nova_prescriptions SET status = ? WHERE id = ?', ['dispensed', payload.prescriptionId]);
-    } else if (payload.status === 'partial') {
-      await conn.execute('UPDATE nova_prescriptions SET status = ? WHERE id = ?', ['partial', payload.prescriptionId]);
+    const [[actor]]=await conn.execute("SELECT id FROM nova_users WHERE id=? AND pharmacy_id=? AND role='pharmacist' AND disabled_at IS NULL AND deleted_at IS NULL",[pharmacistUserId,pharmacyId]);
+    if(!actor) throw Object.assign(new Error('Officine non autorisée.'),{status:403});
+    if(payload.status!=='refused' && (!DISPENSABLE_STATUSES.includes(rx.status)||isPrescriptionExpired(rx))) throw Object.assign(new Error('Ordonnance expirée ou déjà clôturée.'),{status:409});
+    const [lines]=await conn.execute('SELECT * FROM nova_prescription_items WHERE prescription_id=? FOR UPDATE',[rx.id]);
+    const [used]=await conn.execute("SELECT i.prescription_item_id,SUM(i.quantity_dispensed) n FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.prescription_id=? AND d.status<>'refused' GROUP BY i.prescription_item_id",[rx.id]);
+    const totals=new Map(used.map(x=>[x.prescription_item_id,Number(x.n)]));
+    const refused=payload.status==='refused';
+    if(refused && !String(payload.notes||'').trim()) throw Object.assign(new Error('Motif du refus obligatoire.'),{status:422});
+    if(!refused && (!items.length||lines.some(l=>l.quantity_prescribed==null))) throw Object.assign(new Error('Quantités prescrites manquantes : demandez une ordonnance complète au prescripteur.'),{status:422});
+    for(const i of items) {
+      const line=lines.find(l=>l.id===i.prescriptionItemId);
+      if(!line) throw Object.assign(new Error('Ligne étrangère à cette ordonnance.'),{status:422});
+      if(!Number.isInteger(i.quantityDispensed)||i.quantityDispensed<1||i.quantityDispensed>Number(line.quantity_prescribed)-(totals.get(line.id)||0)) throw Object.assign(new Error('Quantité supérieure au reste à délivrer.'),{status:409});
+      if(i.substituted&&(!i.substitutionName?.trim()||!i.substitutionReason?.trim())) throw Object.assign(new Error('Substitution : nom et justification obligatoires.'),{status:422});
+      if(!refused) totals.set(line.id,(totals.get(line.id)||0)+i.quantityDispensed);
     }
-
+    const status=refused?'refused':lines.every(l=>(totals.get(l.id)||0)>=Number(l.quantity_prescribed))?'full':'partial';
+    const id=randomUUID();
+    await conn.execute('INSERT INTO nova_dispenses(id,prescription_id,pharmacy_id,pharmacist_user_id,patient_id,status,notes) VALUES (?,?,?,?,?,?,?)',[id,rx.id,pharmacyId,pharmacistUserId,rx.patient_id,status,payload.notes||null]);
+    if(!refused) for(const i of items) await conn.execute('INSERT INTO nova_dispense_items(id,dispense_id,prescription_item_id,quantity_dispensed,substituted,substitution_name,substitution_reason) VALUES (?,?,?,?,?,?,?)',[randomUUID(),id,i.prescriptionItemId,i.quantityDispensed,i.substituted?1:0,i.substitutionName||null,i.substitutionReason||null]);
+    if(!refused) await conn.execute('UPDATE nova_prescriptions SET status=? WHERE id=?',[status==='full'?'dispensed':'partial',rx.id]);
+    const response={id,status,prescriptionId:rx.id};
+    await conn.execute('INSERT INTO nova_dispense_requests(pharmacy_id,request_key,prescription_id,payload_hash,response_json) VALUES (?,?,?,?,?)',[pharmacyId,payload.requestKey,rx.id,hash,JSON.stringify(response)]);
+    // Noms réels dans les notifications ; la commande éventuelle du patient est close.
+    const [[ph]]=await conn.execute('SELECT name FROM nova_pharmacies WHERE id=?',[pharmacyId]);
+    const [[pat]]=await conn.execute('SELECT first_name,last_name FROM nova_patients WHERE id=?',[rx.patient_id]);
+    await notifyPatientDispense(rx.patient_id,ph?.name||'Votre pharmacie',status,conn);
+    if(rx.doctor_id)await notifyDoctorDispense(rx.doctor_id,displayName(pat?.first_name,pat?.last_name)||'votre patient',ph?.name||'une pharmacie',status,conn);
+    const closed=await closeOrdersOnDispense(conn,{pharmacyId,prescriptionId:rx.id,dispenseId:id,status,notes:payload.notes});
     await conn.commit();
-
-    // Notifications (hors transaction — non bloquant)
-    const [[pharmacy]] = await pool.execute('SELECT name FROM nova_pharmacies WHERE id = ?', [pharmacyId]);
-    const phName = pharmacy?.name || 'Pharmacie';
-    notifyPatientDispense(rx.patient_id, phName, payload.status).catch(() => {});
-
-    // Notifier le médecin prescripteur
-    const [[rxFull]] = await pool.execute('SELECT doctor_id FROM nova_prescriptions WHERE id = ?', [payload.prescriptionId]);
-    if (rxFull?.doctor_id) {
-      const [[pat]] = await pool.execute('SELECT first_name, last_name FROM nova_patients WHERE id = ?', [rx.patient_id]);
-      notifyDoctorDispense(rxFull.doctor_id, `${pat?.first_name || ''} ${pat?.last_name || ''}`, phName, payload.status).catch(() => {});
-    }
-
-    return { id: dispenseId, status: payload.status, prescriptionId: payload.prescriptionId };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
+    await signalOrders(closed).catch(()=>{});
+    return response;
+  } catch(err) { await conn.rollback(); if(err.code==='ER_DUP_ENTRY') throw Object.assign(new Error('Clé déjà utilisée pour une autre opération.'),{status:409}); throw err; } finally {conn.release();}
 }
 
 /* ─── Historique délivrances ──────────────────────────────────── */
@@ -259,7 +270,7 @@ export async function getDispenseHistory(pharmacyId, query = {}) {
     args.push(query.date);
   }
 
-  sql += ' ORDER BY d.dispensed_at DESC LIMIT 50';
+  sql += ' ORDER BY d.dispensed_at DESC LIMIT 500';
 
   const [rows] = await pool.execute(sql, args);
   return rows.map(r => ({
@@ -273,6 +284,13 @@ export async function getDispenseHistory(pharmacyId, query = {}) {
     rxIssuedAt: r.rx_issued_at,
   }));
 }
+
+/** Patient concerné, gardé hors de la réponse JSON (propriété non énumérable) pour le journal d'accès. */
+export function withPatient(obj, patientId) {
+  Object.defineProperty(obj, 'patientId', { value: patientId, enumerable: false });
+  return obj;
+}
+export const patientIdOf = (obj) => obj?.patientId || null;
 
 function displayName(firstName, lastName) {
   const first = String(firstName || '').trim();

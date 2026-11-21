@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/database.js';
+import { emitToUser } from '../realtime.js';
 
 /**
  * Créer une notification pour un utilisateur (patient, médecin, pharmacien).
@@ -14,24 +15,45 @@ import { pool } from '../db/database.js';
  * @param {string} opts.sourceUserId — qui a déclenché
  * @param {string} opts.sourceRole — rôle source
  */
-export async function createNotification(opts) {
+// Catégories que le patient peut couper dans ses paramètres ; les notifications médicales
+// (consultation, ordonnance, résultat, délivrance, consentement) ne sont jamais filtrées.
+const PATIENT_PREFERENCE = { appointment: 'appointments', medication: 'medications', message: 'messages' };
+
+async function patientMutedCategory(patientId, type, conn=pool) {
+  const key = PATIENT_PREFERENCE[type];
+  if (!key || !patientId) return false;
+  const [[row]] = await conn.execute('SELECT settings_json FROM nova_patient_settings WHERE patient_id = ?', [patientId]);
+  if (!row) return false;
+  try {
+    const settings = typeof row.settings_json === 'string' ? JSON.parse(row.settings_json) : row.settings_json;
+    return settings?.notifications?.[key] === false;
+  } catch { return false; }
+}
+
+export async function createNotification(opts,conn=pool) {
+  if (opts.targetRole === 'patient' && await patientMutedCategory(opts.patientId, opts.type,conn)) return null;
   const id = randomUUID();
   const now = new Date().toISOString();
-  await pool.execute(
-    `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, source_user_id, source_role, is_read, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+  await conn.execute(
+    `INSERT INTO nova_notifications (id, patient_id, user_id, target_role, type, title, body, link_page, link_target_id, source_user_id, source_role, is_read, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     [id, opts.patientId || '', opts.userId || null, opts.targetRole || null,
-     opts.type, opts.title, opts.body || null, opts.linkPage || null,
+     opts.type, opts.title, opts.body || null, opts.linkPage || null, opts.linkTargetId || null,
      opts.sourceUserId || null, opts.sourceRole || null, now]
   );
+  // Temps réel : simple signal « actualisez vos notifications » (aucun contenu médical transmis).
+  // Dans une transaction, le signal part après un court délai pour laisser la validation se faire ;
+  // en cas d'annulation, le client relit simplement une liste inchangée.
+  const ping = () => emitToUser(opts.userId, 'notification:new', { type: opts.type });
+  if (conn === pool) ping(); else setTimeout(ping, 1000).unref?.();
   return id;
 }
 
 /**
  * Notification → patient quand médecin crée consultation
  */
-export async function notifyPatientConsultation(patientId, doctorName, consultationId) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
+export async function notifyPatientConsultation(patientId, doctorName, consultationId, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
   return createNotification({
     patientId,
     userId: user?.id,
@@ -40,14 +62,14 @@ export async function notifyPatientConsultation(patientId, doctorName, consultat
     title: 'Nouvelle consultation',
     body: `${doctorName} a ajouté un compte-rendu de consultation à votre dossier.`,
     linkPage: 'history',
-  });
+  },conn);
 }
 
 /**
  * Notification → patient quand ordonnance créée
  */
-export async function notifyPatientPrescription(patientId, doctorName) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
+export async function notifyPatientPrescription(patientId, doctorName, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
   return createNotification({
     patientId,
     userId: user?.id,
@@ -56,48 +78,48 @@ export async function notifyPatientPrescription(patientId, doctorName) {
     title: 'Nouvelle ordonnance',
     body: `${doctorName} vous a émis une ordonnance. Consultez-la dans vos ordonnances.`,
     linkPage: 'prescriptions',
-  });
+  },conn);
 }
 
 /**
  * Notification → patient quand pharmacie délivre
  */
-export async function notifyPatientDispense(patientId, pharmacyName, status) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
-  const label = status === 'full' ? 'délivré votre ordonnance' : 'partiellement délivré votre ordonnance';
+export async function notifyPatientDispense(patientId, pharmacyName, status, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
+  const label = status==='refused'?'refusé la délivrance de votre ordonnance':status === 'full' ? 'délivré votre ordonnance' : 'partiellement délivré votre ordonnance';
   return createNotification({
     patientId,
     userId: user?.id,
     targetRole: 'patient',
     type: 'pharmacy',
-    title: status === 'full' ? 'Ordonnance délivrée' : 'Délivrance partielle',
+    title: status==='refused'?'Délivrance refusée':status === 'full' ? 'Ordonnance délivrée' : 'Délivrance partielle',
     body: `${pharmacyName} a ${label}.`,
     linkPage: 'prescriptions',
-  });
+  },conn);
 }
 
 /**
  * Notification → médecin quand pharmacie délivre son ordonnance
  */
-export async function notifyDoctorDispense(doctorId, patientName, pharmacyName, status) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
+export async function notifyDoctorDispense(doctorId, patientName, pharmacyName, status, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
   if (!user) return;
-  const label = status === 'full' ? 'intégralement délivrée' : 'partiellement délivrée';
+  const label = status==='refused'?'refusée à la délivrance':status === 'full' ? 'intégralement délivrée' : 'partiellement délivrée';
   return createNotification({
     userId: user.id,
     targetRole: 'doctor',
     type: 'dispense',
-    title: 'Ordonnance délivrée',
+    title: status === 'refused' ? 'Délivrance refusée' : status === 'full' ? 'Ordonnance délivrée' : 'Délivrance partielle',
     body: `L'ordonnance de ${patientName} a été ${label} par ${pharmacyName}.`,
     linkPage: 'prescriptions',
-  });
+  },conn);
 }
 
 /**
  * Notification → médecin quand patient prend RDV
  */
-export async function notifyDoctorAppointment(doctorId, patientName, date) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
+export async function notifyDoctorAppointment(doctorId, patientName, date, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
   if (!user) return;
   return createNotification({
     userId: user.id,
@@ -106,14 +128,54 @@ export async function notifyDoctorAppointment(doctorId, patientName, date) {
     title: 'Nouveau rendez-vous',
     body: `${patientName} a pris rendez-vous pour le ${date}.`,
     linkPage: 'agenda',
-  });
+  },conn);
+}
+
+/** Notification → patient : rendez-vous confirmé ou annulé par le médecin. */
+// Date lisible d'un rendez-vous (« lundi 17 novembre à 10:30 ») ; un texte déjà formaté est gardé tel quel.
+function appointmentDate(value) {
+  const d = new Date(value);
+  if (!value || Number.isNaN(d.getTime()) || !/^\d{4}-\d{2}-\d{2}/.test(String(value instanceof Date ? d.toISOString() : value))) return String(value || '');
+  return d.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Abidjan' });
+}
+
+export async function notifyPatientAppointmentStatus(patientId, doctorName, status, dateStr, appointmentId, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ? AND deleted_at IS NULL', [patientId]);
+  return createNotification({
+    patientId,
+    userId: user?.id,
+    targetRole: 'patient',
+    type: 'appointment',
+    title: status === 'confirmed' ? 'Rendez-vous confirmé' : status === 'moved' ? 'Rendez-vous déplacé' : 'Rendez-vous annulé',
+    body: status === 'moved'
+      ? `${doctorName} a déplacé votre rendez-vous au ${appointmentDate(dateStr)}.`
+      : `${doctorName} a ${status === 'confirmed' ? 'confirmé' : 'annulé'} votre rendez-vous du ${appointmentDate(dateStr)}.`,
+    linkPage: 'rdv',
+    linkTargetId: appointmentId,
+  },conn);
+}
+
+/** Notification → médecin : rendez-vous annulé ou déplacé par le patient. */
+export async function notifyDoctorAppointmentChange(doctorId, patientName, change, dateStr, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE doctor_id = ? AND deleted_at IS NULL', [doctorId]);
+  if (!user) return;
+  return createNotification({
+    userId: user.id,
+    targetRole: 'doctor',
+    type: 'appointment',
+    title: change === 'cancelled' ? 'Rendez-vous annulé' : 'Rendez-vous à reconfirmer',
+    body: change === 'cancelled'
+      ? `${patientName} a annulé son rendez-vous du ${dateStr}.`
+      : `${patientName} a déplacé son rendez-vous au ${dateStr} : il est à reconfirmer.`,
+    linkPage: 'agenda',
+  },conn);
 }
 
 /**
  * Notification → médecin quand patient accorde/révoque consentement
  */
-export async function notifyDoctorConsent(doctorId, patientName, granted) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
+export async function notifyDoctorConsent(doctorId, patientName, granted,conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE doctor_id = ?', [doctorId]);
   if (!user) return;
   return createNotification({
     userId: user.id,
@@ -122,7 +184,7 @@ export async function notifyDoctorConsent(doctorId, patientName, granted) {
     title: granted ? 'Accès accordé' : 'Accès révoqué',
     body: `${patientName} a ${granted ? 'accordé' : 'révoqué'} l'accès à son dossier médical.`,
     linkPage: 'patients',
-  });
+  },conn);
 }
 
 /**
@@ -144,8 +206,8 @@ export async function notifyDoctorReferral(doctorId, toDoctorName, patientName, 
 /**
  * Notification → patient quand résultat labo disponible
  */
-export async function notifyPatientLabResult(patientId, labTitle) {
-  const [[user]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
+export async function notifyPatientLabResult(patientId, labTitle, conn=pool) {
+  const [[user]] = await conn.execute('SELECT id FROM nova_users WHERE patient_id = ?', [patientId]);
   return createNotification({
     patientId,
     userId: user?.id,
@@ -154,7 +216,7 @@ export async function notifyPatientLabResult(patientId, labTitle) {
     title: 'Résultat disponible',
     body: `Votre résultat "${labTitle}" est disponible.`,
     linkPage: 'labresults',
-  });
+  },conn);
 }
 
 /**

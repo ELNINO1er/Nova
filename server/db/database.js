@@ -1,15 +1,19 @@
+import { isPublicPassword } from '../services/public-passwords.js';
 import 'dotenv/config';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'node:crypto';
+import { migrate } from './migrations.js';
 
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: Number(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'sika_sante',
+  database: process.env.DB_NAME || 'nova',
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: Math.max(1, Number(process.env.DB_POOL_SIZE) || 10),
+  charset: 'UTF8MB4_UNICODE_CI',
   timezone: '+00:00',
 });
 
@@ -30,10 +34,17 @@ async function runIdempotentDdl(conn, sql) {
 
 export async function initDb() {
   const conn = await pool.getConnection();
+  let locked = false;
   try {
+    const [[lock]] = await conn.query(
+      "SELECT GET_LOCK(CONCAT('nova:init:', LEFT(SHA2(DATABASE(), 256), 40)), 60) AS acquired"
+    );
+    locked = Number(lock.acquired) === 1;
+    if (!locked) throw new Error('Initialisation MySQL déjà en cours.');
     await createTables(conn);
-    // SEED_DEMO=true insère les comptes/données de démonstration.
-    // Autorisé en production (phase de validation) — idempotent, activé explicitement via l'env.
+    await migrate(conn);
+    // SEED_DEMO=true insère les comptes/données de démonstration (mots de passe : DEMO_PASSWORD,
+    // DEMO_DOCTOR_PASSWORD, jamais de valeur par défaut). En production, index.js exige ALLOW_INSECURE_DEMO=true.
     if (process.env.SEED_DEMO === 'true') {
       if (process.env.NODE_ENV === 'production') {
         console.warn('[seed] SEED_DEMO=true : insertion des données de démonstration en production.');
@@ -50,10 +61,17 @@ export async function initDb() {
       await seedDoctorData(conn);
     }
     await seedRbac(conn);
+    await seedGovernorRole(conn);
+    await restrictAdminPermissions(conn);
+    await repairNotificationLinks(conn);
     await createOperationalTables(conn);
     await addForeignKeys(conn);
   } finally {
-    conn.release();
+    try {
+      if (locked) await conn.query("SELECT RELEASE_LOCK(CONCAT('nova:init:', LEFT(SHA2(DATABASE(), 256), 40)))");
+    } finally {
+      conn.release();
+    }
   }
 }
 
@@ -691,6 +709,9 @@ async function createTables(conn) {
       INDEX idx_consent_status (status)
     )
   `);
+  // Décisions de consentement horodatées à la milliseconde : la plus récente fait foi (révocation / accord).
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY responded_at DATETIME(3) NULL`);
+  await runIdempotentDdl(conn, `ALTER TABLE nova_consents MODIFY requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`);
 
   /* ── Pharmacie — utilisateurs et délivrances ──────────────── */
   await conn.query(`
@@ -766,14 +787,51 @@ async function createTables(conn) {
     'ALTER TABLE nova_consultations ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
     'ALTER TABLE nova_doctors ADD COLUMN created_at VARCHAR(30)',
     'ALTER TABLE nova_doctors ADD COLUMN updated_at VARCHAR(30)',
+    'ALTER TABLE nova_doctors ADD COLUMN license_number VARCHAR(100) DEFAULT NULL',
+    'ALTER TABLE nova_doctors ADD COLUMN verified_at DATETIME DEFAULT NULL',
+    'ALTER TABLE nova_doctors ADD UNIQUE INDEX uq_nd_license_number (license_number)',
+    'ALTER TABLE nova_doctors ADD UNIQUE INDEX uq_nd_email (email)',
     'ALTER TABLE nova_users ADD COLUMN updated_at VARCHAR(30)',
     'ALTER TABLE nova_users ADD COLUMN deleted_at VARCHAR(30) DEFAULT NULL',
     'ALTER TABLE nova_users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL',
+    'ALTER TABLE nova_users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 1',
+    'ALTER TABLE nova_users ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0',
+    'ALTER TABLE nova_users ADD COLUMN mfa_secret_enc TEXT DEFAULT NULL',
+    'ALTER TABLE nova_users ADD COLUMN recovery_codes_json TEXT DEFAULT NULL',
+    'ALTER TABLE nova_users ADD COLUMN failed_login_attempts INT NOT NULL DEFAULT 0',
+    'ALTER TABLE nova_users ADD COLUMN locked_until DATETIME DEFAULT NULL',
+    'ALTER TABLE nova_users ADD COLUMN password_changed_at DATETIME DEFAULT NULL',
     'ALTER TABLE nova_pharmacies ADD COLUMN created_at VARCHAR(30)',
   ];
   for (const sql of addColumns) {
     await runIdempotentDdl(conn, sql);
   }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_auth_challenges (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      type ENUM('password_change','totp_enrollment','totp_login') NOT NULL,
+      secret_enc TEXT,
+      attempts INT NOT NULL DEFAULT 0,
+      max_attempts INT NOT NULL DEFAULT 5,
+      expires_at DATETIME NOT NULL,
+      used_at DATETIME DEFAULT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_nac_user (user_id),
+      INDEX idx_nac_expiry (expires_at),
+      CONSTRAINT fk_nac_user FOREIGN KEY (user_id) REFERENCES nova_users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS nova_revoked_tokens (
+      jti VARCHAR(36) PRIMARY KEY,
+      expires_at DATETIME NOT NULL,
+      revoked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_nrt_expiry (expires_at)
+    )
+  `);
 
   /* ── Normalisation : ajouter doctor_id FK là où manquant ──── */
   const addFKColumns = [
@@ -980,7 +1038,7 @@ async function seedDemo(conn) {
 
   await conn.query(`
     INSERT INTO nova_lab_result_items (id, lab_result_id, name, value, unit, ref_min, ref_max, status) VALUES
-    ('lri-1','lr-1','Glycémie à jeun','1.10','g/L','0.70','1.10','high'),
+    ('lri-1','lr-1','Glycémie à jeun','1.10','g/L','0.70','1.10','normal'),
     ('lri-2','lr-1','Créatinine','9.2','mg/L','6.0','11.0','normal'),
     ('lri-3','lr-1','Acide urique','65','mg/L','35','70','normal'),
     ('lri-4','lr-1','ALAT (TGP)','42','UI/L','0','40','high'),
@@ -1063,11 +1121,11 @@ async function seedVitalHistory(conn) {
     const d = new Date('2026-04-22T00:00:00.000Z');
     d.setDate(d.getDate() + i);
     const ds = d.toISOString().slice(0, 10).replace(/-/g, '');
-    const iso = d.toISOString();
-    vitals.push([`vital-bp-${ds}`,     'patient-demo','blood_pressure','Tension artérielle', bpValues[i],          'mmHg', iso.replace('T00', 'T07').replace('.000Z', ':30:00.000Z')]);
-    vitals.push([`vital-gl-${ds}`,     'patient-demo','blood_glucose',  'Glycémie',           String(glucoseVals[i]),'g/L',  iso.replace('T00', 'T07').replace('.000Z', ':35:00.000Z')]);
-    vitals.push([`vital-hr-${ds}`,     'patient-demo','heart_rate',     'Fréquence cardiaque',String(hrValues[i]),   'bpm',  iso.replace('T00', 'T07').replace('.000Z', ':40:00.000Z')]);
-    vitals.push([`vital-tmp-${ds}`,    'patient-demo','temperature',    'Température',        String(tempValues[i]), '°C',   iso.replace('T00', 'T07').replace('.000Z', ':45:00.000Z')]);
+    const at = (minutes) => new Date(d.getTime() + (7 * 60 + minutes) * 60000).toISOString();
+    vitals.push([`vital-bp-${ds}`,     'patient-demo','blood_pressure','Tension artérielle', bpValues[i],          'mmHg', at(30)]);
+    vitals.push([`vital-gl-${ds}`,     'patient-demo','blood_glucose',  'Glycémie',           String(glucoseVals[i]),'g/L',  at(35)]);
+    vitals.push([`vital-hr-${ds}`,     'patient-demo','heart_rate',     'Fréquence cardiaque',String(hrValues[i]),   'bpm',  at(40)]);
+    vitals.push([`vital-tmp-${ds}`,    'patient-demo','temperature',    'Température',        String(tempValues[i]), '°C',   at(45)]);
   }
 
   for (const row of vitals) {
@@ -1076,6 +1134,14 @@ async function seedVitalHistory(conn) {
       row
     );
   }
+
+  // Réparer les dates malformées insérées par une ancienne version du seed
+  // (ex. 2026-05-21T07:00:00:30:00.000Z → 2026-05-21T07:30:00.000Z).
+  await conn.query(
+    `UPDATE nova_vitals
+     SET measured_at = CONCAT(LEFT(measured_at, 13), ':', SUBSTRING(measured_at, 21, 2), ':00.000Z')
+     WHERE measured_at LIKE '____-__-__T__:00:00:__:00.000Z'`
+  );
 }
 
 async function seedDoctors(conn) {
@@ -1167,8 +1233,28 @@ async function seedWellnessGoals(conn) {
   }
 }
 
+/**
+ * Mot de passe d'un compte de démonstration : uniquement fourni par l'environnement.
+ * Aucune valeur par défaut. Une valeur publiée (ancienne démo) est refusée.
+ * Sans valeur, les comptes sont créés sans mot de passe et restent inutilisables.
+ */
+function demoSecret(name) {
+  const value = process.env[name] || '';
+  if (!value) {
+    console.warn(`[seed] ${name} absent : comptes de démonstration créés sans mot de passe (connexion impossible).`);
+    return null;
+  }
+  // Valeur publiée ou trop courte : ignorée (jamais appliquée à un compte), sans bloquer le démarrage.
+  if (isPublicPassword(value) || value.length < 12) {
+    console.warn(`[seed] ${name} ignoré : valeur publiée ou de moins de 12 caractères. Comptes de démonstration sans mot de passe.`);
+    return null;
+  }
+  return value;
+}
+
 async function seedUsers(conn) {
-  const codeHash = await bcrypt.hash('0000', 10);
+  // Valeur interne aléatoire : l'ancien code fixe 0000 n'est plus accepté.
+  const codeHash = await bcrypt.hash(randomUUID(), 12);
   const now = new Date().toISOString();
   const users = [
     ['user-001', '0789452311', 'patient', 'patient-demo', 'Kouamé Bamba', 'KB'],
@@ -1189,7 +1275,7 @@ async function seedInsurance(conn) {
 
   const insurances = [
     ['ins-001', 'patient-demo', 'MUGEFCI',  'MUG-2024-0098723',    'BAMBA Kouamé', 'Hospitalisation + Consultations',      '2024-01-01', '2026-12-31', 'active', 80, 'blue'],
-    ['ins-002', 'patient-demo', 'CNAMGS',   'CMU-CI-2024-0847-3692','BAMBA Kouamé', 'CMU – Couverture Maladie Universelle',  '2024-03-15', '2027-03-15', 'active', 70, 'emerald'],
+    ['ins-002', 'patient-demo', 'CNAM (CMU)',   'CMU-CI-2024-0847-3692','BAMBA Kouamé', 'CMU – Couverture Maladie Universelle',  '2024-03-15', '2027-03-15', 'active', 70, 'emerald'],
   ];
   for (const [id, pid, provider, policy, holder, coverage, from, to, status, rate, color] of insurances) {
     await conn.query(
@@ -1222,7 +1308,8 @@ async function seedPharmacies(conn) {
 }
 
 async function seedDoctorUser(conn) {
-  const codeHash = await bcrypt.hash('0000', 10);
+  const codeHash = await bcrypt.hash(randomUUID(), 12);
+  const provisionalPassword = demoSecret('DEMO_DOCTOR_PASSWORD');
   const now = new Date().toISOString();
   await conn.query(
     `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?)
@@ -1234,13 +1321,39 @@ async function seedDoctorUser(conn) {
      ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), pharmacy_id = VALUES(pharmacy_id), name = VALUES(name), avatar = VALUES(avatar)`,
     ['user-ph-001','0700000002',codeHash,'pharmacist',null,null,'ph-001','Pharmacie du Plateau','PH',now]
   );
-  await conn.query(
-    `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
-    ['user-admin-001','0700000001',codeHash,'admin',null,null,null,'Admin Système','AS',now]
-  );
-  await conn.query(`UPDATE nova_users SET password_hash = ? WHERE id = 'user-doc-001'`, [codeHash]);
+  // Jamais d'administrateur de démonstration en production : le premier admin se crée avec npm run create:admin.
+  if (process.env.NODE_ENV !== 'production') {
+    await conn.query(
+      `INSERT INTO nova_users (id,phone,code_hash,role,patient_id,doctor_id,pharmacy_id,name,avatar,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), name = VALUES(name), avatar = VALUES(avatar)`,
+      ['user-admin-001','0700000001',codeHash,'admin',null,null,null,'Admin Système','AS',now]
+    );
+  }
+  if (provisionalPassword) {
+    await conn.query(
+      `UPDATE nova_users SET password_hash = ?, must_change_password = 1
+       WHERE id = 'user-doc-001' AND must_change_password = 1 AND mfa_enabled = 0`,
+      [await bcrypt.hash(provisionalPassword, 12)]
+    );
+  }
   await conn.query(`UPDATE nova_doctors SET email = COALESCE(email, 'aicha.toure@nova.ci') WHERE id = 'doc-001'`);
+
+  // Comptes démo à connexion téléphone + mot de passe (patients, pharmacien, admin).
+  // Mot de passe défini une seule fois : un changement fait depuis l'application est conservé.
+  const demoPassword = demoSecret('DEMO_PASSWORD');
+  await conn.query(
+    `INSERT IGNORE INTO nova_users (id, phone, code_hash, role, name, avatar, created_at)
+     VALUES ('user-gov-001', '0700000003', ?, 'governor', 'Direction Régionale de la Santé', 'DR', ?)`,
+    [codeHash, now]
+  );
+  // Mot de passe provisoire : changement obligatoire à la première connexion, avant tout enrôlement MFA.
+  if (demoPassword) {
+    await conn.query(
+      `UPDATE nova_users SET password_hash = ?, must_change_password = 1
+       WHERE id IN ('user-001','user-002','user-ph-001','user-admin-001','user-gov-001') AND password_hash IS NULL`,
+      [await bcrypt.hash(demoPassword, 12)]
+    );
+  }
 }
 
 async function seedDoctorData(conn) {
@@ -1372,7 +1485,8 @@ async function seedRbac(conn) {
     'role-patient':    permissions.filter(p => p[3] === 'patient').map(p => p[0]),
     'role-doctor':     permissions.filter(p => p[3] === 'doctor').map(p => p[0]),
     'role-pharmacist': permissions.filter(p => p[3] === 'pharmacy').map(p => p[0]),
-    'role-admin':      permissions.map(p => p[0]), // Admin a TOUTES les permissions
+    // Administrateur technique : uniquement l'administration (aucun accès médical implicite).
+    'role-admin':      permissions.filter(p => p[3] === 'admin').map(p => p[0]),
   };
   for (const [roleId, permIds] of Object.entries(rolePerms)) {
     for (const permId of permIds) {
@@ -1382,6 +1496,31 @@ async function seedRbac(conn) {
       );
     }
   }
+}
+
+// Rôle « gouverneur » (autorité sanitaire) : statistiques agrégées en lecture seule.
+// Séparé de seedRbac, qui ne s'exécute qu'une fois, pour être ajouté aux bases existantes.
+async function seedGovernorRole(conn) {
+  await conn.query(`INSERT IGNORE INTO nova_roles (id, name, description) VALUES ('role-governor', 'governor', 'Statistiques agrégées en lecture seule')`);
+  await conn.query(`INSERT IGNORE INTO nova_permissions (id, code, description, module) VALUES ('perm-g-stats', 'governor.stats', 'Voir statistiques agrégées', 'governor')`);
+  await conn.query('INSERT IGNORE INTO nova_role_permissions (role_id, permission_id) VALUES (?, ?)', ['role-governor', 'perm-g-stats']);
+}
+
+// Liens de notification hérités : page « consents » inexistante → « privacy » ;
+// les adressages entre médecins ne doivent pas apparaître dans les notifications du patient.
+async function repairNotificationLinks(conn) {
+  await conn.query(`UPDATE nova_notifications SET link_page = 'privacy' WHERE link_page = 'consents'`);
+  await conn.query(`UPDATE nova_notifications SET patient_id = '' WHERE type = 'referral' AND target_role = 'doctor' AND patient_id <> ''`);
+}
+
+// Séparation des rôles sur les bases existantes : l'administrateur technique ne garde que
+// les permissions du module « admin » (plus de permissions patient, médecin, pharmacie ni santé publique).
+async function restrictAdminPermissions(conn) {
+  await conn.query(
+    `DELETE rp FROM nova_role_permissions rp
+     JOIN nova_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = 'role-admin' AND p.module <> 'admin'`
+  );
 }
 
 async function addForeignKeys(conn) {
@@ -1408,6 +1547,13 @@ async function addForeignKeys(conn) {
   ];
 
   for (const sql of foreignKeys) {
-    await runIdempotentDdl(conn, sql);
+    const [, table, constraint] = sql.match(/^ALTER TABLE (\w+) ADD CONSTRAINT (\w+)/);
+    const [[existing]] = await conn.execute(
+      `SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+       WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ?
+         AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+      [table, constraint]
+    );
+    if (!existing) await runIdempotentDdl(conn, sql);
   }
 }

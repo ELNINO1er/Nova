@@ -1,17 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import HeartLoader from '../../components/HeartLoader.jsx';
+import NovaSelect from '../../components/NovaSelect.jsx';
+import { useLocation } from 'react-router-dom';
+import {useDialogFocus} from '../../components/useDialogFocus.js';
+import {useUnsaved,hasUnsavedData} from '../../unsaved.js';
+import React, { useState, useEffect,useRef } from 'react';
 import { ClipboardList, Edit3, Plus, Save, Stethoscope, X } from 'lucide-react';
+import { confirmDialog, promptDialog } from '../../components/dialogs.jsx';
 import { doctorApi } from '../../api/doctorApi.js';
-import { formatDate, initials } from '../../utils/format.js';
+import { formatDate, initials, patientLabel } from '../../utils/format.js';
+import { CONSULTATION_STATUS, CONSULTATION_FIELDS, consultationStatusLabel } from '../../utils/statusLabels.js';
 
 export default function DCons({ data, loading, onReload, patientsData, loadPatients, notify, card, sub, border, darkMode }) {
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ patientId: '', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
+  const { state } = useLocation();
+  const patientFromAgenda = state?.targetId || '';
+  const [showForm, setShowForm] = useState(Boolean(patientFromAgenda));
+  const [form, setForm] = useState({ patientId: patientFromAgenda, status:'draft', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
   const [saving, setSaving] = useState(false);
   const [editCons, setEditCons] = useState(null); // {id, motif, diagnosisMain, diagnosisSecondary, notes, recommendations, status}
   const [editSaving, setEditSaving] = useState(false);
 
+  useUnsaved(showForm || !!editCons,JSON.stringify({form,editCons}));
+  const editRef=useRef(null);
+  const discard=async()=>!hasUnsavedData()||confirmDialog({title:'Abandonner les modifications ?',message:'Les informations saisies et non enregistrées seront perdues.',confirmLabel:'Abandonner',cancelLabel:'Continuer la saisie',danger:true});
+  const closeEdit=async()=>{if(await discard())setEditCons(null);};
+  useDialogFocus(!!editCons,editRef,closeEdit);
   const consultations = Array.isArray(data) ? data : [];
   const patients = Array.isArray(patientsData) ? patientsData : [];
+
+  useEffect(() => {
+    if (patientFromAgenda && !patientsData) loadPatients();
+  }, [patientFromAgenda]);
 
   const handleShowForm = () => {
     setShowForm(true);
@@ -27,7 +45,9 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
   const handleEditSave = async () => {
     setEditSaving(true);
     try {
-      await doctorApi.updateConsultation(editCons.id, editCons);
+      const amendmentReason=editCons.status==='completed'?await promptDialog({title:'Motif de la correction',message:'La consultation est déjà clôturée : le document original est conservé et votre correction est tracée.',label:'Motif',multiline:true,maxLength:500,required:true,confirmLabel:'Enregistrer la correction'}):undefined;
+      if(editCons.status==='completed'&&!amendmentReason?.trim()) return;
+      await doctorApi.updateConsultation(editCons.id, {...editCons,amendmentReason});
       notify('Consultation mise à jour');
       setEditCons(null);
       onReload();
@@ -39,13 +59,14 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     if (!form.patientId) return notify('Sélectionnez un patient', 'error');
     setSaving(true);
     try {
       await doctorApi.createConsultation(form);
       notify('Consultation enregistrée');
       setShowForm(false);
-      setForm({ patientId: '', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
+      setForm({ patientId: '', status:'draft', motif: '', diagnosisMain: '', diagnosisSecondary: '', notes: '', recommendations: '' });
       onReload();
     } catch (e) {
       notify(e.message, 'error');
@@ -56,12 +77,12 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
 
   const fld = (label, key, type = 'input', placeholder = '') => (
     <div>
-      <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>{label}</label>
+      <label htmlFor={`cons-${key}`} className={`text-xs font-bold uppercase tracking-wide ${sub}`}>{label}</label>
       {type === 'textarea' ? (
-        <textarea value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} rows={3} placeholder={placeholder}
+        <textarea id={`cons-${key}`} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} rows={3} placeholder={placeholder}
           className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none resize-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
       ) : (
-        <input value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder}
+        <input id={`cons-${key}`} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder}
           className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
       )}
     </div>
@@ -82,17 +103,18 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
         <div className={`${card} border rounded-2xl p-5 space-y-4`}>
           <div className="flex items-center justify-between">
             <h3 className="font-bold flex items-center gap-2"><ClipboardList className="w-4 h-4 text-red-600" /> Nouvelle consultation</h3>
-            <button onClick={() => setShowForm(false)}><X className={`w-4 h-4 ${sub}`} /></button>
+            <button onClick={async()=>{if(await discard())setShowForm(false);}}><X className={`w-4 h-4 ${sub}`} /></button>
           </div>
           <div>
-            <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
-            <select value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
+            <label htmlFor="cons-patient" className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Patient *</label>
+            <NovaSelect darkMode={darkMode} id="cons-patient" value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
               className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <option value="">Sélectionner un patient...</option>
-              {patients.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName} — {p.cmuNumber}</option>)}
-            </select>
+              {patients.map(p => <option key={p.id} value={p.id}>{patientLabel(p)}</option>)}
+            </NovaSelect>
           </div>
-          {fld('Motif de consultation', 'motif', 'textarea', 'Symptômes, raison de la visite...')}
+          <label className="block text-sm">État de la consultation<NovaSelect darkMode={darkMode} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} className="ml-3 border rounded p-2"><option value="draft">Brouillon</option><option value="completed">{CONSULTATION_STATUS.completed}</option></NovaSelect></label>
+          {fld('Motif de consultation' , 'motif', 'textarea', 'Symptômes, raison de la visite...')}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {fld('Diagnostic principal', 'diagnosisMain', 'input', 'Ex: Hypertension artérielle stade 1')}
             {fld('Diagnostic secondaire', 'diagnosisSecondary', 'input', 'Optionnel')}
@@ -100,7 +122,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
           {fld('Observations médicales', 'notes', 'textarea', 'Notes cliniques, examens...')}
           {fld('Recommandations', 'recommendations', 'textarea', 'Traitement, suivi, conseils...')}
           <div className="flex gap-3 pt-2">
-            <button onClick={() => setShowForm(false)} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
+            <button onClick={async()=>{if(await discard())setShowForm(false);}} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
               Annuler
             </button>
             <button onClick={handleSubmit} disabled={saving}
@@ -113,11 +135,11 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
 
       {/* Modale d'édition consultation */}
       {editCons && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+        <div ref={editRef} role="dialog" aria-modal="true" aria-label="Modifier la consultation" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col`}>
             <div className={`p-5 border-b ${border} flex items-center justify-between`}>
               <h3 className="font-bold flex items-center gap-2"><Edit3 className="w-4 h-4 text-red-600" /> Modifier la consultation</h3>
-              <button onClick={() => setEditCons(null)}><X className={`w-5 h-5 ${sub}`} /></button>
+              <button onClick={closeEdit}><X className={`w-5 h-5 ${sub}`} /></button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-4">
               {[
@@ -128,27 +150,27 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                 { l: 'Recommandations', k: 'recommendations', type: 'textarea' },
               ].map(({ l, k, type }) => (
                 <div key={k}>
-                  <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>{l}</label>
+                  <label htmlFor={`edit-cons-${k}`} className={`text-xs font-bold uppercase tracking-wide ${sub}`}>{l}</label>
                   {type === 'textarea' ? (
-                    <textarea value={editCons[k]} onChange={e => setEditCons(c => ({ ...c, [k]: e.target.value }))} rows={3}
+                    <textarea id={`edit-cons-${k}`} value={editCons[k]} onChange={e => setEditCons(c => ({ ...c, [k]: e.target.value }))} rows={3}
                       className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none resize-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
                   ) : (
-                    <input value={editCons[k]} onChange={e => setEditCons(c => ({ ...c, [k]: e.target.value }))}
+                    <input id={`edit-cons-${k}`} value={editCons[k]} onChange={e => setEditCons(c => ({ ...c, [k]: e.target.value }))}
                       className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
                   )}
                 </div>
               ))}
               <div>
                 <label className={`text-xs font-bold uppercase tracking-wide ${sub}`}>Statut</label>
-                <select value={editCons.status} onChange={e => setEditCons(c => ({ ...c, status: e.target.value }))}
+                <NovaSelect darkMode={darkMode} disabled={editCons.status==='completed'} value={editCons.status} onChange={e => setEditCons(c => ({ ...c, status: e.target.value }))}
                   className={`mt-1 w-full px-3 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                   <option value="draft">Brouillon</option>
-                  <option value="completed">Terminée</option>
-                </select>
+                  <option value="completed">{CONSULTATION_STATUS.completed}</option>
+                </NovaSelect>
               </div>
             </div>
             <div className={`p-5 border-t ${border} flex gap-3`}>
-              <button onClick={() => setEditCons(null)} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
+              <button onClick={closeEdit} className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}>
                 Annuler
               </button>
               <button onClick={handleEditSave} disabled={editSaving}
@@ -162,7 +184,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
 
       {/* Liste */}
       {loading ? (
-        <div className="space-y-3">{[0,1,2].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-24 rounded-2xl`} />)}</div>
+        <div className="space-y-3"><HeartLoader darkMode={darkMode} compact /></div>
       ) : consultations.length === 0 ? (
         <div className={`${card} border rounded-2xl p-10 flex flex-col items-center gap-2`}>
           <ClipboardList className={`w-10 h-10 ${sub}`} />
@@ -171,7 +193,7 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
       ) : consultations.map(c => (
         <div key={c.id} className={`${card} border rounded-2xl p-4`}>
           <div className="flex items-start gap-3">
-            <div className="w-1.5 h-full min-h-[3rem] rounded-full bg-emerald-500 flex-shrink-0" />
+            <div className="w-1.5 h-full min-h-[3rem] rounded-full bg-red-500 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
                 <div>
@@ -179,10 +201,10 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                   <p className={`text-xs ${sub}`}>{new Date(c.startedAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {c.status === 'draft' ? 'Brouillon' : 'Terminée'}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                    {consultationStatusLabel(c.status)}
                   </span>
-                  <button onClick={() => openEdit(c)}
+                  <button type="button" onClick={() => openEdit(c)} aria-label={`Modifier la consultation de ${c.patientName}`}
                     className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 ${darkMode ? 'border-slate-600 hover:bg-slate-700' : 'border-slate-200 hover:bg-slate-100'}`}>
                     <Edit3 className="w-3 h-3" />
                   </button>
@@ -194,8 +216,9 @@ export default function DCons({ data, loading, onReload, patientsData, loadPatie
                   <Stethoscope className="w-3 h-3" />{c.diagnosisMain}
                 </div>
               )}
+              {c.amendments?.length>0 && <details className="mt-2 text-sm"><summary>{c.amendments.length} correction(s) tracée(s)</summary>{c.amendments.map((a,i)=><div key={i} className="border-t py-2"><p>{a.reason} — {formatDate(a.created_at)}</p>{Object.entries(typeof a.content==='string'?JSON.parse(a.content):a.content).filter(([k,v])=>CONSULTATION_FIELDS[k]&&v!=null&&v!=='').map(([k,v])=><p key={k}><strong>{CONSULTATION_FIELDS[k]} :</strong> {String(v)}</p>)}</div>)}</details>}
               {c.notes && <p className={`text-xs ${sub} mt-2 line-clamp-2`}>{c.notes}</p>}
-              {c.recommendations && <p className="text-xs text-blue-600 font-medium mt-1">→ {c.recommendations}</p>}
+              {c.recommendations && <p className="text-xs text-red-600 font-medium mt-1">→ {c.recommendations}</p>}
             </div>
           </div>
         </div>

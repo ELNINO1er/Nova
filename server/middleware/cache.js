@@ -63,3 +63,10 @@ export function invalidateCache(userId, pathPrefix) {
     }
   }
 }
+
+// Les données médicales sont partagées par plusieurs rôles : une mutation invalide
+// toutes les réponses locales pour éviter de conserver le tableau d'un autre acteur.
+export function invalidateAfterMutation(req,res,next){
+ if(!['GET','HEAD','OPTIONS'].includes(req.method)) res.on('finish',()=>{if(res.statusCode<400)store.clear();});
+ next();
+}

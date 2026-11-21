@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+.nova-heart-loader { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.25rem; min-height: 16rem; padding: 2rem 1rem; text-align: center; }
+.nova-heart-loader--full { min-height: 100svh; }
+.nova-heart-loader--compact { min-height: 6rem; padding: 1rem; gap: .75rem; }
+.nova-heart-loader__halo { display: grid; place-items: center; width: 6rem; height: 6rem; border-radius: 50%; background: rgb(220 38 38 / .07); }
+.nova-heart-loader__logo { display: block; border-radius: 1rem; animation: nova-heartbeat 1.8s ease-in-out infinite; }
+.nova-heart-loader--compact .nova-heart-loader__halo { width: 3.5rem; height: 3.5rem; }
+.nova-heart-loader--compact .nova-heart-loader__logo { width: 40px; height: 40px; border-radius: .7rem; }
+@keyframes nova-heartbeat { 0%, 55%, 100% { transform: scale(1); } 15% { transform: scale(1.08); } 30% { transform: scale(1); } 40% { transform: scale(1.045); } }
+@media (prefers-reduced-motion: reduce) { .nova-heart-loader__logo { animation: none; } }
+
 html {
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
@@ -18,6 +28,14 @@ body {
   outline: 2px solid #dc2626;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Champs qui ont déjà leur propre indicateur (bordure ou anneau rouge) : pas de second contour. */
+.field-wrap :focus-visible,
+input[class*="focus:ring"]:focus-visible,
+textarea[class*="focus:ring"]:focus-visible,
+select[class*="focus:ring"]:focus-visible {
+  outline: none;
 }
 
 /* Animations */
@@ -62,11 +80,19 @@ body {
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 .dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
-/* Print styles pour ordonnances */
+/* Impression d'une fiche seule (ordonnance) : rendue sous <body>, tout le reste est retiré de la mise en page. */
+.print-root { display: none; }
+@media print {
+  body > *:not(.print-root) { display: none !important; }
+  body > .print-root { display: block !important; visibility: visible !important; }
+  body > .print-root * { visibility: visible !important; }
+  @page { margin: 14mm; }
+}
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; }
+  html, body { background: #fff !important; }
   .no-print { display: none !important; }
 }
 
@@ -74,3 +100,73 @@ body {
 @supports (padding: env(safe-area-inset-bottom)) {
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 }
+
+/* Surfaces communes des écrans de travail NOVA. */
+.nova-workspace {
+  --workspace-bg: #fffafa;
+  --workspace-tint: #fff1f2;
+  --workspace-accent: #991b1b;
+  background: var(--workspace-bg);
+}
+
+.nova-workspace[data-theme="dark"] {
+  --workspace-bg: #020617;
+  --workspace-tint: #1e293b;
+  --workspace-accent: #fecaca;
+}
+
+.nova-section-label {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: fit-content;
+  margin-bottom: 1rem;
+  padding: .45rem .7rem;
+  border-radius: .5rem;
+  background: var(--workspace-tint);
+  color: var(--workspace-accent);
+  font-size: .75rem;
+  font-weight: 600;
+}
+
+.nova-workspace :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"]), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  color-scheme: light;
+}
+
+.nova-workspace[data-theme="dark"] :where(input, select, textarea) {
+  color-scheme: dark;
+}
+
+.nova-workspace :where(table:not(.print-area table)) {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.nova-workspace :where(thead:not(.print-area thead)) {
+  background: var(--workspace-tint);
+  color: var(--workspace-accent);
+}
+
+.nova-workspace :where(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: #b91c1c;
+}
+
+.nova-select { position: relative; display: inline-block; width: 100%; min-width: 0; vertical-align: middle; }
+.nova-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: .65rem; width: 100%; min-height: 2.75rem; text-align: left; }
+.nova-select-trigger svg { flex: none; }
+.nova-select-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+.nova-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nova-select-menu { position: absolute; z-index: 45; top: calc(100% + .25rem); inset-inline: 0; display: block; max-height: 14rem; overflow: auto; overscroll-behavior: contain; padding: .25rem; border: 1px solid #fecaca; border-radius: .75rem; background: #fff; color: #0f172a; box-shadow: 0 8px 22px #0f172a24; }
+.nova-select-menu[data-above="true"] { top: auto; bottom: calc(100% + .25rem); }
+.nova-select-menu [role="option"] { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 2.75rem; padding: .45rem .65rem; border-radius: .5rem; font-size: .875rem; cursor: pointer; overflow-wrap: anywhere; }
+.nova-select-menu [aria-selected="true"], .nova-select-menu [data-active="true"] { background: #fee2e2; color: #991b1b; }
+.nova-select-menu [data-active="true"] { box-shadow: inset 0 0 0 1px #f87171; }
+.nova-select-menu [aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.nova-select-empty { display: block; padding: .65rem; font-size: .875rem; }
+.nova-select[data-dark] .nova-select-menu { background: #0f172a; color: #f1f5f9; border-color: #475569; }
+.nova-select[data-dark] :is([aria-selected="true"], [data-active="true"]) { background: #450a0a; color: #fecaca; }
+
+/* Œil natif d’Edge masqué : NOVA affiche le sien sur tous les navigateurs. */
+input::-ms-reveal, input::-ms-clear { display: none; }

@@ -3,6 +3,7 @@ import { request, toQuery } from './client.js';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const patientApi = {
+  consultations:()=>request('/patient/me/consultations'),
   dashboard: () => request('/patient/me/dashboard'),
   assistant: (question) => request('/patient/me/assistant', {
     method: 'POST',
@@ -31,10 +32,11 @@ export const patientApi = {
   }),
   deleteAppointment: (id) => request(`/patient/me/appointments/${id}`, { method: 'DELETE' }),
   vaccinations: () => request('/patient/me/vaccinations'),
-  history: () => request('/patient/me/history'),
+  history: (params={}) => request(`/patient/me/history${toQuery(params)}`),
   documents: (params = {}) => request(`/patient/me/documents${toQuery(params)}`),
   // Upload réel via uploadDocument (multipart) — voir plus bas.
   deleteDocument: (id) => request(`/patient/me/documents/${id}`, { method: 'DELETE' }),
+  startConversation:p=>request('/patient/me/conversations',{method:'POST',body:JSON.stringify(p)}),
   conversations: () => request('/patient/me/conversations'),
   conversation: (id) => request(`/patient/me/conversations/${id}`),
   sendMessage: (id, payload) => request(`/patient/me/conversations/${id}/messages`, {
@@ -42,6 +44,9 @@ export const patientApi = {
     body: JSON.stringify(payload),
   }),
   markConversationRead: (id) => request(`/patient/me/conversations/${id}/read`, { method: 'PATCH' }),
+  attachables: (id) => request(`/patient/me/conversations/${id}/attachables`),
+  attachment: (id, messageId) => request(`/patient/me/conversations/${id}/messages/${messageId}/attachment`),
+  attachmentFile: (id, messageId) => request(`/patient/me/conversations/${id}/messages/${messageId}/attachment/file`, { responseType: 'blob' }),
   notes: () => request('/patient/me/notes'),
   createNote: (payload) => request('/patient/me/notes', {
     method: 'POST',
@@ -57,6 +62,7 @@ export const patientApi = {
   addVital: (payload) => request('/patient/me/vitals', { method: 'POST', body: JSON.stringify(payload) }),
   emergencyCard: () => request('/patient/me/emergency-card'),
   emergencyCardQr: () => request('/patient/me/emergency-card/qr'),
+  renewEmergencyQr: () => request('/patient/me/emergency-card/qr/renew', { method: 'POST' }),
   wellnessGoals: () => request('/patient/me/wellness-goals'),
   createWellnessGoal: (payload) => request('/patient/me/wellness-goals', { method: 'POST', body: JSON.stringify(payload) }),
   updateWellnessGoal: (id, payload) => request(`/patient/me/wellness-goals/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
@@ -64,8 +70,8 @@ export const patientApi = {
   doctors: (params = {}) => request(`/patient/me/doctors${toQuery(params)}`),
   doctor: (id) => request(`/patient/me/doctors/${id}`),
   doctorSlots: (id, params = {}) => request(`/patient/me/doctors/${id}/slots${toQuery(params)}`),
-  bookSlot: (doctorId, slotId) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST' }),
-  notifications: () => request('/patient/me/notifications'),
+  bookSlot: (doctorId, slotId, shareRecord, ack) => request(`/patient/me/doctors/${doctorId}/slots/${slotId}/book`, { method: 'POST', body: JSON.stringify({ shareRecord, ...(ack && { ack }) }) }),
+  notifications: (params = {}) => request(`/patient/me/notifications${toQuery(params)}`),
   markNotificationRead: (id) => request(`/patient/me/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: () => request('/patient/me/notifications/read-all', { method: 'PATCH' }),
   labResults: (params = {}) => request(`/patient/me/lab-results${toQuery(params)}`),
@@ -75,15 +81,11 @@ export const patientApi = {
     method: 'PATCH',
     body: JSON.stringify(payload),
   }),
-  uploadDocument: async (formData) => {
-    const r = await fetch(`${API_BASE_URL}/patient/me/documents`, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Upload failed: ${r.status}`); }
-    return r.json();
-  },
+  uploadDocument: (formData) => request('/patient/me/documents', { method: 'POST', body: formData }),
+  // Photo de profil : data URL réduite par utils/photo.js.
+  photo: () => request('/patient/me/photo', { responseType: 'blob' }),
+  updatePhoto: (photo) => request('/patient/me/photo', { method: 'PUT', body: JSON.stringify({ photo }) }),
+  removePhoto: () => request('/patient/me/photo', { method: 'DELETE' }),
   insurance: () => request('/patient/me/insurance'),
   payments: () => request('/patient/me/payments'),
   createPayment: (payload) => request('/patient/me/payments', {
@@ -93,6 +95,11 @@ export const patientApi = {
   exportPdfUrl: () => `${API_BASE_URL}/patient/me/export/pdf`,
   pharmacies: (params = {}) => request(`/patient/me/pharmacies${toQuery(params)}`),
   pharmacyOrders: () => request('/patient/me/pharmacy-orders'),
+  closeAccount: (password) => request('/patient/me/account/close', { method: 'POST', body: JSON.stringify({ password }) }),
+  createInsurance: (body) => request('/patient/me/insurance', { method: 'POST', body: JSON.stringify(body) }),
+  updateInsurance: (id, body) => request(`/patient/me/insurance/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteInsurance: (id) => request(`/patient/me/insurance/${id}`, { method: 'DELETE' }),
+  cancelPharmacyOrder: (id) => request(`/patient/me/pharmacy-orders/${id}/cancel`, { method: 'POST' }),
   createPharmacyOrder: (payload) => request('/patient/me/pharmacy-orders', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -104,10 +111,13 @@ export const patientApi = {
   }),
   // Consentements
   consents: () => request('/patient/me/consents'),
-  grantConsent: (id) => request(`/patient/me/consents/${id}/grant`, { method: 'POST' }),
+  grantConsent: (id, ack) => request(`/patient/me/consents/${id}/grant`, { method: 'POST', body: JSON.stringify(ack || {}) }),
   revokeConsent: (id) => request(`/patient/me/consents/${id}/revoke`, { method: 'POST' }),
   // Access logs
   accessLogs: () => request('/patient/me/access-logs'),
+  careTeam: () => request('/patient/me/care-team'),
+  revokeDoctorAccess: (doctorId) => request(`/patient/me/care-team/${doctorId}/revoke`, { method: 'POST' }),
+  grantDoctorAccess: (doctorId, ack) => request(`/patient/me/care-team/${doctorId}/grant`, { method: 'POST', body: JSON.stringify(ack || {}) }),
   // Famille
   familyMembers: () => request('/patient/me/family'),
   createFamilyMember: (payload) => request('/patient/me/family', { method: 'POST', body: JSON.stringify(payload) }),

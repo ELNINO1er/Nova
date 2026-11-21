@@ -1,3 +1,4 @@
+import HeartLoader from './HeartLoader.jsx';
 import React, { useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 
@@ -75,35 +76,6 @@ export function ConfirmDialog({ title, message, onCancel, onConfirm, card, darkM
   );
 }
 
-export function DashSkeleton({ card, sub, darkMode }) {
-  const pulse = 'animate-pulse rounded-lg';
-  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
-  return (
-    <div className="space-y-5">
-      <div className={`${pulse} h-36 ${darkMode ? 'bg-slate-800' : 'bg-red-100'} rounded-2xl`}></div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`${card} border rounded-2xl p-6`}><div className={`${pulse} ${block} h-44 w-44 rounded-full mx-auto`}></div></div>
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-2xl p-5`}><div className={`${pulse} ${block} h-6 w-20 mb-2`}></div><div className={`${pulse} ${block} h-8 w-28 mb-3`}></div><div className={`${pulse} ${block} h-12 w-full`}></div></div>)}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[0,1,2,3].map(i => <div key={i} className={`${card} border rounded-xl p-4 min-h-[92px]`}><div className={`${pulse} ${block} h-10 w-10 rounded-lg mb-3`}></div><div className={`${pulse} ${block} h-4 w-24`}></div></div>)}
-      </div>
-    </div>
-  );
-}
+export function DashSkeleton({ card, sub, darkMode }) { return <HeartLoader darkMode={darkMode} />; }
 
-export function PageSkeleton({ darkMode }) {
-  const block = darkMode ? 'bg-slate-700' : 'bg-slate-200';
-  return (
-    <div className="space-y-4 animate-pulse">
-      <div className={`h-10 w-48 rounded-lg ${block}`}></div>
-      <div className={`h-64 rounded-2xl ${block}`}></div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className={`h-32 rounded-xl ${block}`}></div>
-        <div className={`h-32 rounded-xl ${block}`}></div>
-      </div>
-    </div>
-  );
-}
+export function PageSkeleton({ darkMode }) { return <HeartLoader darkMode={darkMode} />; }

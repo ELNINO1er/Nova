@@ -1,5 +1,11 @@
+import { validFollowupDate } from '../services/chronic-followup.js';
+import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,conversationPatientId,ATTACHMENT_TYPES} from '../services/messaging.service.js';
+import {updateProfessionalProfile,professionalSlots,addProfessionalSlot,removeProfessionalSlot} from '../services/professional.service.js';
+import { recordLabResult } from '../services/clinical.service.js';
 import { Router } from 'express';
+import { cancelDoctorPrescription } from '../services/prescription-cancellation.service.js';
 import { z } from 'zod';
+import { phoneSchema } from '../services/phone.js';
 import { requireDoctor, requirePermission } from '../middleware/auth.js';
 import {
   getDoctorDashboard,
@@ -18,6 +24,7 @@ import {
   getDoctorLabRequests,
   createDoctorLabRequest,
   getChronicPatients,
+  setChronicFollowup,
   getDoctorAlerts,
   createDoctorAlert,
   resolveDoctorAlert,
@@ -26,6 +33,8 @@ import {
   getDoctorSignatureData,
   saveDoctorSignatureData,
   createPatientByDoctor,
+  renewPatientActivation,
+  listPendingActivations,
   getConsultationTemplates,
   createConsultationTemplate,
   deleteConsultationTemplate,
@@ -38,18 +47,43 @@ import {
   addVitalByDoctor,
 } from '../services/doctor.service.js';
 
-import { wrap, validateBody } from '../middleware/helpers.js';
+import { wrap, validateBody, sendPortrait } from '../middleware/helpers.js';
 import { upload, verifyUploadedFile } from '../middleware/upload.js';
+import { doctorPhotoFile, updateDoctorPhoto, patientPhotoFile, decodePhoto, savePatientPhoto } from '../services/photo.service.js';
 import { answerDoctorAssistant } from '../services/ai.service.js';
 import { listDoctorPayments, markDoctorPaymentPaid } from '../services/billing.service.js';
-import { auditLog, accessLog } from '../middleware/audit.js';
+import { auditLog, accessLog, recordAccess } from '../middleware/audit.js';
+import { isValidBirthDate } from '../services/birthdate.js';
+import { VITAL_NORMS, normalizeVital } from '../services/vital-norms.js';
+// Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
+const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
 
 const router = Router();
 router.use(requireDoctor);
 
 /* ─── Dashboard ────────────────────────────────────────────── */
-router.get('/dashboard', wrap(async (req, res) => {
+router.get('/dashboard', requirePermission('doctor.dashboard'), accessLog('dashboard', (b) => [...(b?.todayAppointments || []).filter((a) => a.recordShared !== false).map((a) => a.patientId)]), wrap(async (req, res) => {
   res.json(await getDoctorDashboard(req.user.doctorId));
+}));
+
+router.get('/photo', wrap(async (req, res, next) => {
+  sendPortrait(res, await doctorPhotoFile(req.user.doctorId), next);
+}));
+
+router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('doctor.photo.update', 'doctor'), wrap(async (req, res) => {
+  res.json(await updateDoctorPhoto(req.user.doctorId, req.body.photo));
+}));
+
+router.delete('/photo', auditLog('doctor.photo.remove', 'doctor'), wrap(async (req, res) => {
+  res.json(await updateDoctorPhoto(req.user.doctorId, null));
+}));
+
+router.get('/patients/:id/photo', requirePermission('doctor.patients'), wrap(async (req, res, next) => {
+  const { assertDoctorPatientAccess } = await import('../services/access.js');
+  await assertDoctorPatientAccess(req.user.doctorId, req.params.id);
+  const file = await patientPhotoFile(req.params.id);
+  if (file) await recordAccess(req, [req.params.id], 'patient_photo');
+  sendPortrait(res, file, next);
 }));
 
 router.post('/assistant', validateBody(z.object({
@@ -60,18 +94,18 @@ router.post('/assistant', validateBody(z.object({
 }));
 
 /* ─── Patients ─────────────────────────────────────────────── */
-router.get('/patients', requirePermission('doctor.patients'), wrap(async (req, res) => {
+router.get('/patients', requirePermission('doctor.patients'), accessLog('patient_directory'), wrap(async (req, res) => {
   res.json(await getDoctorPatients(req.user.doctorId, req.query));
 }));
 
 router.post('/patients', requirePermission('doctor.patients.create'), validateBody(z.object({
   firstName:             z.string().min(1),
   lastName:              z.string().min(1),
-  phone:                 z.string().min(8),
+  phone:                 phoneSchema,
   cmuNumber:             z.string().optional(),
-  birthDate:             z.string().optional(),
+  birthDate:             BIRTH_DATE,
   sex:                   z.enum(['M', 'F']).optional(),
-  bloodType:             z.string().optional(),
+  bloodType:             z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).optional(),
   email:                 z.string().email().optional(),
   address:               z.string().optional(),
   city:                  z.string().optional(),
@@ -82,8 +116,27 @@ router.post('/patients', requirePermission('doctor.patients.create'), validateBo
   emergencyPhone:        z.string().optional(),
   allergies:             z.array(z.string()).optional(),
   chronicDiseases:       z.array(z.string()).optional(),
+  // Photo prise à l'inscription (data URL réduite par le navigateur) ; le patient peut la changer ensuite.
+  photo:                 z.string().max(900000).optional(),
 })), auditLog('patient.create', 'patient'), wrap(async (req, res) => {
-  res.status(201).json(await createPatientByDoctor(req.user.doctorId, req.body));
+  const { photo, ...payload } = req.body;
+  const decoded = photo ? decodePhoto(photo) : null; // refus avant toute création si la photo est invalide
+  const created = await createPatientByDoctor(req.user.doctorId, payload);
+  let photoSaved = false;
+  if (decoded) {
+    try { await savePatientPhoto(created.patientId, decoded); photoSaved = true; }
+    catch (err) { console.error('[patient.create] photo non enregistrée', err.message); }
+  }
+  res.status(201).json({ ...created, photoSaved });
+}));
+
+router.get('/patient-activations', requirePermission('doctor.patients.create'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await listPendingActivations(req.user.doctorId));
+}));
+
+// Nouveau code d'activation (patient créé par ce médecin, pas encore activé). SMS si configuré.
+router.post('/patients/:id/activation', requirePermission('doctor.patients.create'), auditLog('patient.activation.renew', 'patient'), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await renewPatientActivation(req.user.doctorId, req.params.id));
 }));
 
 router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('patient_record'), wrap(async (req, res) => {
@@ -93,27 +146,28 @@ router.get('/patients/:id', requirePermission('doctor.patients'), accessLog('pat
 }));
 
 /* ─── Rendez-vous ──────────────────────────────────────────── */
-router.get('/appointments', wrap(async (req, res) => {
+router.get('/appointments', requirePermission('doctor.dashboard'), accessLog('appointments'), wrap(async (req, res) => {
   res.json(await getDoctorAppointments(req.user.doctorId, req.query));
 }));
 
-router.patch('/appointments/:id', validateBody(z.object({
-  status:   z.enum(['confirmed','cancelled','requested']).optional(),
+router.patch('/appointments/:id', requirePermission('doctor.dashboard'), validateBody(z.object({
+  status:   z.enum(['confirmed','cancelled']).optional(),
   startsAt: z.string().datetime().optional(),
-  location: z.string().optional(),
-})), wrap(async (req, res) => {
+  location: z.string().max(200).optional(),
+})), auditLog('appointment.update', 'appointment'), wrap(async (req, res) => {
   const result = await updateDoctorAppointment(req.user.doctorId, req.params.id, req.body);
   if (!result) return res.status(404).json({ error: 'not_found' });
   res.json(result);
 }));
 
 /* ─── Consultations ────────────────────────────────────────── */
-router.get('/consultations', wrap(async (req, res) => {
+router.get('/consultations', requirePermission('doctor.consultations'), accessLog('consultations'), wrap(async (req, res) => {
   res.json(await getDoctorConsultations(req.user.doctorId));
 }));
 
 router.post('/consultations', requirePermission('doctor.consultations'), validateBody(z.object({
   patientId:          z.string().min(1),
+  status: z.enum(['draft','completed']).default('draft'),
   motif:              z.string().optional(),
   diagnosisMain:      z.string().optional(),
   diagnosisSecondary: z.string().optional(),
@@ -123,14 +177,15 @@ router.post('/consultations', requirePermission('doctor.consultations'), validat
   res.status(201).json(await createConsultation(req.user.doctorId, req.body));
 }));
 
-router.patch('/consultations/:id', validateBody(z.object({
+router.patch('/consultations/:id', requirePermission('doctor.consultations'), validateBody(z.object({
+  amendmentReason: z.string().trim().min(3).max(1000).optional(),
   motif:              z.string().optional(),
   diagnosisMain:      z.string().optional(),
   diagnosisSecondary: z.string().optional(),
   notes:              z.string().optional(),
   recommendations:    z.string().optional(),
   status:             z.enum(['draft','completed']).optional(),
-})), wrap(async (req, res) => {
+})), auditLog('consultation.update','consultation'), wrap(async (req, res) => {
   const result = await updateConsultation(req.user.doctorId, req.params.id, req.body);
   if (!result) return res.status(404).json({ error: 'not_found' });
   res.json(result);
@@ -148,12 +203,17 @@ router.get('/profile', wrap(async (req, res) => {
   res.json(data);
 }));
 
+router.patch('/profile',validateBody(z.object({bio:z.string().max(4000).optional(),city:z.string().max(100).optional(),address:z.string().max(255).optional(),email:z.union([z.email(),z.literal('')]).optional(),languages:z.string().max(100).optional(),consultationFee:z.number().int().min(0).max(1000000).optional(),acceptsCmu:z.boolean().optional()})),auditLog('professional.profile','doctor'),wrap(async(req,res)=>{await updateProfessionalProfile(req.user.doctorId,req.body);res.json(await getDoctorProfile(req.user.doctorId));}));
+router.get('/slots',wrap(async(req,res)=>res.json(await professionalSlots(req.user.doctorId))));
+router.post('/slots',validateBody(z.object({date:z.iso.date(),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)})),auditLog('professional.slot.create','doctor_slot'),wrap(async(req,res)=>res.status(201).json(await addProfessionalSlot(req.user.doctorId,req.body))));
+router.delete('/slots/:id',auditLog('professional.slot.delete','doctor_slot'),wrap(async(req,res)=>res.json(await removeProfessionalSlot(req.user.doctorId,req.params.id))));
+
 /* ─── Ordonnances (médecin) ─────────────────────────────────── */
-router.get('/prescriptions', wrap(async (req, res) => {
+router.get('/prescriptions', requirePermission('doctor.prescriptions'), accessLog('prescriptions'), wrap(async (req, res) => {
   res.json(await getDoctorPrescriptions(req.user.doctorId));
 }));
 
-router.get('/prescriptions/:id', wrap(async (req, res) => {
+router.get('/prescriptions/:id', requirePermission('doctor.prescriptions'), accessLog('prescription'), wrap(async (req, res) => {
   const data = await getDoctorPrescription(req.user.doctorId, req.params.id);
   if (!data) return res.status(404).json({ error: 'not_found' });
   res.json(data);
@@ -161,30 +221,47 @@ router.get('/prescriptions/:id', wrap(async (req, res) => {
 
 router.post('/prescriptions', requirePermission('doctor.prescriptions'), validateBody(z.object({
   patientId: z.string().min(1),
+  consultationId:z.string().optional(),
   items:     z.array(z.object({
-    name:         z.string().min(1),
-    dosage:       z.string().optional(),
-    frequency:    z.string().optional(),
-    duration:     z.string().optional(),
+    name:         z.string().trim().min(1),
+    quantityPrescribed:z.number().int().positive().max(100000),
+    quantityUnit:z.string().trim().min(1).max(40).default('unité'),
+    scheduleTimes:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(12).optional(),
+    durationDays:z.number().int().min(1).max(365).optional(),
+    dosage:       z.string().trim().min(1).optional(),
+    frequency:    z.string().trim().min(1).optional(),
+    duration:     z.string().trim().min(1).optional(),
     instructions: z.string().optional(),
   })).min(1),
   notes:     z.string().optional(),
-  validDays: z.number().int().positive().optional(),
+  validDays: z.number().int().min(1).max(365).optional(),
 })), auditLog('prescription.create', 'prescription'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorPrescription(req.user.doctorId, req.body));
 }));
 
+router.post('/prescriptions/:id/cancel', requirePermission('doctor.prescriptions'), validateBody(z.object({
+  reason: z.string().trim().min(5).max(1000),
+})), auditLog('prescription.cancel', 'prescription'), wrap(async (req, res) => {
+  res.json(await cancelDoctorPrescription(req.user.doctorId, req.params.id, req.body.reason));
+}));
+
+router.patch('/patients/:id/chronic-followup', requirePermission('doctor.patients'), validateBody(z.object({
+  nextFollowupDate: z.string().refine(validFollowupDate, 'Date invalide (AAAA-MM-JJ).').nullable(),
+})), auditLog('chronic_followup.update', 'patient'), wrap(async (req, res) => {
+  res.json(await setChronicFollowup(req.user.doctorId, req.params.id, req.body.nextFollowupDate));
+}));
+
 /* ─── Suivi chroniques ──────────────────────────────────────── */
-router.get('/chronic-patients', wrap(async (req, res) => {
+router.get('/chronic-patients', requirePermission('doctor.patients'), accessLog('chronic_followup', (b) => (b || []).map((p) => p.id)), wrap(async (req, res) => {
   res.json(await getChronicPatients(req.user.doctorId));
 }));
 
 /* ─── Alertes médecin ───────────────────────────────────────── */
-router.get('/alerts', wrap(async (req, res) => {
+router.get('/alerts', requirePermission('doctor.alerts'), accessLog('alerts'), wrap(async (req, res) => {
   res.json(await getDoctorAlerts(req.user.doctorId));
 }));
 
-router.post('/alerts', validateBody(z.object({
+router.post('/alerts', requirePermission('doctor.alerts'), validateBody(z.object({
   patientId: z.string().min(1),
   type:      z.enum(['chronic', 'urgent', 'followup', 'lab', 'other']),
   level:     z.enum(['info', 'warning', 'critical']).optional(),
@@ -194,7 +271,7 @@ router.post('/alerts', validateBody(z.object({
   res.status(201).json(await createDoctorAlert(req.user.doctorId, req.body));
 }));
 
-router.patch('/alerts/:id/resolve', wrap(async (req, res) => {
+router.patch('/alerts/:id/resolve', requirePermission('doctor.alerts'), auditLog('alert.resolve', 'alert'), wrap(async (req, res) => {
   const result = await resolveDoctorAlert(req.user.doctorId, req.params.id);
   if (!result) return res.status(404).json({ error: 'not_found' });
   res.json(result);
@@ -211,7 +288,7 @@ router.get('/payments', wrap(async (req, res) => {
 
 router.patch('/payments/:id/paid', validateBody(z.object({
   reference: z.string().max(100).optional(),
-})), wrap(async (req, res) => {
+})), auditLog('payment.mark_paid', 'payment'), wrap(async (req, res) => {
   const payment = await markDoctorPaymentPaid(req.user.doctorId, req.params.id, req.body.reference || null);
   if (!payment) return res.status(404).json({ error: 'not_found', message: 'Paiement introuvable.' });
   res.json(payment);
@@ -228,13 +305,20 @@ router.get('/signature', wrap(async (req, res) => {
 }));
 
 router.post('/signature', validateBody(z.object({
-  signatureData: z.string().min(1).max(500000),
-})), wrap(async (req, res) => {
+  signatureData: z.string().min(30).max(500000).nullable(),
+})), auditLog('doctor.signature.update', 'doctor'), wrap(async (req, res) => {
   res.json(await saveDoctorSignatureData(req.user.doctorId, req.body.signatureData));
 }));
 
 /* ─── Demandes d'analyses ───────────────────────────────────── */
-router.get('/lab-requests', wrap(async (req, res) => {
+router.post('/lab-requests/:id/result',requirePermission('doctor.lab_requests'),validateBody(z.object({
+ laboratoryName:z.string().trim().min(2).max(150), performedAt:z.string().datetime(),notes:z.string().max(2000).optional(),
+ items:z.array(z.object({name:z.string().min(1).max(150),value:z.string().min(1).max(50),unit:z.string().max(30).optional(),refMin:z.string().max(30).optional(),refMax:z.string().max(30).optional(),status:z.enum(['normal','high','low','critical']).default('normal')})).min(1).max(100)
+})),auditLog('lab_result.record','lab_result'),wrap(async(req,res)=>res.status(201).json(await recordLabResult(req.user.doctorId,req.params.id,req.body))));
+
+router.get('/lab-results/:id',requirePermission('doctor.lab_requests'),accessLog('lab_result'),wrap(async(req,res)=>{const {getDoctorLabResult}=await import('../services/doctor.service.js');const data=await getDoctorLabResult(req.user.doctorId,req.params.id);if(!data)return res.status(404).json({error:'not_found'});res.json(data);}));
+
+router.get('/lab-requests', requirePermission('doctor.lab_requests'), accessLog('lab_requests'), wrap(async (req, res) => {
   res.json(await getDoctorLabRequests(req.user.doctorId));
 }));
 
@@ -244,13 +328,13 @@ router.post('/lab-requests', requirePermission('doctor.lab_requests'), validateB
   title:          z.string().min(1),
   notes:          z.string().optional(),
   consultationId: z.string().optional(),
-})), wrap(async (req, res) => {
+})), auditLog('lab_request.create', 'lab_request'), wrap(async (req, res) => {
   res.status(201).json(await createDoctorLabRequest(req.user.doctorId, req.body));
 }));
 
 /* ─── Consentement : demander accès dossier patient ──────────── */
 router.post('/consents/:patientId/request', requirePermission('doctor.consents.request'), validateBody(z.object({
-  scope: z.array(z.string()).min(1),
+  scope: z.array(z.string()).min(1).refine(s=>s.includes('clinical_record')||['profile','vitals','consultations','prescriptions'].every(k=>s.includes(k)),{message:'Seul le partage du dossier clinique complet est disponible.'}),
 })), auditLog('consent.request', 'consent'), wrap(async (req, res) => {
   const { randomUUID } = await import('node:crypto');
   const { pool } = await import('../db/database.js');
@@ -261,7 +345,9 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
 
   // Vérifier s'il y a déjà un consentement pending
   const [[existing]] = await pool.execute(
-    'SELECT id FROM nova_consents WHERE patient_id = ? AND doctor_id = ? AND status = ?',
+    `SELECT c.id FROM nova_consents c WHERE c.patient_id = ? AND c.doctor_id = ? AND c.status = ? AND c.responded_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM nova_consents dcs WHERE dcs.patient_id = c.patient_id AND dcs.doctor_id = c.doctor_id
+         AND dcs.status IN ('granted','revoked') AND COALESCE(dcs.responded_at, dcs.requested_at) >= c.requested_at)`,
     [req.params.patientId, req.user.doctorId, 'pending']
   );
   if (existing) return res.status(409).json({ error: 'already_pending', message: 'Une demande est déjà en attente.' });
@@ -269,30 +355,33 @@ router.post('/consents/:patientId/request', requirePermission('doctor.consents.r
   const id = randomUUID();
   await pool.execute(
     `INSERT INTO nova_consents (id, patient_id, doctor_id, status, scope) VALUES (?, ?, ?, 'pending', ?)`,
-    [id, req.params.patientId, req.user.doctorId, JSON.stringify(req.body.scope)]
+    [id, req.params.patientId, req.user.doctorId, JSON.stringify(['clinical_record'])]
   );
 
   // Notification au patient
   const [[doctor]] = await pool.execute('SELECT first_name, last_name, specialty FROM nova_doctors WHERE id = ?', [req.user.doctorId]);
   const doctorName = doctor ? `Dr. ${doctor.first_name} ${doctor.last_name}` : 'Un médecin';
-  await pool.execute(
-    `INSERT INTO nova_notifications (id, patient_id, type, title, body, link_page, created_at)
-     VALUES (?, ?, 'consent', ?, ?, 'consents', NOW())`,
-    [randomUUID(), req.params.patientId, 'Demande d\'accès à votre dossier',
-     `${doctorName} (${doctor?.specialty || ''}) demande l'accès à votre dossier médical.`]
-  );
+  const [[patientUser]] = await pool.execute('SELECT id FROM nova_users WHERE patient_id = ? AND deleted_at IS NULL', [req.params.patientId]);
+  const { createNotification } = await import('../services/notification.service.js');
+  await createNotification({
+    patientId: req.params.patientId, userId: patientUser?.id, targetRole: 'patient', type: 'consent',
+    title: 'Demande d’accès à votre dossier',
+    body: `${doctorName}${doctor?.specialty ? ` (${doctor.specialty})` : ''} demande l’accès à votre dossier médical.`,
+    linkPage: 'privacy', sourceRole: 'doctor',
+  });
 
   res.status(201).json({ id, status: 'pending', patientId: req.params.patientId });
 }));
 
 /* ─── Voir statut délivrance d'une ordonnance ────────────────── */
-router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
+router.get('/prescriptions/:id/dispense-status', requirePermission('doctor.prescriptions'), accessLog('dispense_status'), wrap(async (req, res) => {
   const { pool } = await import('../db/database.js');
   const [[rx]] = await pool.execute(
-    'SELECT id, status, doctor_id FROM nova_prescriptions WHERE id = ? AND doctor_id = ?',
+    'SELECT id, status, doctor_id, patient_id FROM nova_prescriptions WHERE id = ? AND doctor_id = ?',
     [req.params.id, req.user.doctorId]
   );
   if (!rx) return res.status(404).json({ error: 'not_found' });
+  const {assertDoctorPatientAccess}=await import('../services/access.js');await assertDoctorPatientAccess(req.user.doctorId,rx.patient_id);
 
   const [dispenses] = await pool.execute(
     `SELECT d.id, d.status, d.dispensed_at, d.notes, ph.name AS pharmacy_name
@@ -302,6 +391,7 @@ router.get('/prescriptions/:id/dispense-status', wrap(async (req, res) => {
   );
 
   res.json({
+    patientId: rx.patient_id,
     prescriptionId: rx.id,
     prescriptionStatus: rx.status,
     dispenses: dispenses.map(d => ({
@@ -346,6 +436,8 @@ router.post('/prescription-templates', validateBody(z.object({
     frequency:    z.string().optional(),
     duration:     z.string().optional(),
     instructions: z.string().optional(),
+    quantityPrescribed: z.number().int().positive().max(100000).optional(),
+    quantityUnit: z.string().min(1).max(40).optional(),
   })).min(1),
   notes: z.string().optional(),
 })), wrap(async (req, res) => {
@@ -362,7 +454,7 @@ router.get('/referrals', wrap(async (req, res) => {
   res.json(await getReferrals(req.user.doctorId));
 }));
 
-router.post('/referrals', validateBody(z.object({
+router.post('/referrals', requirePermission('doctor.patients'), validateBody(z.object({
   patientId:  z.string().min(1),
   toDoctorId: z.string().min(1),
   reason:     z.string().min(1),
@@ -373,29 +465,26 @@ router.post('/referrals', validateBody(z.object({
   res.status(201).json(await createReferral(req.user.doctorId, req.body));
 }));
 
-router.post('/referrals/:id/accept', wrap(async (req, res) => {
+router.post('/referrals/:id/accept', auditLog('referral.accept', 'referral'), wrap(async (req, res) => {
   res.json(await respondReferral(req.user.doctorId, req.params.id, true));
 }));
 
-router.post('/referrals/:id/decline', wrap(async (req, res) => {
+router.post('/referrals/:id/decline', auditLog('referral.decline', 'referral'), wrap(async (req, res) => {
   res.json(await respondReferral(req.user.doctorId, req.params.id, false));
 }));
 
 /* ─── Constantes vitales par médecin ─────────────────────────── */
-router.post('/patients/:id/vitals', validateBody(z.object({
-  type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature', 'weight', 'spo2']),
-  value:      z.string().min(1),
-  label:      z.string().optional(),
-  unit:       z.string().optional(),
-  measuredAt: z.string().optional(),
+router.post('/patients/:id/vitals', requirePermission('doctor.patients'), validateBody(z.object({
+  type:       z.enum(['blood_pressure', 'blood_glucose', 'heart_rate', 'temperature']),
+  value:      z.string().min(1).max(20),
+  context: z.object({ glucoseTiming: z.enum(['fasting', 'post_meal', 'random', 'unknown']).optional() }).strict().optional(),
+  measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), auditLog('vital.create', 'vital'), wrap(async (req, res) => {
-  const labels = { blood_pressure: 'Tension', blood_glucose: 'Glycémie', heart_rate: 'Fréquence', temperature: 'Température', weight: 'Poids', spo2: 'SpO2' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C', weight: 'kg', spo2: '%' };
-  const payload = {
-    ...req.body,
-    label: req.body.label || labels[req.body.type],
-    unit:  req.body.unit  || units[req.body.type],
-  };
+  // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.
+  const norm = VITAL_NORMS[req.body.type];
+  const value = normalizeVital(req.body.type, req.body.value);
+  if (!value) return res.status(422).json({ error: 'invalid_vital', message: `Valeur invalide pour ${norm.label.toLowerCase()} : exemple ${norm.example} ${norm.unit}.` });
+  const payload = { ...req.body, value, label: norm.label, unit: norm.unit };
   res.status(201).json(await addVitalByDoctor(req.user.doctorId, req.params.id, payload));
 }));
 
@@ -422,20 +511,41 @@ router.patch('/notifications/read-all', wrap(async (req, res) => {
 }));
 
 /* ── Messages (doctor) ───────────────────────────── */
-router.get('/conversations', wrap(async (req, res) => {
+router.post('/conversations',validateBody(z.object({patientId:z.string().min(1)})),auditLog('conversation.create','conversation'),wrap(async(req,res)=>res.status(201).json(await startConversation(req.user.doctorId,req.body.patientId))));
+
+router.get('/conversations', accessLog('messages'), wrap(async (req, res) => {
   const { getDoctorConversations } = await import('../services/doctor.service.js');
   res.json(await getDoctorConversations(req.user.doctorId));
 }));
-router.get('/conversations/:id', wrap(async (req, res) => {
+router.get('/conversations/:id', accessLog('messages'), wrap(async (req, res) => {
   const { getDoctorConversation } = await import('../services/doctor.service.js');
   res.json(await getDoctorConversation(req.user.doctorId, req.params.id));
 }));
 router.post('/conversations/:id/messages', validateBody(z.object({
-  body:           z.string().min(1).max(2000),
-  attachmentName: z.string().max(255).optional(),
-})), wrap(async (req, res) => {
+  requestKey: z.string().min(8).max(100).optional(),
+  body: z.string().max(2000).default(''),
+  attachment: z.object({ type: z.enum(ATTACHMENT_TYPES), id: z.string().min(1).max(64) }).optional(),
+}).refine((v) => v.body.trim() || v.attachment, { message: 'Écrivez un message ou joignez un élément du dossier.' })), wrap(async (req, res) => {
   const { createDoctorMessage } = await import('../services/doctor.service.js');
   res.status(201).json(await createDoctorMessage(req.user.doctorId, req.params.id, req.body));
+}));
+// Pièces jointes : éléments du dossier du patient de la conversation.
+router.get('/conversations/:id/attachables', wrap(async (req, res) => {
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], 'attachment_list');
+  res.json(await listAttachables('doctor', req.user.doctorId, req.params.id));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment', wrap(async (req, res) => {
+  const detail = await getAttachmentDetail('doctor', req.user.doctorId, req.params.id, req.params.messageId);
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], `attachment_${detail.type}`);
+  res.set('Cache-Control', 'no-store');
+  res.json(detail);
+}));
+router.get('/conversations/:id/messages/:messageId/attachment/file', wrap(async (req, res) => {
+  const file = await getAttachmentFile('doctor', req.user.doctorId, req.params.id, req.params.messageId);
+  await recordAccess(req, [await conversationPatientId('doctor', req.user.doctorId, req.params.id)], 'attachment_document');
+  res.set('Cache-Control', 'no-store');
+  res.type(file.mimeType);
+  res.download(file.path, file.filename);
 }));
 router.patch('/conversations/:id/read', wrap(async (req, res) => {
   const { markDoctorConversationRead } = await import('../services/doctor.service.js');
@@ -443,7 +553,16 @@ router.patch('/conversations/:id/read', wrap(async (req, res) => {
 }));
 
 /* ── Documents (doctor) ──────────────────────────── */
-router.get('/documents', wrap(async (req, res) => {
+router.get('/documents/:id/download',wrap(async(req,res)=>{
+ const {pool}=await import('../db/database.js');
+ const [[doc]]=await pool.execute('SELECT * FROM nova_doctor_documents WHERE id=? AND doctor_id=?',[req.params.id,req.user.doctorId]);
+ if(!doc?.file_path) return res.status(404).json({error:'not_found'});
+ const path=await import('node:path'); const {uploadDir}=await import('../middleware/upload.js');
+ const relative=doc.file_path.includes('/')?doc.file_path:'shared/'+doc.file_path;
+ const target=path.resolve(uploadDir,relative);if(!target.startsWith(path.resolve(uploadDir)+path.sep)) return res.sendStatus(403);
+ res.set('Cache-Control','no-store');res.download(target,doc.title);
+}));
+router.get('/documents' , wrap(async (req, res) => {
   const { getDoctorDocuments } = await import('../services/doctor.service.js');
   res.json(await getDoctorDocuments(req.user.doctorId));
 }));

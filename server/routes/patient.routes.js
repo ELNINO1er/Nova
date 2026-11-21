@@ -1,3 +1,9 @@
+import fs from 'node:fs';
+import {startConversation,listAttachables,getAttachmentDetail,getAttachmentFile,ATTACHMENT_TYPES} from '../services/messaging.service.js';
+import { emergencyUrl, getOrCreateEmergencyToken, renewEmergencyToken } from '../services/emergency.service.js';
+import { closeOwnPatientAccount } from '../services/account-closure.service.js';
+import { VITAL_NORMS, normalizeVital } from '../services/vital-norms.js';
+import { patientConsultations } from '../services/clinical.service.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
@@ -5,10 +11,10 @@ import QRCode from 'qrcode';
 import { requirePatient, requirePermission } from '../middleware/auth.js';
 import { upload, uploadDir, verifyUploadedFile } from '../middleware/upload.js';
 import {
-  getInsurance,
+  getInsurance, createInsurance, updateInsurance, deleteInsurance,
   getPharmacies,
   getPharmacyOrders,
-  createPharmacyOrder,
+  createPharmacyOrder, cancelPharmacyOrder,
   createMedicationIntake,
   createAppointment,
   createDocument,
@@ -57,6 +63,9 @@ import {
   deleteNote,
   getConsents,
   grantConsent,
+  getCareTeam,
+  grantDoctorAccess,
+  revokeDoctorAccess,
   revokeConsent,
   getAccessLogs,
   getFamilyMembers,
@@ -66,29 +75,30 @@ import {
   getPrescriptionQR,
 } from '../services/patient.service.js';
 
-import { wrap, validateBody } from '../middleware/helpers.js';
+import { wrap, validateBody, sendPortrait } from '../middleware/helpers.js';
+import { auditLog } from '../middleware/audit.js';
 import { cacheFor } from '../middleware/cache.js';
 import { answerPatientAssistant } from '../services/ai.service.js';
 import { createPatientPayment, listPatientPayments } from '../services/billing.service.js';
 import { buildPatientSummaryPdf } from '../services/export.service.js';
+import { patientPhotoFile, removePatientPhoto, savePatientPhoto } from '../services/photo.service.js';
+import { isValidBirthDate } from '../services/birthdate.js';
+// Date de naissance : vide accepté, sinon AAAA-MM-JJ entre 1900 et aujourd'hui.
+const BIRTH_DATE = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').optional());
 
 const router = Router();
 router.use(requirePatient);
 
+// Libellés du formulaire (« Conjoint(e) », « Père », « Sœur »…) ramenés aux codes stockés.
 const familyRelationshipSchema = z.preprocess((value) => {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '').trim().toLowerCase()
+    .replace(/œ/g, 'oe').normalize('NFD').replace(/\p{M}/gu, '').replace(/\(e\)|\(s\)/g, '').trim();
   const aliases = {
-    enfant: 'child',
-    child: 'child',
-    conjoint: 'spouse',
-    epoux: 'spouse',
-    spouse: 'spouse',
-    parent: 'parent',
-    frere: 'sibling',
-    soeur: 'sibling',
-    sibling: 'sibling',
-    autre: 'other',
-    other: 'other',
+    enfant: 'child', fils: 'child', fille: 'child', child: 'child',
+    conjoint: 'spouse', conjointe: 'spouse', epoux: 'spouse', epouse: 'spouse', mari: 'spouse', femme: 'spouse', spouse: 'spouse',
+    parent: 'parent', pere: 'parent', mere: 'parent',
+    frere: 'sibling', soeur: 'sibling', sibling: 'sibling',
+    autre: 'other', other: 'other',
   };
   return aliases[normalized] || value;
 }, z.enum(['child', 'spouse', 'parent', 'sibling', 'other']));
@@ -109,21 +119,41 @@ router.get('/profile', cacheFor(60), wrap(async (req, res) => {
   res.json(await getProfile(req.user.patientId));
 }));
 
+/* ─── Photo de profil (le patient la change ou la retire lui-même) ─── */
+router.get('/photo', wrap(async (req, res, next) => {
+  // Pas de photo : 204 (cas normal, pas une erreur).
+  sendPortrait(res, await patientPhotoFile(req.user.patientId), next);
+}));
+
+router.put('/photo', validateBody(z.object({ photo: z.string().max(900000) })), auditLog('patient.photo.update', 'patient'), wrap(async (req, res) => {
+  const result = await savePatientPhoto(req.user.patientId, req.body.photo);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
+}));
+
+router.delete('/photo', auditLog('patient.photo.remove', 'patient'), wrap(async (req, res) => {
+  const result = await removePatientPhoto(req.user.patientId);
+  (await import('../middleware/cache.js')).invalidateCache(req.user.id);
+  res.json(result);
+}));
+
+// Profil : chaînes vides acceptées pour effacer un champ ; le téléphone (identifiant de connexion) n'est pas modifiable ici.
+const CLEARABLE = (max) => z.string().max(max).nullable().optional();
+const CLEARABLE_BIRTH = z.preprocess((v) => (v === '' ? null : v), z.string().refine((v) => isValidBirthDate(v), 'Date de naissance invalide : entre 1900 et aujourd’hui.').nullable().optional());
 router.patch('/profile', validateBody(z.object({
-  firstName:             z.string().min(1).optional(),
-  lastName:              z.string().min(1).optional(),
-  birthDate:             z.string().optional(),
-  sex:                   z.string().optional(),
-  bloodType:             z.string().optional(),
-  phone:                 z.string().min(8).optional(),
-  email:                 z.string().email().optional(),
-  address:               z.string().optional(),
-  city:                  z.string().optional(),
-  weightKg:              z.number().positive().optional(),
-  heightCm:              z.number().positive().optional(),
-  emergencyName:         z.string().optional(),
-  emergencyRelationship: z.string().optional(),
-  emergencyPhone:        z.string().optional(),
+  firstName:             z.string().trim().min(1).max(100).optional(),
+  lastName:              z.string().trim().min(1).max(100).optional(),
+  birthDate:             CLEARABLE_BIRTH,
+  sex:                   z.enum(['M', 'F', '']).nullable().optional(),
+  bloodType:             z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', '']).nullable().optional(),
+  email:                 z.union([z.string().email({ message: 'Adresse e-mail invalide.' }), z.literal('')]).nullable().optional(),
+  address:               CLEARABLE(255),
+  city:                  CLEARABLE(100),
+  weightKg:              z.number().positive().max(500).nullable().optional(),
+  heightCm:              z.number().positive().max(260).nullable().optional(),
+  emergencyName:         CLEARABLE(150),
+  emergencyRelationship: CLEARABLE(60),
+  emergencyPhone:        CLEARABLE(30),
 })), wrap(async (req, res) => {
   const { invalidateCache } = await import('../middleware/cache.js');
   invalidateCache(req.user.id);
@@ -138,18 +168,15 @@ router.get('/vitals', wrap(async (req, res) => {
 
 router.post('/vitals', validateBody(z.object({
   type:       z.enum(['blood_pressure','blood_glucose','heart_rate','temperature']),
-  value:      z.string().min(1),
-  label:      z.string().optional(),
-  unit:       z.string().optional(),
-  measuredAt: z.string().datetime().optional(),
+  value:      z.string().min(1).max(20),
+  context: z.object({ glucoseTiming: z.enum(['fasting', 'post_meal', 'random', 'unknown']).optional() }).strict().optional(),
+  measuredAt: z.string().datetime().refine((v) => new Date(v) <= new Date(Date.now() + 5 * 60000), 'La date de mesure ne peut pas être dans le futur.').optional(),
 })), wrap(async (req, res) => {
-  const labels = { blood_pressure: 'Tension artérielle', blood_glucose: 'Glycémie', heart_rate: 'Fréquence cardiaque', temperature: 'Température' };
-  const units  = { blood_pressure: 'mmHg', blood_glucose: 'g/L', heart_rate: 'bpm', temperature: '°C' };
-  const payload = {
-    ...req.body,
-    label: req.body.label || labels[req.body.type],
-    unit:  req.body.unit  || units[req.body.type],
-  };
+  // Valeur normalisée (tension en mmHg) et contrôlée ; libellé et unité fixés par le serveur.
+  const norm = VITAL_NORMS[req.body.type];
+  const value = normalizeVital(req.body.type, req.body.value);
+  if (!value) return res.status(422).json({ error: 'invalid_vital', message: `Valeur invalide pour ${norm.label.toLowerCase()} : exemple ${norm.example} ${norm.unit}.` });
+  const payload = { ...req.body, value, label: norm.label, unit: norm.unit };
   res.status(201).json(await addVital(req.user.patientId, payload));
 }));
 
@@ -174,6 +201,11 @@ router.post('/medications/:scheduleId/intakes', validateBody(z.object({
 
 /* ─── Rendez-vous ────────────────────────────────────────────── */
 
+// Un partage facultatif ne prend effet qu'une fois le rendez-vous confirmé.
+const SHARE_RECORD = z.boolean().optional().default(false);
+// Accusé d'acceptation des conditions, obligatoire dès que le dossier est partagé (contrôlé par le service).
+const SHARE_ACK = z.object({ acknowledged: z.literal(true), termsVersion: z.string().max(20) }).optional();
+
 router.get('/appointments', wrap(async (req, res) => {
   res.json(await getAppointments(req.user.patientId));
 }));
@@ -181,25 +213,29 @@ router.get('/appointments', wrap(async (req, res) => {
 router.post('/appointments', validateBody(z.object({
   startsAt:   z.string().datetime(),
   doctorId:   z.string().min(1),
-  specialty:  z.string().default('Médecine générale'),
-  location:   z.string().default('À confirmer'),
   mode:       z.enum(['onsite', 'video']).default('onsite'),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).default('requested'),
-})), wrap(async (req, res) => {
+  shareRecord: SHARE_RECORD,
+  ack: SHARE_ACK,
+})), auditLog('appointment.request', 'appointment'), wrap(async (req, res) => {
   res.status(201).json(await createAppointment(req.user.patientId, req.body));
 }));
 
 router.patch('/appointments/:id', validateBody(z.object({
   startsAt:   z.string().datetime().optional(),
   mode:       z.enum(['onsite', 'video']).optional(),
-  status:     z.enum(['requested', 'confirmed', 'cancelled']).optional(),
-})), wrap(async (req, res) => {
-  res.json(await updateAppointment(req.user.patientId, req.params.id, req.body));
+  // Le patient ne peut qu'annuler ; la confirmation appartient au médecin.
+  status:     z.enum(['cancelled']).optional(),
+})), auditLog('appointment.update', 'appointment'), wrap(async (req, res) => {
+  const appt = await updateAppointment(req.user.patientId, req.params.id, req.body);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
-router.delete('/appointments/:id', wrap(async (req, res) => {
-  await deleteAppointment(req.user.patientId, req.params.id);
-  res.status(204).send();
+// « Supprimer » = annuler : le rendez-vous reste dans l'historique.
+router.delete('/appointments/:id', auditLog('appointment.cancel', 'appointment'), wrap(async (req, res) => {
+  const appt = await deleteAppointment(req.user.patientId, req.params.id);
+  if (!appt) return res.status(404).json({ error: 'not_found', message: 'Rendez-vous introuvable.' });
+  res.json(appt);
 }));
 
 /* ─── Vaccinations ───────────────────────────────────────────── */
@@ -209,6 +245,8 @@ router.get('/vaccinations', wrap(async (req, res) => {
 }));
 
 /* ─── Historique ─────────────────────────────────────────────── */
+
+router.get('/consultations',wrap(async(req,res)=>res.json(await patientConsultations(req.user.patientId))));
 
 router.get('/history', wrap(async (req, res) => {
   res.json(await getHistory(req.user.patientId, req.query));
@@ -221,16 +259,18 @@ router.get('/documents', requirePermission('patient.documents'), wrap(async (req
 }));
 
 router.post('/documents', requirePermission('patient.documents'), upload.single('file'), verifyUploadedFile, wrap(async (req, res) => {
-  const title    = req.body.title    || (req.file ? req.file.originalname : 'Document');
-  const category = req.body.category || 'other';
-  const doc = await createDocument(req.user.patientId, {
-    title,
-    category,
-    mimeType:  req.file ? req.file.mimetype    : (req.body.mimeType || 'application/pdf'),
-    sizeBytes: req.file ? req.file.size        : Number(req.body.sizeBytes || 0),
-    filePath:  req.file ? req.file.path        : null,
-  });
-  res.status(201).json(doc);
+  // Un document est toujours un fichier : pas de ligne « fantôme » sans contenu.
+  const discard = () => req.file && fs.promises.unlink(req.file.path).catch(() => {});
+  if (!req.file) return res.status(422).json({ error: 'file_required', message: 'Joignez le fichier du document.' });
+  const title = String(req.body.title || req.file.originalname || 'Document').trim().slice(0, 255);
+  const category = ['prescription', 'lab', 'consultation', 'vaccine', 'other'].includes(req.body.category) ? req.body.category : 'other';
+  try {
+    // Chemin enregistré relatif au dossier de stockage (fonctionne aussi avec UPLOAD_DIR externe).
+    const { uploadDir } = await import('../middleware/upload.js');
+    const relativePath = path.relative(uploadDir, req.file.path).split(path.sep).join('/');
+    const doc = await createDocument(req.user.patientId, { title, category, mimeType: req.file.mimetype, sizeBytes: req.file.size, filePath: relativePath });
+    res.status(201).json(doc);
+  } catch (e) { await discard(); throw e; }
 }));
 
 router.delete('/documents/:id', requirePermission('patient.documents'), wrap(async (req, res) => {
@@ -241,11 +281,14 @@ router.delete('/documents/:id', requirePermission('patient.documents'), wrap(asy
 router.get('/documents/:id/download', requirePermission('patient.documents'), wrap(async (req, res) => {
   const file = await getDocumentFile(req.user.patientId, req.params.id);
   if (!file) return res.status(404).json({ error: 'not_found', message: 'Document introuvable' });
+  res.set('Cache-Control','no-store');
   res.type(file.mimeType);
   res.download(file.path, file.filename);
 }));
 
 /* ─── Conversations & Messages ───────────────────────────────── */
+
+router.post('/conversations',validateBody(z.object({doctorId:z.string().min(1)})),auditLog('conversation.create','conversation'),wrap(async(req,res)=>res.status(201).json(await startConversation(req.body.doctorId,req.user.patientId))));
 
 router.get('/conversations', wrap(async (req, res) => {
   res.json(await getConversations(req.user.patientId));
@@ -258,12 +301,28 @@ router.get('/conversations/:id', wrap(async (req, res) => {
 }));
 
 router.post('/conversations/:id/messages', validateBody(z.object({
-  body:           z.string().min(1).max(2000),
-  attachmentName: z.string().optional(),
-})), wrap(async (req, res) => {
+  requestKey: z.string().min(8).max(100).optional(),
+  body: z.string().max(2000).default(''),
+  attachment: z.object({ type: z.enum(ATTACHMENT_TYPES), id: z.string().min(1).max(64) }).optional(),
+}).refine((v) => v.body.trim() || v.attachment, { message: 'Écrivez un message ou joignez un élément du dossier.' })), wrap(async (req, res) => {
   const msg = await createMessage(req.user.patientId, req.params.id, req.body);
   if (!msg) return res.status(404).json({ error: 'not_found', message: 'Conversation introuvable' });
   res.status(201).json(msg);
+}));
+
+// Pièces jointes : éléments du dossier du patient de la conversation.
+router.get('/conversations/:id/attachables', wrap(async (req, res) => {
+  res.json(await listAttachables('patient', req.user.patientId, req.params.id));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment', wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await getAttachmentDetail('patient', req.user.patientId, req.params.id, req.params.messageId));
+}));
+router.get('/conversations/:id/messages/:messageId/attachment/file', wrap(async (req, res) => {
+  const file = await getAttachmentFile('patient', req.user.patientId, req.params.id, req.params.messageId);
+  res.set('Cache-Control', 'no-store');
+  res.type(file.mimeType);
+  res.download(file.path, file.filename);
 }));
 
 router.patch('/conversations/:id/read', wrap(async (req, res) => {
@@ -300,8 +359,8 @@ router.get('/doctors/:id/slots', wrap(async (req, res) => {
   res.json(await getDoctorSlots(req.params.id, req.query));
 }));
 
-router.post('/doctors/:id/slots/:slotId/book', wrap(async (req, res) => {
-  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id);
+router.post('/doctors/:id/slots/:slotId/book', validateBody(z.object({ shareRecord: SHARE_RECORD, ack: SHARE_ACK })), wrap(async (req, res) => {
+  const result = await bookSlot(req.user.patientId, req.params.slotId, req.params.id, req.body.shareRecord, req.body.ack);
   if (!result) return res.status(409).json({ error: 'slot_unavailable', message: 'Ce créneau n\'est plus disponible' });
   res.status(201).json(result);
 }));
@@ -358,7 +417,7 @@ router.get('/notes', wrap(async (req, res) => {
 router.post('/notes', validateBody(z.object({
   title:   z.string().min(1),
   content: z.string().default(''),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).default('amber'),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).default('amber'),
   pinned:  z.boolean().default(false),
 })), wrap(async (req, res) => {
   res.status(201).json(await createNote(req.user.patientId, req.body));
@@ -367,10 +426,12 @@ router.post('/notes', validateBody(z.object({
 router.patch('/notes/:id', validateBody(z.object({
   title:   z.string().min(1).optional(),
   content: z.string().optional(),
-  color:   z.enum(['amber', 'blue', 'emerald', 'pink']).optional(),
+  color:   z.enum(['amber', 'blue', 'emerald', 'pink', 'red', 'purple']).optional(),
   pinned:  z.boolean().optional(),
 })), wrap(async (req, res) => {
-  res.json(await updateNote(req.user.patientId, req.params.id, req.body));
+  const note = await updateNote(req.user.patientId, req.params.id, req.body);
+  if (!note) return res.status(404).json({ error: 'not_found', message: 'Note introuvable.' });
+  res.json(note);
 }));
 
 router.delete('/notes/:id', wrap(async (req, res) => {
@@ -387,24 +448,42 @@ router.get('/emergency-card', wrap(async (req, res) => {
 }));
 
 router.get('/emergency-card/qr', wrap(async (req, res) => {
+  const settings = await getSettings(req.user.patientId);
+  if (settings?.privacy?.emergencyQr === false) {
+    return res.status(403).json({ error: 'emergency_qr_disabled', message: 'QR d’urgence désactivé dans vos paramètres.' });
+  }
   const card = await getEmergencyCard(req.user.patientId);
   if (!card) return res.status(404).json({ error: 'not_found' });
 
-  const jwt = (await import('jsonwebtoken')).default;
-  const token = jwt.sign(
-    { type: 'emergency_card', patientId: req.user.patientId },
-    process.env.JWT_SECRET,
-    { expiresIn: '15m' }
-  );
+  // Le QR contient un lien : l'appareil photo de n'importe quel téléphone ouvre la fiche d'urgence, sans compte.
+  // (Le résumé texte reste renvoyé pour l'affichage et l'impression à côté du QR.)
+  const url = emergencyUrl(await getOrCreateEmergencyToken(req.user.patientId));
+  const lines = [
+    'NOVA - FICHE D URGENCE',
+    `${card.firstName} ${card.lastName}`,
+    isValidBirthDate(card.birthDate) ? `Né(e) le ${String(card.birthDate).slice(0, 10)}` : null,
+    `Groupe sanguin : ${card.bloodType || 'non renseigné'}`,
+    `Allergies : ${card.allergies?.length ? card.allergies.join(', ') : 'aucune renseignée'}`,
+    card.chronicDiseases?.length ? `Maladies chroniques : ${card.chronicDiseases.join(', ')}` : null,
+    card.currentMedications?.length ? `Traitements : ${card.currentMedications.map((m) => `${m.name} ${m.dosage || ''}`.trim()).join(', ')}` : null,
+    card.emergencyContact?.phone ? `Contact : ${card.emergencyContact.name || ''} ${card.emergencyContact.phone}`.trim() : null,
+  ].filter(Boolean);
 
-  const dataUrl = await QRCode.toDataURL(token, {
+  const dataUrl = await QRCode.toDataURL(url, {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 300,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  res.json({ qr: dataUrl, expiresIn: 900 });
+  res.set('Cache-Control', 'no-store');
+  res.json({ qr: dataUrl, url, content: lines });
+}));
+
+// Nouveau QR d'urgence : l'ancien lien cesse immédiatement de fonctionner.
+router.post('/emergency-card/qr/renew', auditLog('patient.emergency_qr.renew', 'patient'), wrap(async (req, res) => {
+  await renewEmergencyToken(req.user.patientId);
+  res.json({ ok: true });
 }));
 
 /* ─── Wellness Goals ─────────────────────────────────────────── */
@@ -447,23 +526,64 @@ router.get('/insurance', wrap(async (req, res) => {
   res.json(await getInsurance(req.user.patientId));
 }));
 
+// Assurances : le patient gère ses propres couvertures.
+const INSURANCE_DATE = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date invalide.'), z.literal('')]).optional();
+const INSURANCE_BODY = {
+  policyNumber: z.string().max(100).optional(), holderName: z.string().max(200).optional(), coverageType: z.string().max(100).optional(),
+  validFrom: INSURANCE_DATE, validTo: INSURANCE_DATE, reimbursementRate: z.number().int().min(0).max(100).optional(),
+};
+router.post('/insurance', validateBody(z.object({ provider: z.string().trim().min(2, { message: 'Indiquez l’assureur.' }).max(150), ...INSURANCE_BODY })), wrap(async (req, res) => {
+  res.status(201).json(await createInsurance(req.user.patientId, req.body));
+}));
+router.patch('/insurance/:id', validateBody(z.object({ provider: z.string().trim().min(2).max(150).optional(), ...INSURANCE_BODY })), wrap(async (req, res) => {
+  const ins = await updateInsurance(req.user.patientId, req.params.id, req.body);
+  if (!ins) return res.status(404).json({ error: 'not_found', message: 'Assurance introuvable.' });
+  res.json(ins);
+}));
+router.delete('/insurance/:id', wrap(async (req, res) => {
+  if (!(await deleteInsurance(req.user.patientId, req.params.id))) return res.status(404).json({ error: 'not_found', message: 'Assurance introuvable.' });
+  res.status(204).send();
+}));
+
 router.get('/payments', wrap(async (req, res) => {
   res.json(await listPatientPayments(req.user.patientId));
 }));
 
+// Paiement déclaré pour un rendez-vous du patient (aucun paiement en ligne intégré).
 router.post('/payments', validateBody(z.object({
-  appointmentId: z.string().optional(),
-  doctorId: z.string().optional(),
+  appointmentId: z.string().min(1, { message: 'Indiquez le rendez-vous concerné.' }),
   amount: z.number().int().positive().optional(),
-  currency: z.string().default('XOF'),
-  method: z.enum(['cash', 'mobile_money', 'insurance', 'offline']).default('offline'),
+  currency: z.literal('XOF').default('XOF'),
+  method: z.enum(['cash', 'offline']).default('offline'),
   reference: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
 })), wrap(async (req, res) => {
   res.status(201).json(await createPatientPayment(req.user.patientId, req.body));
 }));
 
-router.get('/export/pdf', wrap(async (req, res) => {
+router.get('/export/json',auditLog('patient.export','patient'),wrap(async(req,res)=>{
+ const {pool}=await import('../db/database.js');
+ const tables=['nova_patients','nova_medical_profile','nova_medical_declarations','nova_vitals','nova_consultations','nova_prescriptions','nova_treatments','nova_medication_schedules','nova_medication_intakes','nova_appointments','nova_lab_results','nova_vaccinations','nova_documents','nova_consents','nova_medical_history','nova_notes','nova_lab_requests','nova_notifications','nova_pharmacy_orders','nova_payments','nova_patient_settings','nova_wellness_goals','nova_insurance','nova_access_logs','nova_conversations'];
+ const data={};
+ for(const table of tables){const [rows]=await pool.execute(`SELECT * FROM ${table} WHERE ${table==='nova_patients'?'id':'patient_id'}=?${table==='nova_consultations'?" AND status='completed' AND deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;}
+ for(const [table,parent,fk] of [['nova_medications','nova_treatments','treatment_id'],['nova_prescription_items','nova_prescriptions','prescription_id'],['nova_lab_result_items','nova_lab_results','lab_result_id'],['nova_consultation_amendments','nova_consultations','consultation_id'],['nova_messages','nova_conversations','conversation_id']]){
+  const [rows]=await pool.execute(`SELECT c.* FROM ${table} c JOIN ${parent} p ON p.id=c.${fk} WHERE p.patient_id=?${parent==='nova_consultations'?" AND p.status='completed' AND p.deleted_at IS NULL":''}`,[req.user.patientId]);data[table]=rows;
+ }
+ const [family]=await pool.execute('SELECT * FROM nova_family_members WHERE owner_patient_id=?',[req.user.patientId]);data.nova_family_members=family;
+ for(const row of data.nova_documents) delete row.file_path;
+ // Ordonnances supprimées exclues (comme dans l'application) ; chemins internes retirés.
+ const removed=new Set(data.nova_prescriptions.filter(r=>r.deleted_at).map(r=>r.id));
+ data.nova_prescriptions=data.nova_prescriptions.filter(r=>!r.deleted_at);
+ data.nova_prescription_items=data.nova_prescription_items.filter(r=>!removed.has(r.prescription_id));
+ for(const row of data.nova_patients) delete row.photo_path;
+ // Délivrances en pharmacie et compte de connexion (sans secret).
+ const [dispenses]=await pool.execute('SELECT d.id,d.prescription_id,d.status,d.notes,d.dispensed_at,ph.name pharmacy_name FROM nova_dispenses d JOIN nova_pharmacies ph ON ph.id=d.pharmacy_id WHERE d.patient_id=?',[req.user.patientId]);data.nova_dispenses=dispenses;
+ const [dispenseItems]=await pool.execute('SELECT i.dispense_id,i.prescription_item_id,i.quantity_dispensed,i.substituted,i.substitution_name FROM nova_dispense_items i JOIN nova_dispenses d ON d.id=i.dispense_id WHERE d.patient_id=?',[req.user.patientId]);data.nova_dispense_items=dispenseItems;
+ const [account]=await pool.execute('SELECT id,role,phone,name,created_at,password_changed_at FROM nova_users WHERE patient_id=? AND deleted_at IS NULL',[req.user.patientId]);data.account=account;
+ res.set('Cache-Control','no-store').set('Content-Disposition','attachment; filename="nova-dossier.json"').json({exportedAt:new Date().toISOString(),data});
+}));
+
+router.get('/export/pdf',auditLog('patient.export','patient'), wrap(async (req, res) => {
   const pdf = await buildPatientSummaryPdf(req.user.patientId);
   if (!pdf) return res.status(404).json({ error: 'not_found', message: 'Patient introuvable.' });
   res.setHeader('Content-Type', 'application/pdf');
@@ -483,11 +603,22 @@ router.get('/pharmacy-orders', wrap(async (req, res) => {
 }));
 
 router.post('/pharmacy-orders', validateBody(z.object({
-  pharmacyId:     z.string().min(1),
-  prescriptionId: z.string().optional(),
+  pharmacyId:     z.string().min(1).max(36),
+  prescriptionId: z.string().min(1, { message: 'Choisissez l’ordonnance à envoyer.' }).max(36),
   notes:          z.string().max(500).optional(),
-})), wrap(async (req, res) => {
+})), auditLog('patient.pharmacy_order.create', 'pharmacy_order'), wrap(async (req, res) => {
   res.status(201).json(await createPharmacyOrder(req.user.patientId, req.body));
+}));
+
+router.post('/pharmacy-orders/:id/cancel', auditLog('patient.pharmacy_order.cancel', 'pharmacy_order'), wrap(async (req, res) => {
+  res.json(await cancelPharmacyOrder(req.user.patientId, req.params.id));
+}));
+
+/* ─── Fermeture du compte ────────────────────────────────────── */
+router.post('/account/close', validateBody(z.object({
+  password: z.string().min(1, { message: 'Saisissez votre mot de passe pour confirmer.' }).max(200),
+})), auditLog('patient.account.close', 'patient'), wrap(async (req, res) => {
+  res.json(await closeOwnPatientAccount(req.user.id, req.user.patientId, req.body.password));
 }));
 
 /* ─── Paramètres ─────────────────────────────────────────────── */
@@ -496,25 +627,44 @@ router.get('/settings', wrap(async (req, res) => {
   res.json(await getSettings(req.user.patientId));
 }));
 
-router.patch('/settings', validateBody(z.record(z.string(), z.unknown()).refine(
-  (val) => JSON.stringify(val).length < 50000,
-  { message: 'Payload trop volumineux' }
-)), wrap(async (req, res) => {
+router.patch('/settings', validateBody(z.object({
+  notifications: z.object({ appointments: z.boolean().optional(), medications: z.boolean().optional(), messages: z.boolean().optional() }).strict().optional(),
+  privacy: z.object({ emergencyQr: z.boolean().optional() }).strict().optional(),
+}).strict()), wrap(async (req, res) => {
   res.json(await updateSettings(req.user.patientId, req.body));
 }));
 
 /* ─── Consentements ──────────────────────────────────────────── */
+// Tout accord exige l'acceptation explicite des conditions de partage en vigueur.
+const CONSENT_ACK = z.object({
+  acknowledged: z.literal(true, { message: 'Acceptez les conditions de partage pour autoriser ce médecin.' }),
+  termsVersion: z.string().max(20),
+});
 
 router.get('/consents', requirePermission('patient.consents'), wrap(async (req, res) => {
   res.json(await getConsents(req.user.patientId));
 }));
 
-router.post('/consents/:id/grant', requirePermission('patient.consents'), wrap(async (req, res) => {
-  res.json(await grantConsent(req.user.patientId, req.params.id));
+router.post('/consents/:id/grant', requirePermission('patient.consents'), validateBody(CONSENT_ACK), auditLog('patient.access.grant', 'consent'), wrap(async (req, res) => {
+  res.json(await grantConsent(req.user.patientId, req.params.id, req.body));
 }));
 
-router.post('/consents/:id/revoke', requirePermission('patient.consents'), wrap(async (req, res) => {
+router.post('/consents/:id/revoke', requirePermission('patient.consents'), auditLog('patient.access.revoke', 'consent'), wrap(async (req, res) => {
   res.json(await revokeConsent(req.user.patientId, req.params.id));
+}));
+
+/* ─── Équipe de soins : qui a accès à mon dossier, révocation / rétablissement ─── */
+
+router.get('/care-team', requirePermission('patient.consents'), wrap(async (req, res) => {
+  res.json(await getCareTeam(req.user.patientId));
+}));
+
+router.post('/care-team/:doctorId/revoke', requirePermission('patient.consents'), auditLog('patient.access.revoke', 'doctor'), wrap(async (req, res) => {
+  res.json(await revokeDoctorAccess(req.user.patientId, req.params.doctorId));
+}));
+
+router.post('/care-team/:doctorId/grant', requirePermission('patient.consents'), validateBody(CONSENT_ACK), auditLog('patient.access.grant', 'doctor'), wrap(async (req, res) => {
+  res.json(await grantDoctorAccess(req.user.patientId, req.params.doctorId, req.body));
 }));
 
 /* ─── Access Logs ────────────────────────────────────────────── */
@@ -533,8 +683,7 @@ router.post('/family', requirePermission('patient.family'), validateBody(z.objec
   firstName:       z.string().min(1),
   lastName:        z.string().min(1),
   relationship:    familyRelationshipSchema,
-  birthDate:       z.string().optional(),
-  memberPatientId: z.string().optional(),
+  birthDate:       BIRTH_DATE,
   notes:           z.string().max(500).optional(),
 })), wrap(async (req, res) => {
   res.status(201).json(await createFamilyMember(req.user.patientId, req.body));
@@ -544,8 +693,9 @@ router.patch('/family/:id', requirePermission('patient.family'), validateBody(z.
   firstName:    z.string().min(1).optional(),
   lastName:     z.string().min(1).optional(),
   relationship: familyRelationshipSchema.optional(),
-  birthDate:    z.string().optional(),
-  notes:        z.string().max(500).optional(),
+  // Modification : chaîne vide = champ effacé.
+  birthDate:    CLEARABLE_BIRTH,
+  notes:        z.string().max(500).nullable().optional(),
 })), wrap(async (req, res) => {
   res.json(await updateFamilyMember(req.user.patientId, req.params.id, req.body));
 }));

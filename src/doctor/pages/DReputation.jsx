@@ -1,12 +1,9 @@
+import HeartLoader from '../../components/HeartLoader.jsx';
 import React from 'react';
 import { Award, Star, TrendingUp, Users } from 'lucide-react';
 
 export default function DReputation({ data, loading, card, sub, border, darkMode }) {
-  if (loading || !data) return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {[0,1].map(i => <div key={i} className={`animate-pulse ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} h-64 rounded-2xl`} />)}
-    </div>
-  );
+  if (loading || !data) return <HeartLoader darkMode={darkMode} />;
 
   const { avgRating, total, distribution, ratings = [] } = data;
   const maxDist = Math.max(...distribution.map(d => d.count), 1);
@@ -24,10 +21,10 @@ export default function DReputation({ data, loading, card, sub, border, darkMode
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Score global */}
         <div className={`${card} border rounded-2xl p-6 flex flex-col items-center justify-center gap-3`}>
-          <div className="text-6xl font-black text-amber-500">{avgRating}</div>
+          <div className="text-6xl font-black text-red-500">{avgRating}</div>
           <div className="flex items-center gap-1">
             {[1,2,3,4,5].map(s => (
-              <Star key={s} className={`w-5 h-5 ${s <= Math.round(Number(avgRating)) ? 'fill-amber-400 text-amber-400' : sub}`} />
+              <Star key={s} className={`w-5 h-5 ${s <= Math.round(Number(avgRating)) ? 'fill-red-400 text-red-400' : sub}`} />
             ))}
           </div>
           <p className={`text-sm ${sub}`}>{total} avis • {recommend}% recommandent</p>
@@ -45,18 +42,18 @@ export default function DReputation({ data, loading, card, sub, border, darkMode
 
         {/* Distribution étoiles */}
         <div className={`${card} border rounded-2xl p-5`}>
-          <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Star className="w-4 h-4 text-amber-500" /> Distribution des notes</h3>
+          <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Star className="w-4 h-4 text-red-500" /> Distribution des notes</h3>
           <div className="space-y-3">
             {distribution.map(({ star, count }) => (
               <div key={star} className="flex items-center gap-3">
                 <div className="flex items-center gap-0.5 w-20 flex-shrink-0">
                   {[1,2,3,4,5].map(s => (
-                    <Star key={s} className={`w-3 h-3 ${s <= star ? 'fill-amber-400 text-amber-400' : sub}`} />
+                    <Star key={s} className={`w-3 h-3 ${s <= star ? 'fill-red-400 text-red-400' : sub}`} />
                   ))}
                 </div>
                 <div className={`flex-1 h-5 rounded-full overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
                   <div
-                    className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all"
+                    className="h-full bg-gradient-to-r from-red-400 to-red-500 rounded-full transition-all"
                     style={{ width: `${(count / maxDist) * 100}%` }} />
                 </div>
                 <p className={`text-xs font-bold w-8 text-right flex-shrink-0 ${sub}`}>{count}</p>
@@ -89,7 +86,7 @@ export default function DReputation({ data, loading, card, sub, border, darkMode
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-0.5">
                       {[1,2,3,4,5].map(s => (
-                        <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'fill-amber-400 text-amber-400' : sub}`} />
+                        <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.round(r.rating) ? 'fill-red-400 text-red-400' : sub}`} />
                       ))}
                     </div>
                     <p className={`text-xs ${sub}`}>{new Date(r.createdAt).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })}</p>
